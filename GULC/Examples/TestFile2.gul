@@ -1,4 +1,0 @@
-namespace std
-{
-    int globalTest = 4;
-}

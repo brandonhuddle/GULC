@@ -1,0 +1,10 @@
+import std;
+import std.io as IO;
+
+struct Example<G, const x: int> {}
+struct Example<G, const x: float> {}
+struct Example<G, const x: double> {}
+
+struct Example<G> : Example<G, 44> {}
+
+const var test: Example<int, 12>;

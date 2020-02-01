@@ -1,0 +1,11 @@
+const var primitiveTest: int;
+const var pointerTest: *int;
+const var referenceTest: ref int;
+const var 1dTest: []int;
+const var 2dTest: [,]int;
+const var 3dTest: [,,]int;
+const var riggedTest: [][,]int;
+const var flatArrayTest: [int; 12];
+const var bitfieldTest: 4;
+const var complexTest: ref *[,]*[*int; 12];
+const var funcPointerTest: func(_: int) -> int throws;
