@@ -61,6 +61,7 @@ namespace gulc {
         THROWS, // Used to say when a function throws something `func example() -> int throws`
         REQUIRES,
         ENSURES,
+        WHERE,
         FUNC,
         PROPERTY,
         LET,

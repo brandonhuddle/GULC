@@ -41,6 +41,12 @@ namespace gulc {
             }
         }
 
+        // This is the base struct found in the `inheritedTypes` list (if a base struct was found)
+        // We don't own this so we don't free it
+        StructDecl* baseStruct;
+        // We use this as a hacky way to tell `BaseResolver` that this struct has already been processed
+        bool baseWasResolved = false;
+
     protected:
         StructDecl(Decl::Kind declKind, unsigned int sourceFileID, std::vector<Attr*> attributes,
                    Decl::Visibility visibility, bool isConstExpr, Identifier identifier,

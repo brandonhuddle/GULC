@@ -886,6 +886,10 @@ Token Lexer::parseToken(std::string& tokenText, TextPosition startPosition, bool
         result.metaType = TokenMetaType::KEYWORD;
         result.tokenType = TokenType::ENSURES;
         result.currentSymbol = "ensures";
+    } else if (tokenText == "where") {
+        result.metaType = TokenMetaType::KEYWORD;
+        result.tokenType = TokenType::WHERE;
+        result.currentSymbol = "where";
     } else if (tokenText == "func") {
         result.metaType = TokenMetaType::KEYWORD;
         result.tokenType = TokenType::FUNC;

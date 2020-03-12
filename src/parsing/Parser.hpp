@@ -32,6 +32,7 @@
 #include <ast/decls/ConstructorDecl.hpp>
 #include <ast/decls/DestructorDecl.hpp>
 #include <ast/decls/StructDecl.hpp>
+#include <ast/conts/WhereCont.hpp>
 #include "Lexer.hpp"
 #include "ASTFile.hpp"
 
@@ -81,6 +82,7 @@ namespace gulc {
         RequiresCont* parseRequiresCont();
         EnsuresCont* parseEnsuresCont();
         ThrowsCont* parseThrowsCont();
+        WhereCont* parseWhereCont();
 
         Stmt* parseStmt();
         BreakStmt* parseBreakStmt();

@@ -1,5 +1,5 @@
-#ifndef GULC_CONSTINHERITER_HPP
-#define GULC_CONSTINHERITER_HPP
+#ifndef GULC_BASERESOLVER_HPP
+#define GULC_BASERESOLVER_HPP
 
 #include <vector>
 #include <string>
@@ -14,13 +14,11 @@
 
 namespace gulc {
     /**
-     * The `Inheriter` (not misspelled) handles giving class, struct, trait, etc. their inherited types
-     *
-     * This will also handle converting any `TemplatedType`s into their respective type
+     * The `BaseResolver` handles resolving the base types for class/structs, traits, enums, etc.
      */
-    class ConstInheriter {
+    class BaseResolver {
     public:
-        explicit ConstInheriter(std::vector<std::string> const& filePaths)
+        explicit BaseResolver(std::vector<std::string> const& filePaths)
                 : _filePaths(filePaths), _currentFile() {}
 
         void processFiles(std::vector<ASTFile>& files);
@@ -31,7 +29,7 @@ namespace gulc {
         // List of template parameter lists. Used to account for multiple levels of templates:
         //     struct Example1<T> { struct Example2<S> { func example3<U>(); } }
         // The above would result in three separate lists.
-//        std::vector<std::vector<TemplateParameterDecl*>*> _templateParameters;
+        std::vector<std::vector<TemplateParameterDecl*>*> _templateParameters;
         // The container of the currently processing Decl.
         // Example:
         //     namespace example { func ex() {} }
@@ -43,17 +41,17 @@ namespace gulc {
 
         bool resolveType(Type*& type) const;
 
-        void processDecl(Decl* decl, bool isGlobal);
-        void processFunctionDecl(FunctionDecl* functionDecl);
+        void processDecl(Decl* decl);
+//        void processFunctionDecl(FunctionDecl* functionDecl);
         void processNamespaceDecl(NamespaceDecl* namespaceDecl);
-        void processParameterDecl(ParameterDecl* parameterDecl) const;
+//        void processParameterDecl(ParameterDecl* parameterDecl) const;
         void processStructDecl(StructDecl* structDecl);
-        void processTemplateFunctionDecl(TemplateFunctionDecl* templateFunctionDecl);
+//        void processTemplateFunctionDecl(TemplateFunctionDecl* templateFunctionDecl);
         void processTemplateParameterDecl(TemplateParameterDecl* templateParameterDecl) const;
         void processTemplateStructDecl(TemplateStructDecl* templateStructDecl);
-        void processVariableDecl(VariableDecl* variableDecl, bool isGlobal) const;
+//        void processVariableDecl(VariableDecl* variableDecl, bool isGlobal) const;
 
     };
 }
 
-#endif //GULC_CONSTINHERITER_HPP
+#endif //GULC_BASERESOLVER_HPP

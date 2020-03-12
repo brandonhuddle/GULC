@@ -1106,6 +1106,9 @@ std::vector<Cont*> Parser::parseConts() {
             case TokenType::THROWS:
                 result.push_back(parseThrowsCont());
                 break;
+            case TokenType::WHERE:
+                result.push_back(parseWhereCont());
+                break;
             default:
                 goto exit_loop;
         }
@@ -1157,6 +1160,19 @@ ThrowsCont* Parser::parseThrowsCont() {
     } else {
         return new ThrowsCont(startPosition, endPosition);
     }
+}
+
+WhereCont* Parser::parseWhereCont() {
+    TextPosition startPosition = _lexer.peekStartPosition();
+
+    if (!_lexer.consumeType(TokenType::WHERE)) {
+        printError("expected `where`, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    Expr* condition = parseExpr();
+
+    return new WhereCont(condition, startPosition, condition->endPosition());
 }
 
 // Statements ---------------------------------------------------------------------------------------------------------

@@ -12,7 +12,8 @@ namespace gulc {
         enum class Kind {
             Requires,
             Ensures,
-            Throws
+            Throws,
+            Where
         };
 
         Cont::Kind getContKind() const { return _contKind; }

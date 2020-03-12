@@ -1,10 +1,18 @@
 import std;
 import std.io as IO;
 
-struct Example<G, const x: int> {}
-struct Example<G, const x: float> {}
-struct Example<G, const x: double> {}
+struct BaseExample {}
+struct ChildExample : BaseExample {}
 
-struct Example<G> : Example<G, 44> {}
+//struct Example<G, const x: int> {}
+//struct Example<G, const x: float> {}
+//struct Example<G, const x: double> {}
 
-const var test: Example<int, 12>;
+//struct Example<G> : Example<G, 44> {}
+
+//const var test: Example<int, 12>;
+
+// Inheritance based circular reference
+//struct CircleRef1<G> : CircleRef2<G> {}
+//struct CircleRef2<G> : CircleRef3<G> {}
+//struct CircleRef3<G> : CircleRef1<G> {}

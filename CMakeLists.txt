@@ -159,6 +159,8 @@ add_executable(gulc
         src/ast/conts/EnsuresCont.hpp
         src/ast/conts/ThrowsCont.cpp
         src/ast/conts/ThrowsCont.hpp
+        src/ast/conts/WhereCont.cpp
+        src/ast/conts/WhereCont.hpp
 
         src/parsing/ASTFile.cpp
         src/parsing/ASTFile.hpp
@@ -169,17 +171,17 @@ add_executable(gulc
         src/parsing/Parser.cpp
         src/parsing/Parser.hpp
 
+        src/passes/BaseResolver.cpp
+        src/passes/BaseResolver.hpp
         src/passes/ConstTypeResolver.cpp
         src/passes/ConstTypeResolver.hpp
-        src/passes/ConstInheriter.cpp
-        src/passes/ConstInheriter.hpp
         src/passes/TypeResolver.cpp
         src/passes/TypeResolver.hpp
         src/passes/ExprTypeResolver.cpp
         src/passes/ExprTypeResolver.hpp
 
         src/utilities/TypeHelper.cpp
-        src/utilities/TypeHelper.hpp)
+        src/utilities/TypeHelper.hpp src/passes/CircularReferenceChecker.cpp src/passes/CircularReferenceChecker.hpp)
 
 target_link_libraries(gulc stdc++fs)
 
