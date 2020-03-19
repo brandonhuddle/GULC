@@ -1,8 +1,10 @@
 import std;
 import std.io as IO;
 
-struct BaseExample {}
-struct ChildExample : BaseExample {}
+struct BaseExample<G> { var member: G; }
+struct ChildExample : BaseExample<int> {}
+
+//const var test: ChildExample<int>;
 
 //struct Example<G, const x: int> {}
 //struct Example<G, const x: float> {}

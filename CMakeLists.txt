@@ -183,7 +183,10 @@ add_executable(gulc
         src/utilities/TypeHelper.cpp
         src/utilities/TypeHelper.hpp src/passes/CircularReferenceChecker.cpp src/passes/CircularReferenceChecker.hpp)
 
-target_link_libraries(gulc stdc++fs)
+# MSVC doesn't require the stdc++fs.
+if (NOT MSVC)
+    target_link_libraries(gulc stdc++fs)
+endif()
 
 target_link_libraries(gulc
         LLVMCore

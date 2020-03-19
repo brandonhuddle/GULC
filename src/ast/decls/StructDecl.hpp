@@ -54,7 +54,7 @@ namespace gulc {
                    std::vector<Type*> inheritedTypes, std::vector<Cont*> contracts, std::vector<Decl*> allMembers,
                    std::vector<ConstructorDecl*> constructors, DestructorDecl* destructor)
                 : Decl(declKind, sourceFileID, std::move(attributes), visibility, isConstExpr, std::move(identifier)),
-                  _startPosition(startPosition), _endPosition(endPosition),
+                  baseStruct(nullptr), _startPosition(startPosition), _endPosition(endPosition),
                   _isClass(isClass), _inheritedTypes(std::move(inheritedTypes)), _contracts(std::move(contracts)),
                   _allMembers(std::move(allMembers)), _constructors(std::move(constructors)),
                   _destructor(destructor) {}

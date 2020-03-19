@@ -42,7 +42,10 @@ bool gulc::BaseResolver::resolveType(gulc::Type*& type) const {
     if (result) {
         // If the result type is a `TemplatedType` we will solve everything required to solve the template type here...
         if (llvm::isa<TemplatedType>(type)) {
-            asdasdasdssssadasdasdaaasdasdasdasddddsdsdsdsasdaasdasdasdasdasdsddsdsdasdasddsasdasdasdsdsdsdsssssssssdssssdsdsssdssssdsddsddsssddssssddsssssdddssssddssssdddddddddddddd
+            auto templatedType = llvm::dyn_cast<TemplatedType>(type);
+
+
+            std::cout << "AHHHHHHHHHHHHHHHHHHHHH" << std::endl;
         }
     }
 
