@@ -33,6 +33,7 @@ namespace gulc {
 
             Struct,
             TemplateStruct,
+            TemplateStructInst,
             Trait,
             TemplateTrait,
             Union,

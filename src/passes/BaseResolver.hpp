@@ -51,6 +51,9 @@ namespace gulc {
         void processTemplateStructDecl(TemplateStructDecl* templateStructDecl);
 //        void processVariableDecl(VariableDecl* variableDecl, bool isGlobal) const;
 
+        // This attempts to process the expression as a type OR a const expression (used for template arguments)
+        void processExprTypeOrConst(Expr*& expr) const;
+
     };
 }
 

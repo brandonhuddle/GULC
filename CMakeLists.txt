@@ -59,6 +59,8 @@ add_executable(gulc
         src/ast/decls/TemplateParameterDecl.hpp
         src/ast/decls/TemplateStructDecl.cpp
         src/ast/decls/TemplateStructDecl.hpp
+        src/ast/decls/TemplateStructInstDecl.cpp
+        src/ast/decls/TemplateStructInstDecl.hpp
         src/ast/decls/VariableDecl.cpp
         src/ast/decls/VariableDecl.hpp
 
@@ -173,6 +175,8 @@ add_executable(gulc
 
         src/passes/BaseResolver.cpp
         src/passes/BaseResolver.hpp
+        src/passes/CircularReferenceChecker.cpp
+        src/passes/CircularReferenceChecker.hpp
         src/passes/ConstTypeResolver.cpp
         src/passes/ConstTypeResolver.hpp
         src/passes/TypeResolver.cpp
@@ -181,7 +185,7 @@ add_executable(gulc
         src/passes/ExprTypeResolver.hpp
 
         src/utilities/TypeHelper.cpp
-        src/utilities/TypeHelper.hpp src/passes/CircularReferenceChecker.cpp src/passes/CircularReferenceChecker.hpp)
+        src/utilities/TypeHelper.hpp)
 
 # MSVC doesn't require the stdc++fs.
 if (NOT MSVC)
