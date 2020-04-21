@@ -27,6 +27,17 @@ namespace gulc {
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }
 
+        Expr* deepCopy() const override {
+            std::vector<Expr*> copiedIndexes;
+            copiedIndexes.reserve(indexes.size());
+
+            for (Expr* index : indexes) {
+                copiedIndexes.push_back(index->deepCopy());
+            }
+
+            return new ArrayLiteralExpr(copiedIndexes, _startPosition, _endPosition);
+        }
+
         ~ArrayLiteralExpr() override {
             for (Expr* index : indexes) {
                 delete index;
