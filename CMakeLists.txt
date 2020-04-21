@@ -21,6 +21,8 @@ add_executable(gulc
         src/main.cpp
         src/make_reverse_iterator.cpp
         src/make_reverse_iterator.hpp
+        src/Target.cpp
+        src/Target.hpp
 
         src/ast/Node.cpp
         src/ast/Node.hpp
@@ -70,6 +72,8 @@ add_executable(gulc
         src/ast/types/BuiltInType.hpp
         src/ast/types/DimensionType.cpp
         src/ast/types/DimensionType.hpp
+        src/ast/types/FlatArrayType.cpp
+        src/ast/types/FlatArrayType.hpp
         src/ast/types/PointerType.cpp
         src/ast/types/PointerType.hpp
         src/ast/types/ReferenceType.cpp
@@ -82,6 +86,8 @@ add_executable(gulc
         src/ast/types/TemplateTypenameRefType.hpp
         src/ast/types/UnresolvedType.cpp
         src/ast/types/UnresolvedType.hpp
+        src/ast/types/VTableType.cpp
+        src/ast/types/VTableType.hpp
 
         src/ast/Expr.cpp
         src/ast/Expr.hpp
@@ -173,17 +179,19 @@ add_executable(gulc
         src/parsing/Parser.cpp
         src/parsing/Parser.hpp
 
-        src/passes/BaseResolver.cpp
-        src/passes/BaseResolver.hpp
-        src/passes/CircularReferenceChecker.cpp
-        src/passes/CircularReferenceChecker.hpp
-        src/passes/ConstTypeResolver.cpp
-        src/passes/ConstTypeResolver.hpp
-        src/passes/TypeResolver.cpp
-        src/passes/TypeResolver.hpp
-        src/passes/ExprTypeResolver.cpp
-        src/passes/ExprTypeResolver.hpp
+        src/passes/BasicTypeResolver.cpp
+        src/passes/BasicTypeResolver.hpp
+        src/passes/DeclInstantiator.cpp
+        src/passes/DeclInstantiator.hpp
 
+        src/utilities/ConstExprHelper.cpp
+        src/utilities/ConstExprHelper.hpp
+        src/utilities/SignatureComparer.cpp
+        src/utilities/SignatureComparer.hpp
+        src/utilities/SizeofUtil.cpp
+        src/utilities/SizeofUtil.hpp
+        src/utilities/TemplateInstHelper.cpp
+        src/utilities/TemplateInstHelper.hpp
         src/utilities/TypeHelper.cpp
         src/utilities/TypeHelper.hpp)
 

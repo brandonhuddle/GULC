@@ -35,6 +35,24 @@ namespace gulc {
         bool isVirtual() const { return (_declModifiers & DeclModifiers::Virtual) == DeclModifiers::Virtual; }
         bool isOverride() const { return (_declModifiers & DeclModifiers::Override) == DeclModifiers::Override; }
 
+        Decl* deepCopy() const override {
+            std::vector<Attr*> copiedAttributes;
+            copiedAttributes.reserve(_attributes.size());
+            Expr* copiedInitialValue = nullptr;
+
+            for (Attr* attribute : _attributes) {
+                copiedAttributes.push_back(attribute->deepCopy());
+            }
+
+            if (initialValue != nullptr) {
+                copiedInitialValue = initialValue->deepCopy();
+            }
+
+            return new VariableDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr, _identifier,
+                                    type->deepCopy(), copiedInitialValue,
+                                    _startPosition, _endPosition, _declModifiers);
+        }
+
         ~VariableDecl() override {
             delete type;
             delete initialValue;

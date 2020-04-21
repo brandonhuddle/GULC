@@ -2,6 +2,7 @@
 #define GULC_MEMBERACCESSCALLEXPR_HPP
 
 #include <ast/Expr.hpp>
+#include <llvm/Support/Casting.h>
 #include "IdentifierExpr.hpp"
 
 namespace gulc {
@@ -19,6 +20,11 @@ namespace gulc {
 
         TextPosition startPosition() const override { return objectRef->startPosition(); }
         TextPosition endPosition() const override { return member->endPosition(); }
+
+        Expr* deepCopy() const override {
+            return new MemberAccessCallExpr(_isArrowCall, objectRef->deepCopy(),
+                                            llvm::dyn_cast<IdentifierExpr>(member->deepCopy()));
+        }
 
         ~MemberAccessCallExpr() override {
             delete objectRef;

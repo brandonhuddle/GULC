@@ -24,6 +24,38 @@ namespace gulc {
                                std::move(contracts), body, startPosition, endPosition),
                   _templateParameters(std::move(templateParameters)) {}
 
+        Decl* deepCopy() const override {
+            std::vector<Attr*> copiedAttributes;
+            copiedAttributes.reserve(_attributes.size());
+            std::vector<ParameterDecl*> copiedParameters;
+            copiedParameters.reserve(_parameters.size());
+            std::vector<Cont*> copiedContracts;
+            copiedContracts.reserve(_contracts.size());
+            std::vector<TemplateParameterDecl*> copiedTemplateParameters;
+
+            for (Attr* attribute : _attributes) {
+                copiedAttributes.push_back(attribute->deepCopy());
+            }
+
+            for (ParameterDecl* parameter : _parameters) {
+                copiedParameters.push_back(llvm::dyn_cast<ParameterDecl>(parameter->deepCopy()));
+            }
+
+            for (Cont* contract : _contracts) {
+                copiedContracts.push_back(contract->deepCopy());
+            }
+
+            for (TemplateParameterDecl* templateParameter : _templateParameters) {
+                copiedTemplateParameters.push_back(llvm::dyn_cast<TemplateParameterDecl>(templateParameter->deepCopy()));
+            }
+
+            return new TemplateFunctionDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr,
+                                    _identifier, _declModifiers, copiedParameters,
+                                    returnType->deepCopy(), copiedContracts,
+                                    llvm::dyn_cast<CompoundStmt>(_body->deepCopy()),
+                                    _startPosition, _endPosition, copiedTemplateParameters);
+        }
+
         ~TemplateFunctionDecl() override {
             for (TemplateParameterDecl* templateParameter : _templateParameters) {
                 delete templateParameter;

@@ -3,6 +3,7 @@
 
 #include <ast/Stmt.hpp>
 #include <ast/Expr.hpp>
+#include <llvm/Support/Casting.h>
 #include "CompoundStmt.hpp"
 
 namespace gulc {
@@ -26,6 +27,12 @@ namespace gulc {
 
         TextPosition startPosition() const override { return _doStartPosition; }
         TextPosition endPosition() const override { return _doEndPosition; }
+
+        Stmt* deepCopy() const override {
+            return new DoStmt(llvm::dyn_cast<CompoundStmt>(_body->deepCopy()), condition->deepCopy(),
+                              _doStartPosition, _doEndPosition,
+                              _whileStartPosition, _whileEndPosition);
+        }
 
         ~DoStmt() override {
             delete condition;

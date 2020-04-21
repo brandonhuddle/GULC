@@ -32,6 +32,11 @@ namespace gulc {
         TextPosition hasStartPosition() const { return _hasStartPosition; }
         TextPosition hasEndPosition() const { return _hasEndPosition; }
 
+        Expr* deepCopy() const override {
+            return new HasExpr(expr->deepCopy(), trait->deepCopy(),
+                               _hasStartPosition, _hasEndPosition);
+        }
+
         ~HasExpr() override {
             delete expr;
             delete trait;

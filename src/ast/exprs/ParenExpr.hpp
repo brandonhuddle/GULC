@@ -17,6 +17,10 @@ namespace gulc {
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }
 
+        Expr* deepCopy() const override {
+            return new ParenExpr(nestedExpr->deepCopy(), _startPosition, _endPosition);
+        }
+
         ~ParenExpr() override {
             delete nestedExpr;
         }

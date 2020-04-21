@@ -18,6 +18,17 @@ namespace gulc {
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }
 
+        Stmt* deepCopy() const override {
+            std::vector<Stmt*> copiedStatements;
+            copiedStatements.reserve(statements.size());
+
+            for (Stmt* statement : statements) {
+                copiedStatements.push_back(statement->deepCopy());
+            }
+
+            return new CompoundStmt(copiedStatements, _startPosition, _endPosition);
+        }
+
         ~CompoundStmt() override {
             for (Stmt* statement : statements) {
                 delete statement;

@@ -14,6 +14,10 @@ namespace gulc {
         EnsuresCont(Expr* condition, TextPosition startPosition, TextPosition endPosition)
                 : Cont(Cont::Kind::Ensures, startPosition, endPosition), condition(condition) {}
 
+        Cont* deepCopy() const override {
+            return new EnsuresCont(condition->deepCopy(), _startPosition, _endPosition);
+        }
+
         ~EnsuresCont() override {
             delete condition;
         }

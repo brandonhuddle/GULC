@@ -20,6 +20,10 @@ namespace gulc {
         TextPosition startPosition() const override { return type->startPosition(); }
         TextPosition endPosition() const override { return type->endPosition(); }
 
+        Expr* deepCopy() const override {
+            return new TypeExpr(type->deepCopy());
+        }
+
         ~TypeExpr() override {
             delete type;
         }

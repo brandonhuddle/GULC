@@ -38,6 +38,11 @@ namespace gulc {
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }
 
+        Expr* deepCopy() const override {
+            return new ValueLiteralExpr(_literalType, _value, _suffix,
+                                        _startPosition, _endPosition);
+        }
+
         ~ValueLiteralExpr() override  {
             delete valueType;
         }

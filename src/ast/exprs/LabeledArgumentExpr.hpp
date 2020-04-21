@@ -19,6 +19,10 @@ namespace gulc {
         TextPosition startPosition() const override { return _label.startPosition(); }
         TextPosition endPosition() const override { return argument->endPosition(); }
 
+        Expr* deepCopy() const override {
+            return new LabeledArgumentExpr(_label, argument->deepCopy());
+        }
+
         ~LabeledArgumentExpr() override {
             delete argument;
         }

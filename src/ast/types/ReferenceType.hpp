@@ -20,6 +20,10 @@ namespace gulc {
             return "ref " + nestedType->toString();
         }
 
+        Type* deepCopy() const override {
+            return new ReferenceType(_qualifier, nestedType->deepCopy());
+        }
+
         ~ReferenceType() override {
             delete nestedType;
         }

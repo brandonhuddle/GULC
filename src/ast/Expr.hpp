@@ -4,7 +4,21 @@
 #include "Stmt.hpp"
 
 namespace gulc {
-    class Expr : public Stmt {
+    class __ExprStmtFix : public Stmt {
+    public:
+        explicit __ExprStmtFix(Stmt::Kind stmtKind)
+                : __ExprStmtFix(Node::Kind::Stmt, stmtKind) {}
+        __ExprStmtFix(Node::Kind nodeKind, Stmt::Kind stmtKind)
+                : Stmt(nodeKind, stmtKind) {}
+
+        Stmt* deepCopy() const override { return deepCopyStmt(); }
+
+    protected:
+        virtual Stmt* deepCopyStmt() const = 0;
+
+    };
+
+    class Expr : public __ExprStmtFix {
     public:
         static bool classof(const Node* node) { return node->getNodeKind() == Node::Kind::Expr; }
         static bool classof(const Stmt* stmt) { return stmt->getStmtKind() == Stmt::Kind::Expr; }
@@ -31,13 +45,18 @@ namespace gulc {
         };
 
         Expr::Kind getExprKind() const { return _exprKind; }
+        virtual Expr* deepCopy() const = 0;
 
     protected:
         Expr::Kind _exprKind;
 
         explicit Expr(Expr::Kind exprKind)
-                : Stmt(Node::Kind::Expr, Stmt::Kind::Expr),
+                : __ExprStmtFix(Node::Kind::Expr, Stmt::Kind::Expr),
                   _exprKind(exprKind) {}
+
+        Stmt* deepCopyStmt() const override {
+            return deepCopy();
+        }
 
     };
 }

@@ -14,6 +14,7 @@ namespace gulc {
                                 std::vector<std::vector<TemplateParameterDecl*>*> const& templateParameters,
                                 std::vector<gulc::Decl*> const& containingDecls);
         static bool typeIsConstExpr(Type* resolvedType);
+        static bool compareAreSame(Type const* left, Type const* right);
 
     };
 }

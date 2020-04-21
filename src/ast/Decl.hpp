@@ -72,6 +72,8 @@ namespace gulc {
         // `const` in GUL, `constexpr` in ulang
         bool isConstExpr() const { return _isConstExpr; }
 
+        virtual Decl* deepCopy() const = 0;
+
         void setAttributes(std::vector<Attr*> attributes) {
             assert(_attributes.empty());
 

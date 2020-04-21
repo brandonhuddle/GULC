@@ -37,6 +37,24 @@ namespace gulc {
 
         Identifier const& argumentLabel() const { return _argumentLabel; }
 
+        Decl* deepCopy() const override {
+            std::vector<Attr*> copiedAttributes;
+            copiedAttributes.reserve(_attributes.size());
+            Expr* copiedDefaultValue = nullptr;
+
+            for (Attr* attribute : _attributes) {
+                copiedAttributes.push_back(attribute->deepCopy());
+            }
+
+            if (defaultValue != nullptr) {
+                copiedDefaultValue = defaultValue->deepCopy();
+            }
+
+            return new ParameterDecl(_sourceFileID, copiedAttributes, _argumentLabel, _identifier,
+                                     type->deepCopy(), copiedDefaultValue, _parameterKind,
+                                     _startPosition, _endPosition);
+        }
+
         ~ParameterDecl() override {
             delete type;
             delete defaultValue;

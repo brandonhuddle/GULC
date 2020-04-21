@@ -5,6 +5,7 @@
 #include <ast/Identifier.hpp>
 #include <optional>
 #include <ast/Type.hpp>
+#include <llvm/Support/Casting.h>
 #include "CompoundStmt.hpp"
 
 namespace gulc {
@@ -44,6 +45,21 @@ namespace gulc {
                 return exceptionType->endPosition();
             } else {
                 return _endPosition;
+            }
+        }
+
+        Stmt* deepCopy() const override {
+            if (exceptionType == nullptr) {
+                return new CatchStmt(_startPosition, _endPosition,
+                                     llvm::dyn_cast<CompoundStmt>(_body->deepCopy()));
+            } else if (_varName.has_value()) {
+                return new CatchStmt(_startPosition, _endPosition,
+                                     llvm::dyn_cast<CompoundStmt>(_body->deepCopy()),
+                                     exceptionType->deepCopy(), _varName.value());
+            } else {
+                return new CatchStmt(_startPosition, _endPosition,
+                                     llvm::dyn_cast<CompoundStmt>(_body->deepCopy()),
+                                     exceptionType->deepCopy());
             }
         }
 

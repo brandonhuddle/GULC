@@ -14,6 +14,13 @@ namespace gulc {
                 : Decl(Kind::Namespace, sourceFileID, std::move(attributes),
                        Decl::Visibility::Unassigned, false, std::move(identifier)),
                   _startPosition(startPosition), _endPosition(endPosition), _nestedDecls(), _isPrototype(false) {}
+        NamespaceDecl(unsigned int sourceFileID, std::vector<Attr*> attributes, Identifier identifier,
+                      TextPosition startPosition, TextPosition endPosition, bool isPrototype,
+                      std::vector<Decl*> nestedDecls)
+                : Decl(Kind::Namespace, sourceFileID, std::move(attributes),
+                       Decl::Visibility::Unassigned, false, std::move(identifier)),
+                  _startPosition(startPosition), _endPosition(endPosition), _nestedDecls(std::move(nestedDecls)),
+                  _isPrototype(isPrototype) {}
 
         std::vector<Decl*>& nestedDecls() { return _nestedDecls; }
         const std::vector<Decl*>& nestedDecls() const { return _nestedDecls; }
@@ -22,6 +29,25 @@ namespace gulc {
 
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }
+
+        Decl* deepCopy() const override {
+            std::vector<Attr*> copiedAttributes;
+            copiedAttributes.reserve(_attributes.size());
+            std::vector<Decl*> copiedNestedDecls;
+            copiedNestedDecls.reserve(_nestedDecls.size());
+
+            for (Attr* attribute : _attributes) {
+                copiedAttributes.push_back(attribute->deepCopy());
+            }
+
+            for (Decl* nestedDecl : _nestedDecls) {
+                copiedNestedDecls.push_back(nestedDecl->deepCopy());
+            }
+
+            return new NamespaceDecl(_sourceFileID, copiedAttributes, _identifier,
+                                     _startPosition, _endPosition, _isPrototype,
+                                     copiedNestedDecls);
+        }
 
         ~NamespaceDecl() override {
             for (Decl* decl : _nestedDecls) {

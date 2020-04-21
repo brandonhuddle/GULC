@@ -21,6 +21,7 @@ namespace gulc {
 
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }
+        virtual Attr* deepCopy() const = 0;
 
     protected:
         Attr::Kind _attrKind;

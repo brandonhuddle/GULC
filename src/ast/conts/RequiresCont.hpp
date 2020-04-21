@@ -14,6 +14,10 @@ namespace gulc {
         RequiresCont(Expr* condition, TextPosition startPosition, TextPosition endPosition)
                 : Cont(Cont::Kind::Requires, startPosition, endPosition), condition(condition) {}
 
+        Cont* deepCopy() const override {
+            return new RequiresCont(condition->deepCopy(), _startPosition, _endPosition);
+        }
+
         ~RequiresCont() override {
             delete condition;
         }

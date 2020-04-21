@@ -14,11 +14,16 @@ namespace gulc {
                   _decl(decl), _startPosition(startPosition), _endPosition(endPosition) {}
 
         StructDecl* decl() { return _decl; }
+        StructDecl const* decl() const { return _decl; }
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }
 
         std::string toString() const override {
             return _decl->identifier().name();
+        }
+
+        Type* deepCopy() const override {
+            return new StructType(_qualifier, _decl, _startPosition, _endPosition);
         }
 
     protected:

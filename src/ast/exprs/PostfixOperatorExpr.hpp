@@ -26,6 +26,11 @@ namespace gulc {
         TextPosition startPosition() const override { return nestedExpr->startPosition(); }
         TextPosition endPosition() const override { return _operatorEndPosition; }
 
+        Expr* deepCopy() const override {
+            return new PostfixOperatorExpr(_postfixOperator, nestedExpr->deepCopy(),
+                                           _operatorStartPosition, _operatorEndPosition);
+        }
+
         ~PostfixOperatorExpr() override {
             delete nestedExpr;
         }

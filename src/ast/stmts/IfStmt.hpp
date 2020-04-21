@@ -3,6 +3,7 @@
 
 #include <ast/Stmt.hpp>
 #include <ast/Expr.hpp>
+#include <llvm/Support/Casting.h>
 #include "CompoundStmt.hpp"
 
 namespace gulc {
@@ -23,6 +24,18 @@ namespace gulc {
 
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }
+
+        Stmt* deepCopy() const override {
+            Stmt* copiedFalseBody = nullptr;
+
+            if (_falseBody != nullptr) {
+                copiedFalseBody = _falseBody->deepCopy();
+            }
+
+            return new IfStmt(_startPosition, _endPosition, condition->deepCopy(),
+                              llvm::dyn_cast<CompoundStmt>(_trueBody->deepCopy()),
+                              copiedFalseBody);
+        }
 
         ~IfStmt() override {
             delete condition;

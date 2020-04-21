@@ -13,12 +13,14 @@ namespace gulc {
             BuiltIn,
             Dimension,
             Enum,
+            FlatArray,
             Pointer,
             Reference,
             Struct,
             Templated,
             TemplateTypenameRef,
-            Unresolved
+            Unresolved,
+            VTable
         };
 
         enum class Qualifier {
@@ -36,6 +38,7 @@ namespace gulc {
         void setIsLValue(bool isLValue) { _isLValue = true; }
 
         virtual std::string toString() const = 0;
+        virtual Type* deepCopy() const = 0;
 
     protected:
         Kind _typeKind;

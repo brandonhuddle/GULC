@@ -19,6 +19,10 @@ namespace gulc {
         TextPosition startPosition() const override { return condition->startPosition(); }
         TextPosition endPosition() const override { return falseExpr->endPosition(); }
 
+        Expr* deepCopy() const override {
+            return new TernaryExpr(condition->deepCopy(), trueExpr->deepCopy(), falseExpr->deepCopy());
+        }
+
         ~TernaryExpr() override {
             delete condition;
             delete trueExpr;

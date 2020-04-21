@@ -20,6 +20,10 @@ namespace gulc {
             return "*" + nestedType->toString();
         }
 
+        Type* deepCopy() const override {
+            return new PointerType(_qualifier, nestedType->deepCopy());
+        }
+
         ~PointerType() override {
             delete nestedType;
         }

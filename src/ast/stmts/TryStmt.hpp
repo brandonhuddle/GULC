@@ -13,7 +13,8 @@ namespace gulc {
         TryStmt(TextPosition startPosition, TextPosition endPosition,
                 CompoundStmt* body, std::vector<CatchStmt*> catchStatements, CompoundStmt* finallyStatement)
                 : Stmt(Stmt::Kind::Try),
-                  _body(body), _catchStatements(std::move(catchStatements)), _finallyStatement(finallyStatement) {}
+                  _body(body), _catchStatements(std::move(catchStatements)), _finallyStatement(finallyStatement),
+                  _startPosition(startPosition), _endPosition(endPosition) {}
 
         CompoundStmt* body() const { return _body; }
         std::vector<CatchStmt*> const& catchStatements() { return _catchStatements; }
@@ -22,6 +23,24 @@ namespace gulc {
 
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }
+
+        Stmt* deepCopy() const override {
+            std::vector<CatchStmt*> copiedCatchStatements;
+            copiedCatchStatements.reserve(_catchStatements.size());
+            CompoundStmt* copiedFinallyStatement = nullptr;
+
+            for (CatchStmt* catchStatement : _catchStatements) {
+                copiedCatchStatements.push_back(llvm::dyn_cast<CatchStmt>(catchStatement->deepCopy()));
+            }
+
+            if (_finallyStatement != nullptr) {
+                copiedFinallyStatement = llvm::dyn_cast<CompoundStmt>(_finallyStatement->deepCopy());
+            }
+
+            return new TryStmt(_startPosition, _endPosition,
+                               llvm::dyn_cast<CompoundStmt>(_body->deepCopy()),
+                               copiedCatchStatements, copiedFinallyStatement);
+        }
 
         ~TryStmt() override {
             delete _body;

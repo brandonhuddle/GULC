@@ -19,6 +19,14 @@ namespace gulc {
         bool hasExceptionType() const { return _exceptionType.has_value(); }
         Identifier const& exceptionTypeIdentifier() const { return _exceptionType.value(); }
 
+        Cont* deepCopy() const override {
+            if (_exceptionType.has_value()) {
+                return new ThrowsCont(_startPosition, _endPosition, _exceptionType.value());
+            } else {
+                return new ThrowsCont(_startPosition, _endPosition);
+            }
+        }
+
     protected:
         std::optional<Identifier> _exceptionType;
 

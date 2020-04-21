@@ -22,6 +22,11 @@ namespace gulc {
         TextPosition isStartPosition() const { return _isStartPosition; }
         TextPosition isEndPosition() const { return _isEndPosition; }
 
+        Expr* deepCopy() const override {
+            return new IsExpr(expr->deepCopy(), isType->deepCopy(),
+                              _isStartPosition, _isEndPosition);
+        }
+
         ~IsExpr() override {
             delete expr;
             delete isType;

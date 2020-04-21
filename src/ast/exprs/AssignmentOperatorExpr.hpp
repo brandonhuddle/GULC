@@ -31,6 +31,16 @@ namespace gulc {
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }
 
+        Expr* deepCopy() const override {
+            if (_hasNestedOperator) {
+                return new AssignmentOperatorExpr(leftValue->deepCopy(), rightValue->deepCopy(),
+                                                  _nestedOperator, _startPosition, _endPosition);
+            } else {
+                return new AssignmentOperatorExpr(leftValue->deepCopy(), rightValue->deepCopy(),
+                                                  _startPosition, _endPosition);
+            }
+        }
+
         ~AssignmentOperatorExpr() override {
             delete leftValue;
             delete rightValue;

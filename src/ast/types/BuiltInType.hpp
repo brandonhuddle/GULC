@@ -31,23 +31,26 @@ namespace gulc {
             bool isFloating;
             bool isSigned;
 
+            // TODO: Should we include `char` or make that a non-built-in type? I think Rust's way of making `char`
+            //       a 4-byte built-in is a good idea. It handles the issues I've thought of with '\u0000\u0000' etc.
+            //       But does it handle skintone emojis?
             if (name == "void") {
                 sizeInBytes = 0;
                 isFloating = false;
                 isSigned = false;
-            } else if (name == "i8" || name == "sbyte") {
+            } else if (name == "i8") {
                 sizeInBytes = 1;
                 isFloating = false;
                 isSigned = true;
-            } else if (name == "u8" || name == "byte" || name == "bool") {
+            } else if (name == "u8" || name == "bool") {
                 sizeInBytes = 1;
                 isFloating = false;
                 isSigned = false;
-            } else if (name == "i16" || name == "short") {
+            } else if (name == "i16") {
                 sizeInBytes = 2;
                 isFloating = false;
                 isSigned = true;
-            } else if (name == "u16" || name == "ushort") {
+            } else if (name == "u16") {
                 sizeInBytes = 2;
                 isFloating = false;
                 isSigned = false;
@@ -55,32 +58,32 @@ namespace gulc {
                 sizeInBytes = 2;
                 isFloating = true;
                 isSigned = true;
-            } else if (name == "i32" || name == "int") {
+            } else if (name == "i32") {
                 sizeInBytes = 4;
                 isFloating = false;
                 isSigned = true;
-            } else if (name == "u32" || name == "uint") {
+            } else if (name == "u32") {
                 sizeInBytes = 4;
                 isFloating = false;
                 isSigned = false;
-            } else if (name == "f32" || name == "float") {
+            } else if (name == "f32") {
                 sizeInBytes = 4;
                 isFloating = true;
                 isSigned = true;
-            } else if (name == "i64" || name == "long") {
+            } else if (name == "i64") {
                 sizeInBytes = 8;
                 isFloating = false;
                 isSigned = true;
-            } else if (name == "u64" || name == "ulong") {
+            } else if (name == "u64") {
                 sizeInBytes = 8;
                 isFloating = false;
                 isSigned = false;
-            } else if (name == "f64" || name == "double") {
+            } else if (name == "f64") {
                 sizeInBytes = 8;
                 isFloating = true;
                 isSigned = true;
             } else {
-                // Else default to `int`
+                // Else default to `i32`
                 sizeInBytes = 4;
                 isFloating = false;
                 isSigned = true;
@@ -91,20 +94,25 @@ namespace gulc {
 
         static bool isBuiltInType(std::string const& name) {
             return name == "void" ||
-                   name == "i8" || name == "sbyte" ||
-                   name == "u8" || name == "byte" || name == "bool" ||
-                   name == "i16" || name == "short" ||
-                   name == "u16" || name == "ushort" ||
+                   name == "i8" ||
+                   name == "u8" || name == "bool" ||
+                   name == "i16" ||
+                   name == "u16" ||
                    name == "f16" ||
-                   name == "i32" || name == "int" ||
-                   name == "u32" || name == "uint" ||
-                   name == "f32" || name == "float" ||
-                   name == "i64" || name == "long" ||
-                   name == "u64" || name == "ulong" ||
-                   name == "f64" || name == "double";
+                   name == "i32" ||
+                   name == "u32" ||
+                   name == "f32" ||
+                   name == "i64" ||
+                   name == "u64" ||
+                   name == "f64";
         }
 
         std::string toString() const override { return _name; }
+
+        Type* deepCopy() const override {
+            return new BuiltInType(_qualifier, _name, _sizeInBytes, _isFloating, _isSigned,
+                                   _startPosition, _endPosition);
+        }
 
     protected:
         std::string _name;

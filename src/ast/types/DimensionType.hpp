@@ -60,6 +60,10 @@ namespace gulc {
             return result + "]" + nestedType->toString();
         }
 
+        Type* deepCopy() const override {
+            return new DimensionType(_qualifier, nestedType->deepCopy(), _dimensions);
+        }
+
         ~DimensionType() override {
             delete nestedType;
         }

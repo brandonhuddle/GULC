@@ -210,3 +210,70 @@ bool gulc::TypeHelper::typeIsConstExpr(gulc::Type* resolvedType) {
             return false;
     }
 }
+
+bool gulc::TypeHelper::compareAreSame(const gulc::Type* left, const gulc::Type* right) {
+    // TODO: THis might be better as an option? There may be some scenarios where we want to know if the types are the
+    //       same WITHOUT qualifiers (or even same without top-level qualifiers)
+    if (left->qualifier() != right->qualifier() ||
+        left->getTypeKind() != right->getTypeKind()) {
+        return false;
+    }
+
+    switch (left->getTypeKind()) {
+        // TODO: Once we add `alias`/`typedef` how will we account for that here?
+        case Type::Kind::BuiltIn: {
+            auto leftBuiltIn = llvm::dyn_cast<BuiltInType>(left);
+            auto rightBuiltIn = llvm::dyn_cast<BuiltInType>(right);
+
+            // NOTE: All `BuiltIn` types are uniquely named, we use the names for comparison
+            //       (mainly for function overloading, `int` and `i32`
+            //        are both signed 32-bit integers but are NOT the same)
+            return leftBuiltIn->name() == rightBuiltIn->name();
+        }
+        case Type::Kind::Dimension:
+            // TODO: Account for dimension types?
+            std::cerr << "FATAL ERROR: Dimension types not yet supported!" << std::endl;
+            std::exit(1);
+        case Type::Kind::Pointer: {
+            auto leftPointer = llvm::dyn_cast<PointerType>(left);
+            auto rightPointer = llvm::dyn_cast<PointerType>(right);
+
+            return compareAreSame(leftPointer->nestedType, rightPointer->nestedType);
+        }
+        case Type::Kind::Reference: {
+            auto leftReference = llvm::dyn_cast<ReferenceType>(left);
+            auto rightReference = llvm::dyn_cast<ReferenceType>(right);
+
+            return compareAreSame(leftReference->nestedType, rightReference->nestedType);
+        }
+        case Type::Kind::Struct: {
+            auto leftStruct = llvm::dyn_cast<StructType>(left);
+            auto rightStruct = llvm::dyn_cast<StructType>(right);
+
+            return leftStruct->decl() == rightStruct->decl();
+        }
+        case Type::Kind::Templated: {
+            // TODO: How will we account for this? Should we just return false? Fatal Error?
+            //       We COULD compare this by checking if the lists of potential Decls are the same and the arguments
+            //       are the same BUT this could miss types that are the same and might not be worth the effort
+            //       (it would be easier to just enforce this function not being usable with `Templated`)
+            std::cerr << "FATAL ERROR: Uninstantiated template types CANNOT be compared!" << std::endl;
+            std::exit(1);
+        }
+        case Type::Kind::TemplateTypenameRef: {
+            auto leftTemplateTypenameRef = llvm::dyn_cast<TemplateTypenameRefType>(left);
+            auto rightTemplateTypenameRef = llvm::dyn_cast<TemplateTypenameRefType>(right);
+
+            return leftTemplateTypenameRef->refTemplateParameter() == rightTemplateTypenameRef->refTemplateParameter();
+        }
+        case Type::Kind::Unresolved: {
+            std::cerr << "FATAL ERROR: Unresolved types cannot be compared!" << std::endl;
+            std::exit(1);
+        }
+        default:
+            std::cerr << "FATAL ERROR: Unknown `Type::Kind` found in `gulc::TypeHelper::compareAreSame`!" << std::endl;
+            std::exit(1);
+    }
+
+    return false;
+}

@@ -22,6 +22,18 @@ namespace gulc {
         std::vector<Identifier> const& namespacePath() const { return _namespacePath; }
         Identifier const& identifier() const { return _identifier; }
 
+        Attr* deepCopy() const override {
+            std::vector<Expr*> copiedArguments;
+            copiedArguments.reserve(arguments.size());
+
+            for (Expr* argument : arguments) {
+                copiedArguments.push_back(argument->deepCopy());
+            }
+
+            return new UnresolvedAttr(_startPosition, _endPosition, _namespacePath,
+                                      _identifier, copiedArguments);
+        }
+
         ~UnresolvedAttr() override {
             for (Expr* argument : arguments) {
                 delete argument;

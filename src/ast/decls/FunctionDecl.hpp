@@ -41,11 +41,41 @@ namespace gulc {
         bool isVirtual() const { return (_declModifiers & DeclModifiers::Virtual) == DeclModifiers::Virtual; }
         bool isOverride() const { return (_declModifiers & DeclModifiers::Override) == DeclModifiers::Override; }
 
+        // Makes checking if it is virtual at all easier
+        bool isAnyVirtual() const { return isVirtual() || isAbstract() || isOverride(); }
+
         bool throws() const { return _throws; }
         bool hasContract() const { return !_contracts.empty(); }
 
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }
+
+        Decl* deepCopy() const override {
+            std::vector<Attr*> copiedAttributes;
+            copiedAttributes.reserve(_attributes.size());
+            std::vector<ParameterDecl*> copiedParameters;
+            copiedParameters.reserve(_parameters.size());
+            std::vector<Cont*> copiedContracts;
+            copiedContracts.reserve(_contracts.size());
+
+            for (Attr* attribute : _attributes) {
+                copiedAttributes.push_back(attribute->deepCopy());
+            }
+
+            for (ParameterDecl* parameter : _parameters) {
+                copiedParameters.push_back(llvm::dyn_cast<ParameterDecl>(parameter->deepCopy()));
+            }
+
+            for (Cont* contract : _contracts) {
+                copiedContracts.push_back(contract->deepCopy());
+            }
+
+            return new FunctionDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr,
+                                    _identifier, _declModifiers, copiedParameters,
+                                    returnType->deepCopy(), copiedContracts,
+                                    llvm::dyn_cast<CompoundStmt>(_body->deepCopy()),
+                                    _startPosition, _endPosition);
+        }
 
         ~FunctionDecl() override {
             for (ParameterDecl* parameter : _parameters) {

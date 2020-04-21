@@ -28,6 +28,14 @@ namespace gulc {
             }
         }
 
+        Stmt* deepCopy() const override {
+            if (returnValue == nullptr) {
+                return new ReturnStmt(_startPosition, _endPosition);
+            } else {
+                return new ReturnStmt(_startPosition, _endPosition, returnValue->deepCopy());
+            }
+        }
+
         ~ReturnStmt() override {
             delete returnValue;
         }

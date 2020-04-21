@@ -50,6 +50,26 @@ namespace gulc {
             }
         }
 
+        Decl* deepCopy() const override {
+            std::vector<Attr*> copiedAttributes;
+            copiedAttributes.reserve(_attributes.size());
+
+            for (Attr* attribute : _attributes) {
+                copiedAttributes.push_back(attribute->deepCopy());
+            }
+
+            if (_importAlias.has_value()) {
+                return new ImportDecl(_sourceFileID, copiedAttributes,
+                                      _importStartPosition, _importEndPosition,
+                                      _importPath, _asStartPosition, _asEndPosition,
+                                      _importAlias.value());
+            } else {
+                return new ImportDecl(_sourceFileID, copiedAttributes,
+                                      _importStartPosition, _importEndPosition,
+                                      _importPath);
+            }
+        }
+
     protected:
         // These are the start and end positions just for the keyword `import`
         const TextPosition _importStartPosition;

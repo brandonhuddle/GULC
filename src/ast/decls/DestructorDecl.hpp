@@ -16,6 +16,26 @@ namespace gulc {
                                isConstExpr, std::move(identifier), declModifiers, {}, nullptr,
                                std::move(contracts), body, startPosition, endPosition) {}
 
+        Decl* deepCopy() const override {
+            std::vector<Attr*> copiedAttributes;
+            copiedAttributes.reserve(_attributes.size());
+            std::vector<Cont*> copiedContracts;
+            copiedContracts.reserve(_contracts.size());
+
+            for (Attr* attribute : _attributes) {
+                copiedAttributes.push_back(attribute->deepCopy());
+            }
+
+            for (Cont* contract : _contracts) {
+                copiedContracts.push_back(contract->deepCopy());
+            }
+
+            return new DestructorDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr,
+                                       _identifier, _declModifiers, copiedContracts,
+                                       llvm::dyn_cast<CompoundStmt>(_body->deepCopy()),
+                                       _startPosition, _endPosition);
+        }
+
     };
 }
 

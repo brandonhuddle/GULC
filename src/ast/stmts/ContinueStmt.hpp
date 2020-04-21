@@ -24,6 +24,14 @@ namespace gulc {
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }
 
+        Stmt* deepCopy() const override {
+            if (_continueLabel.has_value()) {
+                return new ContinueStmt(_startPosition, _endPosition, _continueLabel.value());
+            } else {
+                return new ContinueStmt(_startPosition, _endPosition);
+            }
+        }
+
     protected:
         std::optional<Identifier> _continueLabel;
         TextPosition _startPosition;

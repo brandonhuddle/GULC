@@ -22,6 +22,23 @@ namespace gulc {
         TextPosition startPosition() const override { return _identifier.startPosition(); }
         TextPosition endPosition() const override { return _identifier.endPosition(); }
 
+        Expr* deepCopy() const override {
+            std::vector<Expr*> copiedTemplateArguments;
+            copiedTemplateArguments.reserve(_templateArguments.size());
+
+            for (Expr* templateArgument : _templateArguments) {
+                copiedTemplateArguments.push_back(templateArgument->deepCopy());
+            }
+
+            return new IdentifierExpr(_identifier, copiedTemplateArguments);
+        }
+
+        ~IdentifierExpr() override {
+            for (Expr* templateArgument : _templateArguments) {
+                delete templateArgument;
+            }
+        }
+
     protected:
         Identifier _identifier;
         std::vector<Expr*> _templateArguments;

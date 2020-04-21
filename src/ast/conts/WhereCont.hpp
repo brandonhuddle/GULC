@@ -18,6 +18,10 @@ namespace gulc {
         WhereCont(Expr* condition, TextPosition startPosition, TextPosition endPosition)
                 : Cont(Cont::Kind::Where, startPosition, endPosition), condition(condition) {}
 
+        Cont* deepCopy() const override {
+            return new WhereCont(condition->deepCopy(), _startPosition, _endPosition);
+        }
+
         ~WhereCont() override {
             delete condition;
         }

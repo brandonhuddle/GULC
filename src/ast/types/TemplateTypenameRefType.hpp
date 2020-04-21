@@ -24,6 +24,11 @@ namespace gulc {
             return "&<" + _refTemplateParameter->identifier().name() + ">";
         }
 
+        Type* deepCopy() const override {
+            return new TemplateTypenameRefType(_qualifier, _refTemplateParameter,
+                                               _startPosition, _endPosition);
+        }
+
     protected:
         TemplateParameterDecl* _refTemplateParameter;
         TextPosition _startPosition;

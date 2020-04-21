@@ -31,6 +31,7 @@ namespace gulc {
         };
 
         Kind getStmtKind() const { return _stmtKind; }
+        virtual Stmt* deepCopy() const = 0;
 
     protected:
         Kind _stmtKind;

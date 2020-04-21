@@ -38,6 +38,23 @@ namespace gulc {
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }
 
+        Decl* deepCopy() const override {
+            std::vector<Attr*> copiedAttributes;
+            copiedAttributes.reserve(_attributes.size());
+
+            for (Attr* attribute : _attributes) {
+                copiedAttributes.push_back(attribute->deepCopy());
+            }
+
+            if (_templateParameterKind == TemplateParameterKind::Const) {
+                return new TemplateParameterDecl(_sourceFileID, copiedAttributes, _identifier,
+                                                 constType->deepCopy(), _startPosition, _endPosition);
+            } else {
+                return new TemplateParameterDecl(_sourceFileID, copiedAttributes, _identifier,
+                                                 _startPosition, _endPosition);
+            }
+        }
+
         ~TemplateParameterDecl() override {
             delete constType;
         }

@@ -25,6 +25,17 @@ namespace gulc {
         TextPosition startPosition() const { return _startPosition; }
         TextPosition endPosition() const { return _endPosition; }
 
+        Expr* deepCopy() const override {
+            Expr* copiedInitialValue = nullptr;
+
+            if (initialValue != nullptr) {
+                copiedInitialValue = initialValue->deepCopy();
+            }
+
+            return new VariableDeclExpr(_identifier, type->deepCopy(), copiedInitialValue,
+                                        _isAssignable, _startPosition, _endPosition);
+        }
+
         ~VariableDeclExpr() override {
             delete type;
             delete initialValue;

@@ -21,6 +21,11 @@ namespace gulc {
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }
 
+        Stmt* deepCopy() const override {
+            return new CaseStmt(_startPosition, _endPosition, _isDefault,
+                                condition->deepCopy(), trueStmt->deepCopy());
+        }
+
         ~CaseStmt() override {
             delete condition;
             delete trueStmt;

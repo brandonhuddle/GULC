@@ -38,6 +38,17 @@ namespace gulc {
             return _matchingTemplateDecls[0]->identifier().name() + "<...>";
         }
 
+        Type* deepCopy() const override {
+            std::vector<Expr*> copiedTemplateArguments;
+
+            for (Expr* templateArgument : _templateArguments) {
+                copiedTemplateArguments.push_back(templateArgument->deepCopy());
+            }
+
+            return new TemplatedType(_qualifier, _matchingTemplateDecls, copiedTemplateArguments,
+                                     _startPosition, _endPosition);
+        }
+
         ~TemplatedType() override {
             for (Expr* templateArgument : _templateArguments) {
                 delete templateArgument;

@@ -45,6 +45,17 @@ namespace gulc {
             return result + _identifier.name();
         }
 
+        Type* deepCopy() const override {
+            std::vector<Expr*> copiedTemplateArguments;
+
+            for (Expr* templateArgument : templateArguments) {
+                copiedTemplateArguments.push_back(templateArgument->deepCopy());
+            }
+
+            return new UnresolvedType(_qualifier, _namespacePath, _identifier,
+                                      copiedTemplateArguments);
+        }
+
         ~UnresolvedType() override {
             for (Expr* templateArgument : templateArguments) {
                 delete templateArgument;
