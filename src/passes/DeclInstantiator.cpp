@@ -11,6 +11,7 @@
 #include <utilities/SizeofUtil.hpp>
 #include <ast/exprs/ValueLiteralExpr.hpp>
 #include <utilities/SignatureComparer.hpp>
+#include <utilities/TypeHelper.hpp>
 #include <ast/types/VTableType.hpp>
 
 void gulc::DeclInstantiator::processFiles(std::vector<ASTFile>& files) {
@@ -40,7 +41,7 @@ void gulc::DeclInstantiator::printWarning(std::string const& message, gulc::Text
               << message << std::endl;
 }
 
-bool gulc::DeclInstantiator::resolveType(gulc::Type*& type) const {
+bool gulc::DeclInstantiator::resolveType(gulc::Type*& type) {
     if (llvm::isa<DimensionType>(type)) {
         auto dimensionType = llvm::dyn_cast<DimensionType>(type);
 
@@ -58,7 +59,7 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type) const {
 
         // Process the template arguments and try to resolve any potential types in the list...
         for (Expr*& templateArgument : templatedType->templateArguments()) {
-            processExprTypeOrConst(templateArgument);
+            processConstExpr(templateArgument);
         }
 
         Decl* foundTemplateDecl = nullptr;
@@ -91,15 +92,29 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type) const {
                                 TemplateParameterDecl::TemplateParameterKind::Typename) {
                                 if (!llvm::isa<TypeExpr>(templatedType->templateArguments()[i])) {
                                     // If the parameter is a `typename` then the argument MUST be a resolved type
+                                    declIsMatch = false;
+                                    declIsExact = false;
                                     break;
                                 }
                             } else {
                                 if (llvm::isa<TypeExpr>(templatedType->templateArguments()[i])) {
                                     // If the parameter is a `const` then it MUST NOT be a type...
-                                    // TODO: Once we support literals in the template parameter list, we need to
-                                    //       differentiate templates based on the literal types.
-                                    //       I.e. `Example<const x: f32>` and `Example<const x: f64>`
+                                    declIsMatch = false;
+                                    declIsExact = false;
                                     break;
+                                } else if (llvm::isa<ValueLiteralExpr>(templatedType->templateArguments()[i])) {
+                                    auto valueLiteral = llvm::dyn_cast<ValueLiteralExpr>(templatedType->templateArguments()[i]);
+
+                                    if (!TypeHelper::compareAreSame(templateStructDecl->templateParameters()[i]->constType, valueLiteral->valueType)) {
+                                        // TODO: Support checking if an implicit cast is possible...
+                                        declIsMatch = false;
+                                        declIsExact = false;
+                                        break;
+                                    }
+                                } else {
+                                    printError("unsupported expression in template arguments list!",
+                                               templatedType->templateArguments()[i]->startPosition(),
+                                               templatedType->templateArguments()[i]->endPosition());
                                 }
                             }
                         }
@@ -159,6 +174,13 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type) const {
 
                 TemplateStructInstDecl* templateStructInstDecl = nullptr;
                 templateStructDecl->getInstantiation(templatedType->templateArguments(), &templateStructInstDecl);
+
+                // If the template struct instantiation isn't instantiated we have to call the `processDependantDecl`
+                // We call this instead of `processTemplateStructInstDecl` so that we properly check for circular
+                // references
+                if (!templateStructInstDecl->isInstantiated) {
+                    processDependantDecl(templateStructInstDecl);
+                }
 
                 Type* newType = new StructType(templatedType->qualifier(), templateStructInstDecl,
                                                templatedType->startPosition(), templatedType->endPosition());
@@ -229,7 +251,7 @@ void gulc::DeclInstantiator::processNamespaceDecl(gulc::NamespaceDecl* namespace
     }
 }
 
-void gulc::DeclInstantiator::processParameterDecl(gulc::ParameterDecl* parameterDecl) const {
+void gulc::DeclInstantiator::processParameterDecl(gulc::ParameterDecl* parameterDecl) {
     // TODO: Should we also handle the default value here? It might be useful to `const` expressions...
     if (!resolveType(parameterDecl->type)) {
         printError("function parameter type `" + parameterDecl->type->toString() + "` was not found!",
@@ -290,6 +312,14 @@ void gulc::DeclInstantiator::processStructDecl(gulc::StructDecl* structDecl, boo
         }
     }
 
+    if (structDecl->baseStruct != nullptr) {
+        // We have to check that the base struct doesn't implement the current struct as a value type
+        if (structUsesStructTypeAsValue(structDecl, structDecl->baseStruct, true)) {
+            printError("cannot extend from base type `" + structDecl->baseStruct->identifier().name() + "`, base type uses current struct `" + structDecl->identifier().name() + "` by value which is illegal!",
+                       structDecl->startPosition(), structDecl->endPosition());
+        }
+    }
+
     // If there isn't a destructor we have to create one. If it is unneeded we can optimize it out later
     if (structDecl->destructor == nullptr) {
         DeclModifiers destructorModifiers = DeclModifiers::None;
@@ -316,14 +346,6 @@ void gulc::DeclInstantiator::processStructDecl(gulc::StructDecl* structDecl, boo
     // If the struct is a template we don't handle checking for circular dependencies. That is why the check for that
     // is nested inside `calculateSizeAndVTable`
     if (calculateSizeAndVTable) {
-        if (structDecl->baseStruct != nullptr) {
-            // We have to check that the base struct doesn't implement the current struct as a value type
-            if (structUsesStructTypeAsValue(structDecl, structDecl->baseStruct, true)) {
-                printError("cannot extend from base type `" + structDecl->baseStruct->identifier().name() + "`, base type uses current struct `" + structDecl->identifier().name() + "` by value which is illegal!",
-                           structDecl->startPosition(), structDecl->endPosition());
-            }
-        }
-
         // Since `structDecl->baseStruct` MUST be instantiated by this point we can just copy the vtable from it
         // and modify it here (if it has a vtable)
         if (structDecl->baseStruct != nullptr) {
@@ -450,7 +472,7 @@ void gulc::DeclInstantiator::processTemplateFunctionDecl(gulc::TemplateFunctionD
 //    _workingDecls.pop_back();
 }
 
-void gulc::DeclInstantiator::processTemplateParameterDecl(gulc::TemplateParameterDecl* templateParameterDecl) const {
+void gulc::DeclInstantiator::processTemplateParameterDecl(gulc::TemplateParameterDecl* templateParameterDecl) {
     // If the template parameter is a const then we have to process its underlying type
     if (templateParameterDecl->templateParameterKind() == TemplateParameterDecl::TemplateParameterKind::Const) {
         if (!resolveType(templateParameterDecl->constType)) {
@@ -508,7 +530,7 @@ void gulc::DeclInstantiator::processTemplateStructInstDecl(gulc::TemplateStructI
     processStructDecl(templateStructInstDecl);
 }
 
-void gulc::DeclInstantiator::processVariableDecl(gulc::VariableDecl* variableDecl, bool isGlobal) const {
+void gulc::DeclInstantiator::processVariableDecl(gulc::VariableDecl* variableDecl, bool isGlobal) {
     if (isGlobal) {
         if (!variableDecl->isConstExpr() && !variableDecl->isStatic()) {
             printError("global variables must be marked `const` or `static`!",
@@ -555,21 +577,6 @@ void gulc::DeclInstantiator::processDependantDecl(gulc::Decl* decl) {
     } else {
         // If we reach this point then there isn't any circular dependency, we process the Decl as usual.
         processDecl(decl);
-    }
-}
-
-void gulc::DeclInstantiator::processExprTypeOrConst(gulc::Expr*& expr) const {
-    // TODO: Support more than just types
-    if (llvm::isa<TypeExpr>(expr)) {
-        auto typeExpr = llvm::dyn_cast<TypeExpr>(expr);
-
-        if (!resolveType(typeExpr->type)) {
-            printError("type `" + typeExpr->type->toString() + "` was not found!",
-                       typeExpr->startPosition(), typeExpr->endPosition());
-        }
-    } else {
-        printError("currently only types are supported in template argument lists! (const expressions coming soon)",
-                   expr->startPosition(), expr->endPosition());
     }
 }
 
@@ -650,4 +657,48 @@ bool gulc::DeclInstantiator::structUsesStructTypeAsValue(gulc::StructDecl* struc
 
     // If we reach this point then `checkStruct` doesn't implement `structType` in any way as a value type
     return false;
+}
+
+void gulc::DeclInstantiator::processConstExpr(gulc::Expr* expr) {
+    switch (expr->getExprKind()) {
+        case Expr::Kind::Type:
+            processTypeExpr(llvm::dyn_cast<TypeExpr>(expr));
+            break;
+        case Expr::Kind::ValueLiteral:
+            processValueLiteralExpr(llvm::dyn_cast<ValueLiteralExpr>(expr));
+            break;
+        default:
+            printError("unsupported expression found where const expression was expected!",
+                       expr->startPosition(), expr->endPosition());
+            break;
+    }
+}
+
+void gulc::DeclInstantiator::processTypeExpr(gulc::TypeExpr* typeExpr) {
+    if (!resolveType(typeExpr->type)) {
+        printError("type `" + typeExpr->type->toString() + "` was not found!",
+                   typeExpr->startPosition(), typeExpr->endPosition());
+    }
+}
+
+void gulc::DeclInstantiator::processValueLiteralExpr(gulc::ValueLiteralExpr* valueLiteralExpr) const {
+    if (valueLiteralExpr->hasSuffix()) {
+        printError("type suffixes not yet supported!",
+                   valueLiteralExpr->startPosition(), valueLiteralExpr->endPosition());
+    }
+
+    if (valueLiteralExpr->valueType == nullptr) {
+        switch (valueLiteralExpr->literalType()) {
+            case ValueLiteralExpr::LiteralType::Integer:
+                valueLiteralExpr->valueType = BuiltInType::get(Type::Qualifier::Unassigned, "i32", {}, {});
+                break;
+            case ValueLiteralExpr::LiteralType::Float:
+                valueLiteralExpr->valueType = BuiltInType::get(Type::Qualifier::Unassigned, "f64", {}, {});
+                break;
+            default:
+                printError("only integer and floating literals are currently supported! (char and string coming soon)",
+                           valueLiteralExpr->startPosition(), valueLiteralExpr->endPosition());
+                break;
+        }
+    }
 }

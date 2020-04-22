@@ -12,6 +12,7 @@
 #include <ast/decls/TemplateStructDecl.hpp>
 #include <ast/decls/VariableDecl.hpp>
 #include <Target.hpp>
+#include <ast/exprs/ValueLiteralExpr.hpp>
 
 namespace gulc {
     /**
@@ -49,24 +50,27 @@ namespace gulc {
         void printError(std::string const& message, TextPosition startPosition, TextPosition endPosition) const;
         void printWarning(std::string const& message, TextPosition startPosition, TextPosition endPosition) const;
 
-        bool resolveType(Type*& type) const;
+        bool resolveType(Type*& type);
 
         void processDecl(Decl* decl, bool isGlobal = true);
         void processFunctionDecl(FunctionDecl* functionDecl);
         void processNamespaceDecl(NamespaceDecl* namespaceDecl);
-        void processParameterDecl(ParameterDecl* parameterDecl) const;
+        void processParameterDecl(ParameterDecl* parameterDecl);
         void processStructDecl(StructDecl* structDecl, bool calculateSizeAndVTable = true);
         void processTemplateFunctionDecl(TemplateFunctionDecl* templateFunctionDecl);
-        void processTemplateParameterDecl(TemplateParameterDecl* templateParameterDecl) const;
+        void processTemplateParameterDecl(TemplateParameterDecl* templateParameterDecl);
         void processTemplateStructDecl(TemplateStructDecl* templateStructDecl);
         void processTemplateStructInstDecl(TemplateStructInstDecl* templateStructInstDecl);
-        void processVariableDecl(VariableDecl* variableDecl, bool isGlobal) const;
+        void processVariableDecl(VariableDecl* variableDecl, bool isGlobal);
 
         // This will process a `Decl` while also checking for any circular dependencies using `_workingDecls`
         void processDependantDecl(Decl* decl);
 
-        void processExprTypeOrConst(Expr*& expr) const;
         bool structUsesStructTypeAsValue(StructDecl* structType, StructDecl* checkStruct, bool checkBaseStruct);
+
+        void processConstExpr(Expr* expr);
+        void processTypeExpr(TypeExpr* typeExpr);
+        void processValueLiteralExpr(ValueLiteralExpr* valueLiteralExpr) const;
 
     };
 }

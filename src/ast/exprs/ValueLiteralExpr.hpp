@@ -39,8 +39,14 @@ namespace gulc {
         TextPosition endPosition() const override { return _endPosition; }
 
         Expr* deepCopy() const override {
-            return new ValueLiteralExpr(_literalType, _value, _suffix,
-                                        _startPosition, _endPosition);
+            ValueLiteralExpr* result = new ValueLiteralExpr(_literalType, _value, _suffix,
+                                                           _startPosition, _endPosition);
+
+            if (valueType != nullptr) {
+                result->valueType = valueType->deepCopy();
+            }
+
+            return result;
         }
 
         ~ValueLiteralExpr() override  {

@@ -5,7 +5,6 @@
 
 using namespace gulc;
 
-
 int main() {
     gulc::Target target = gulc::Target::getHostTarget();
 
@@ -20,8 +19,8 @@ int main() {
     }
 
     // TODO:
-    //  1. Finish support for `ValueLiteralExpr` usage in templates
-    //  2. Verify that our template system works properly in more niche scenarios
+    //  1. [DONE] Finish support for `ValueLiteralExpr` usage in templates
+    //  2. [DONE] Verify that our template system works properly in more niche scenarios
     //  3. DeclResolver - Resolve any Decl references within any Stmt or Expr
     //  4. ???
     //  5. Be poor because this is open source.

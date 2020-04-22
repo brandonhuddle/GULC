@@ -5,6 +5,7 @@
 #include <iostream>
 #include <utilities/ConstExprHelper.hpp>
 #include <ast/exprs/TypeExpr.hpp>
+#include <ast/exprs/ValueLiteralExpr.hpp>
 #include "StructDecl.hpp"
 #include "TemplateParameterDecl.hpp"
 #include "TemplateStructInstDecl.hpp"
@@ -84,7 +85,6 @@ namespace gulc {
                     }
                 } else {
                     // Const
-                    // TODO: Should we validate the expression is a literal? Or ignore that entirely here?
                     if (llvm::isa<TypeExpr>(templateArguments[i])) {
                         // TODO: Should this be an exception??
                         std::cerr << "INTERNAL ERROR: `TemplateStructDecl::getInstantiation` received type argument where const literal was expected!" << std::endl;

@@ -1,0 +1,49 @@
+struct BaseExample<G, const hm: i32> {
+    var member: G;
+
+    public virtual func test() -> i32 {
+        return hm;
+    }
+
+    public virtual deinit {
+
+    }
+}
+
+struct ChildExample : BaseExample<i32, 44> {
+    public init() {
+
+    }
+
+    public override func test() -> i32 {
+        let result: i32 = 12;
+        return result;
+    }
+
+    public override deinit {
+
+    }
+}
+
+const var test: BaseExample<i32, 44>;
+
+//const var test: ChildExample<int>;
+
+//struct Example<G, const x: i32> {}
+//struct Example<G, const x: f32> {}
+//struct Example<G, const x: f64> {}
+
+//struct Example<G> : Example<G, 44> {}
+
+//const var test: Example<i32, 12>;
+
+// Inheritance based circular reference
+//struct CircleRef1<G> : CircleRef2<G> {}
+//struct CircleRef2<G> : CircleRef3<G> {}
+//struct CircleRef3<G> : CircleRef1<G> {}
+
+// Template instantiation test
+//struct TempTest<G> { var member: G; }
+//struct TempTest2<G> : TempTest<G> {}
+//struct TempTest3 : TempTest2<i32> {}
+//struct TempTest4 : TempTest2<i8> {}

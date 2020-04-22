@@ -1,56 +1,6 @@
 import std;
 import std.io as IO;
 
-struct BaseExample<G, const hm: i32> {
-    var member: G;
+func _start() {
 
-    public virtual func test() -> i32 {
-        return hm;
-    }
-
-    public virtual deinit {
-
-    }
 }
-
-struct ChildExample : BaseExample<i32, 44> {
-    public init() {
-
-    }
-
-    public override func test() -> i32 {
-        let result: i32 = 12;
-        return result;
-    }
-
-    public override deinit {
-
-    }
-}
-
-//const var test: ChildExample<int>;
-
-//struct Example<G, const x: i32> {}
-//struct Example<G, const x: f32> {}
-//struct Example<G, const x: f64> {}
-
-//struct Example<G> : Example<G, 44> {}
-
-//const var test: Example<i32, 12>;
-
-// Inheritance based circular reference
-//struct CircleRef1<G> : CircleRef2<G> {}
-//struct CircleRef2<G> : CircleRef3<G> {}
-//struct CircleRef3<G> : CircleRef1<G> {}
-
-// TODO: We need to figure out if this will cause issues. I THINK the current way templates and template instantiations
-// TODO: are being handled will break something below. `: TempTest<G>` will create a `TemplateStructInstDecl` that
-// TODO: will be modified for `TempTest2<i32>` making `TempTest2<i8` impossible... I think... Or maybe `TempTest<i32>`
-// TODO: will replace `TempTest<G>` in the instantiation list... or... I don't know. I just think we need to account
-// TODO: for this scenario and verify it is OK.
-// TODO: Maybe we need a `TemplatedTemplateStructInstDecl`? Or at least a way to know when `TemplateStructInstDecl` is
-// TODO: using template arguments still...
-//struct TempTest<G> { var member: G; }
-//struct TempTest2<G> : TempTest<G> {}
-//struct TempTest3 : TempTest2<i32> {}
-//struct TempTest4 : TempTest2<i8> {}
