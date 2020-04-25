@@ -587,10 +587,26 @@ ConstructorDecl* Parser::parseConstructorDecl(std::vector<Attr*> attributes, Dec
                                               bool isConstExpr,
                                               DeclModifiers declModifiers, TextPosition startPosition) {
     Identifier initKeyword(_lexer.peekStartPosition(), _lexer.peekEndPosition(), "init");
+    ConstructorType constructorType = ConstructorType::Normal;
 
     if (!_lexer.consumeType(TokenType::INIT)) {
         printError("expected `init`, found `" + _lexer.peekCurrentSymbol() + "`!",
                    _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    // We support `copy` and `move` constructors by naming the constructor. These are special cases, there cannot be
+    // custom named constructors besides `copy` and `move` for now.
+    if (_lexer.peekType() == TokenType::SYMBOL) {
+        if (_lexer.peekCurrentSymbol() == "move") {
+            constructorType = ConstructorType::Move;
+        } else if (_lexer.peekCurrentSymbol() == "copy") {
+            constructorType = ConstructorType::Copy;
+        } else {
+            printError("unknown `init` type `" + _lexer.peekCurrentSymbol() + "`, only `move` and `copy` are accepted!",
+                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
+        }
+
+        _lexer.consumeType(TokenType::SYMBOL);
     }
 
     if (_lexer.peekType() == TokenType::LESS) {
@@ -616,7 +632,8 @@ ConstructorDecl* Parser::parseConstructorDecl(std::vector<Attr*> attributes, Dec
     CompoundStmt* body = parseCompoundStmt();
 
     return new ConstructorDecl(_fileID, std::move(attributes), visibility, isConstExpr, initKeyword,
-                               declModifiers, parameters, contracts, body, startPosition, endPosition);
+                               declModifiers, parameters, contracts, body, startPosition, endPosition,
+                               constructorType);
 }
 
 DestructorDecl* Parser::parseDestructorDecl(std::vector<Attr*> attributes, Decl::Visibility visibility,

@@ -202,6 +202,15 @@ void gulc::BasicTypeResolver::processStructDecl(gulc::StructDecl* structDecl) {
         processDecl(member, false);
     }
 
+    // Make sure we process the constructors and destructor since they are NOT in the `ownedMembers` list...
+    for (ConstructorDecl* constructor : structDecl->constructors()) {
+        processDecl(constructor);
+    }
+
+    if (structDecl->destructor != nullptr) {
+        processDecl(structDecl->destructor);
+    }
+
     _containingDecls.pop_back();
 }
 

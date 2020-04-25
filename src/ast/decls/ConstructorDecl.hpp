@@ -4,6 +4,13 @@
 #include "FunctionDecl.hpp"
 
 namespace gulc {
+    enum ConstructorType {
+        Normal,
+        Copy,
+        Move
+
+    };
+
     class ConstructorDecl : public FunctionDecl {
     public:
         static bool classof(const Decl* decl) { return decl->getDeclKind() == Decl::Kind::Constructor; }
@@ -12,10 +19,14 @@ namespace gulc {
                         bool isConstExpr, Identifier identifier, DeclModifiers declModifiers,
                         std::vector<ParameterDecl*> parameters,
                         std::vector<Cont*> contracts, CompoundStmt* body,
-                        TextPosition startPosition, TextPosition endPosition)
+                        TextPosition startPosition, TextPosition endPosition,
+                        ConstructorType constructorType)
                 : FunctionDecl(Decl::Kind::Constructor, sourceFileID, std::move(attributes), visibility,
                                isConstExpr, std::move(identifier), declModifiers, std::move(parameters), nullptr,
-                               std::move(contracts), body, startPosition, endPosition) {}
+                               std::move(contracts), body, startPosition, endPosition),
+                  _constructorType (constructorType) {}
+
+        ConstructorType constructorType() const { return _constructorType; }
 
         Decl* deepCopy() const override {
             std::vector<Attr*> copiedAttributes;
@@ -38,10 +49,13 @@ namespace gulc {
             }
 
             return new ConstructorDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr,
-                                    _identifier, _declModifiers, copiedParameters,
-                                    copiedContracts, llvm::dyn_cast<CompoundStmt>(_body->deepCopy()),
-                                    _startPosition, _endPosition);
+                                       _identifier, _declModifiers, copiedParameters,
+                                       copiedContracts, llvm::dyn_cast<CompoundStmt>(_body->deepCopy()),
+                                       _startPosition, _endPosition, _constructorType);
         }
+
+    protected:
+        ConstructorType _constructorType;
 
     };
 }
