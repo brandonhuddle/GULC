@@ -14,7 +14,12 @@
 namespace gulc {
     class FunctionDecl : public Decl {
     public:
-        static bool classof(const Decl* decl) { return decl->getDeclKind() == Decl::Kind::Function; }
+        static bool classof(const Decl* decl) {
+            Decl::Kind kind = decl->getDeclKind();
+
+            return kind == Decl::Kind::CallOperator || kind == Decl::Kind::Constructor ||
+                   kind == Decl::Kind::Destructor || kind == Decl::Kind::Function || kind == Decl::Kind::Operator;
+        }
 
         Type* returnType;
 
@@ -57,6 +62,7 @@ namespace gulc {
             copiedParameters.reserve(_parameters.size());
             std::vector<Cont*> copiedContracts;
             copiedContracts.reserve(_contracts.size());
+            Type* copiedReturnType = nullptr;
 
             for (Attr* attribute : _attributes) {
                 copiedAttributes.push_back(attribute->deepCopy());
@@ -70,9 +76,13 @@ namespace gulc {
                 copiedContracts.push_back(contract->deepCopy());
             }
 
+            if (returnType != nullptr) {
+                copiedReturnType = returnType->deepCopy();
+            }
+
             return new FunctionDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr,
                                     _identifier, _declModifiers, copiedParameters,
-                                    returnType->deepCopy(), copiedContracts,
+                                    copiedReturnType, copiedContracts,
                                     llvm::dyn_cast<CompoundStmt>(_body->deepCopy()),
                                     _startPosition, _endPosition);
         }

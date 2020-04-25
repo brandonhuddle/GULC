@@ -6,7 +6,7 @@
 using namespace gulc;
 
 int main() {
-    gulc::Target target = gulc::Target::getHostTarget();
+    Target target = Target::getHostTarget();
 
     std::vector<std::string> filePaths {
             "examples/TestFile.gul"

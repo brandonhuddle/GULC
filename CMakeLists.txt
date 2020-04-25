@@ -41,6 +41,8 @@ add_executable(gulc
         src/ast/Decl.hpp
         src/ast/DeclModifiers.cpp
         src/ast/DeclModifiers.hpp
+        src/ast/decls/CallOperatorDecl.cpp
+        src/ast/decls/CallOperatorDecl.hpp
         src/ast/decls/ConstructorDecl.cpp
         src/ast/decls/ConstructorDecl.hpp
         src/ast/decls/DestructorDecl.cpp
@@ -51,10 +53,24 @@ add_executable(gulc
         src/ast/decls/ImportDecl.hpp
         src/ast/decls/NamespaceDecl.cpp
         src/ast/decls/NamespaceDecl.hpp
+        src/ast/decls/OperatorDecl.cpp
+        src/ast/decls/OperatorDecl.hpp
         src/ast/decls/ParameterDecl.cpp
         src/ast/decls/ParameterDecl.hpp
+        src/ast/decls/PropertyDecl.cpp
+        src/ast/decls/PropertyDecl.hpp
+        src/ast/decls/PropertyGetDecl.cpp
+        src/ast/decls/PropertyGetDecl.hpp
+        src/ast/decls/PropertySetDecl.cpp
+        src/ast/decls/PropertySetDecl.hpp
         src/ast/decls/StructDecl.cpp
         src/ast/decls/StructDecl.hpp
+        src/ast/decls/SubscriptOperatorDecl.cpp
+        src/ast/decls/SubscriptOperatorDecl.hpp
+        src/ast/decls/SubscriptOperatorGetDecl.cpp
+        src/ast/decls/SubscriptOperatorGetDecl.hpp
+        src/ast/decls/SubscriptOperatorSetDecl.cpp
+        src/ast/decls/SubscriptOperatorSetDecl.hpp
         src/ast/decls/TemplateFunctionDecl.cpp
         src/ast/decls/TemplateFunctionDecl.hpp
         src/ast/decls/TemplateParameterDecl.cpp

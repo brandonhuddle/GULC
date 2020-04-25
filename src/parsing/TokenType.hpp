@@ -68,6 +68,8 @@ namespace gulc {
         VAR,
         INIT, // Constructor
         DEINIT, // Destructor
+        CALL, // Functor/functionoid
+        SUBSCRIPT, // Indexer
 
         // Modifier Tokens
         PUBLIC, // 'public'

@@ -26,7 +26,9 @@ namespace gulc {
             Operator,
             CastOperator,
             CallOperator,
-            IndexOperator,
+            SubscriptOperator,
+            SubscriptOperatorGet,
+            SubscriptOperatorSet,
 
             Constructor,
             Destructor,
@@ -48,10 +50,7 @@ namespace gulc {
             Variable,
 
             Parameter,
-            TemplateParameter,
-
-            // Requires/Ensures
-            Contract
+            TemplateParameter
         };
 
         enum class Visibility {

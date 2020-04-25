@@ -78,16 +78,36 @@ void gulc::BasicTypeResolver::processDecl(gulc::Decl* decl, bool isGlobal) {
             // We skip imports, they're no longer useful here...
             break;
 
+        case Decl::Kind::CallOperator:
         case Decl::Kind::Constructor:
         case Decl::Kind::Destructor:
         case Decl::Kind::Function:
+        case Decl::Kind::Operator:
             processFunctionDecl(llvm::dyn_cast<FunctionDecl>(decl));
             break;
         case Decl::Kind::Namespace:
             processNamespaceDecl(llvm::dyn_cast<NamespaceDecl>(decl));
             break;
+        case Decl::Kind::Property:
+            processPropertyDecl(llvm::dyn_cast<PropertyDecl>(decl));
+            break;
+        case Decl::Kind::PropertyGet:
+            processPropertyGetDecl(llvm::dyn_cast<PropertyGetDecl>(decl));
+            break;
+        case Decl::Kind::PropertySet:
+            processPropertySetDecl(llvm::dyn_cast<PropertySetDecl>(decl));
+            break;
         case Decl::Kind::Struct:
             processStructDecl(llvm::dyn_cast<StructDecl>(decl));
+            break;
+        case Decl::Kind::SubscriptOperator:
+            processSubscriptOperatorDecl(llvm::dyn_cast<SubscriptOperatorDecl>(decl));
+            break;
+        case Decl::Kind::SubscriptOperatorGet:
+            processSubscriptOperatorGetDecl(llvm::dyn_cast<SubscriptOperatorGetDecl>(decl));
+            break;
+        case Decl::Kind::SubscriptOperatorSet:
+            processSubscriptOperatorSetDecl(llvm::dyn_cast<SubscriptOperatorSetDecl>(decl));
             break;
         case Decl::Kind::TemplateFunction:
             processTemplateFunctionDecl(llvm::dyn_cast<TemplateFunctionDecl>(decl));
@@ -144,6 +164,30 @@ void gulc::BasicTypeResolver::processParameterDecl(gulc::ParameterDecl* paramete
     }
 }
 
+void gulc::BasicTypeResolver::processPropertyDecl(gulc::PropertyDecl* propertyDecl) {
+    if (!resolveType(propertyDecl->type)) {
+        printError("property type `" + propertyDecl->type->toString() + "` was not found!",
+                   propertyDecl->startPosition(), propertyDecl->endPosition());
+    }
+
+    for (PropertyGetDecl* getter : propertyDecl->getters()) {
+        // We call the generic `processDecl` so that our attributes are processed proeprly
+        processDecl(getter);
+    }
+
+    if (propertyDecl->hasSetter()) {
+        processDecl(propertyDecl->setter());
+    }
+}
+
+void gulc::BasicTypeResolver::processPropertyGetDecl(gulc::PropertyGetDecl* propertyGetDecl) {
+    processFunctionDecl(propertyGetDecl);
+}
+
+void gulc::BasicTypeResolver::processPropertySetDecl(gulc::PropertySetDecl* propertySetDecl) {
+    processFunctionDecl(propertySetDecl);
+}
+
 void gulc::BasicTypeResolver::processStructDecl(gulc::StructDecl* structDecl) {
     for (Type*& inheritedType : structDecl->inheritedTypes()) {
         if (!resolveType(inheritedType)) {
@@ -159,6 +203,39 @@ void gulc::BasicTypeResolver::processStructDecl(gulc::StructDecl* structDecl) {
     }
 
     _containingDecls.pop_back();
+}
+
+void gulc::BasicTypeResolver::processSubscriptOperatorDecl(gulc::SubscriptOperatorDecl* subscriptOperatorDecl) {
+    for (ParameterDecl* parameter : subscriptOperatorDecl->parameters()) {
+        processParameterDecl(parameter);
+    }
+
+    // Return type might be null for `void`
+    if (subscriptOperatorDecl->type != nullptr) {
+        if (!resolveType(subscriptOperatorDecl->type)) {
+            printError("subscript type `" + subscriptOperatorDecl->type->toString() + "` was not found!",
+                       subscriptOperatorDecl->startPosition(), subscriptOperatorDecl->endPosition());
+        }
+    } else {
+        printError("subscripts MUST have a type!",
+                   subscriptOperatorDecl->startPosition(), subscriptOperatorDecl->endPosition());
+    }
+
+    for (SubscriptOperatorGetDecl* getter : subscriptOperatorDecl->getters()) {
+        processDecl(getter);
+    }
+
+    if (subscriptOperatorDecl->hasSetter()) {
+        processDecl(subscriptOperatorDecl->setter());
+    }
+}
+
+void gulc::BasicTypeResolver::processSubscriptOperatorGetDecl(gulc::SubscriptOperatorGetDecl* subscriptOperatorGetDecl) {
+    processFunctionDecl(subscriptOperatorGetDecl);
+}
+
+void gulc::BasicTypeResolver::processSubscriptOperatorSetDecl(gulc::SubscriptOperatorSetDecl* subscriptOperatorSetDecl) {
+    processFunctionDecl(subscriptOperatorSetDecl);
 }
 
 void gulc::BasicTypeResolver::processTemplateFunctionDecl(gulc::TemplateFunctionDecl* templateFunctionDecl) {
@@ -375,8 +452,7 @@ void gulc::BasicTypeResolver::processTemplateArgumentExpr(gulc::Expr*& expr) con
                        identifierExpr->startPosition(), identifierExpr->endPosition());
         }
     } else {
-        printError("currently only types are supported in template argument lists! (const expressions coming soon)",
-                   expr->startPosition(), expr->endPosition());
+        processExpr(expr);
     }
 }
 

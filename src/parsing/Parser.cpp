@@ -359,93 +359,82 @@ Decl::Visibility Parser::parseDeclVisibility() {
     return Decl::Visibility::Unassigned;
 }
 
-Decl* Parser::parseDecl() {
-    std::vector<Attr*> attributes(parseAttrs());
-    TextPosition startPosition = _lexer.peekStartPosition();
-    Decl::Visibility visibility = parseDeclVisibility();
-
-    bool isStatic = false;
-    bool isExtern = false;
-    bool isConst = false;
-    bool isMut = false;
-    bool isVolatile = false;
-    bool isAbstract = false;
-    bool isVirtual = false;
-    bool isOverride = false;
+DeclModifiers Parser::parseDeclModifiers(bool* isConstExpr) {
+    DeclModifiers declModifiers = DeclModifiers::None;
 
     while (_lexer.peekMeta() == TokenMetaType::MODIFIER) {
         switch (_lexer.peekType()) {
             case TokenType::STATIC:
-                if (isStatic) {
+                if ((declModifiers & DeclModifiers::Static) == DeclModifiers::Static) {
                     printError("duplicate `static` keyword!",
                                _lexer.peekStartPosition(), _lexer.peekEndPosition());
                 }
 
                 _lexer.consumeType(TokenType::STATIC);
-                isStatic = true;
+                declModifiers |= DeclModifiers::Static;
                 break;
             case TokenType::EXTERN:
-                if (isExtern) {
+                if ((declModifiers & DeclModifiers::Extern) == DeclModifiers::Extern) {
                     printError("duplicate `extern` keyword!",
                                _lexer.peekStartPosition(), _lexer.peekEndPosition());
                 }
 
                 _lexer.consumeType(TokenType::EXTERN);
-                isExtern = true;
+                declModifiers |= DeclModifiers::Extern;
                 break;
             case TokenType::CONST:
-                if (isConst) {
+                if (*isConstExpr) {
                     printError("duplicate `const` keyword!",
                                _lexer.peekStartPosition(), _lexer.peekEndPosition());
                 }
 
                 _lexer.consumeType(TokenType::CONST);
-                isConst = true;
+                (*isConstExpr) = true;
                 break;
             case TokenType::MUT:
-                if (isMut) {
+                if ((declModifiers & DeclModifiers::Mut) == DeclModifiers::Mut) {
                     printError("duplicate `mut` keyword!",
                                _lexer.peekStartPosition(), _lexer.peekEndPosition());
                 }
 
                 _lexer.consumeType(TokenType::MUT);
-                isMut = true;
+                declModifiers |= DeclModifiers::Mut;
                 break;
             case TokenType::VOLATILE:
-                if (isVolatile) {
+                if ((declModifiers & DeclModifiers::Volatile) == DeclModifiers::Volatile) {
                     printError("duplicate `volatile` keyword!",
                                _lexer.peekStartPosition(), _lexer.peekEndPosition());
                 }
 
                 _lexer.consumeType(TokenType::VOLATILE);
-                isVolatile = true;
+                declModifiers |= DeclModifiers::Volatile;
                 break;
             case TokenType::ABSTRACT:
-                if (isAbstract) {
+                if ((declModifiers & DeclModifiers::Abstract) == DeclModifiers::Abstract) {
                     printError("duplicate `abstract` keyword!",
                                _lexer.peekStartPosition(), _lexer.peekEndPosition());
                 }
 
                 _lexer.consumeType(TokenType::ABSTRACT);
-                isAbstract = true;
+                declModifiers |= DeclModifiers::Abstract;
                 break;
             case TokenType::VIRTUAL:
-                if (isVirtual) {
+                if ((declModifiers & DeclModifiers::Virtual) == DeclModifiers::Virtual) {
                     printError("duplicate `virtual` keyword!",
                                _lexer.peekStartPosition(), _lexer.peekEndPosition());
                 }
 
                 _lexer.consumeType(TokenType::VIRTUAL);
-                isVirtual = true;
+                declModifiers |= DeclModifiers::Virtual;
                 break;
             case TokenType::OVERRIDE:
-                if (isOverride) {
+                if ((declModifiers & DeclModifiers::Override) == DeclModifiers::Override) {
                     printError("duplicate `override` keyword!",
                                _lexer.peekStartPosition(), _lexer.peekEndPosition());
                 }
 
                 _lexer.consumeType(TokenType::OVERRIDE);
-                isOverride = true;
+                declModifiers |= DeclModifiers::Override;
                 break;
             default:
                 printError("unknown modifier `" + _lexer.peekCurrentSymbol() + "`!",
@@ -453,108 +442,64 @@ Decl* Parser::parseDecl() {
         }
     }
 
+    return declModifiers;
+}
+
+Decl* Parser::parseDecl() {
+    std::vector<Attr*> attributes(parseAttrs());
+    TextPosition startPosition = _lexer.peekStartPosition();
+    Decl::Visibility visibility = parseDeclVisibility();
+    bool isConst = false;
+    DeclModifiers declModifiers = parseDeclModifiers(&isConst);
+
     switch (_lexer.peekType()) {
         case TokenType::IMPORT:
             if (visibility != Decl::Visibility::Unassigned) printError("imports cannot have visibility modifiers!", startPosition, _lexer.peekEndPosition());
-            if (isStatic) printError("imports cannot be `static`!", startPosition, _lexer.peekEndPosition());
-            if (isExtern) printError("imports cannot be `extern`!", startPosition, _lexer.peekEndPosition());
+            if ((declModifiers & DeclModifiers::Static) == DeclModifiers::Static) printError("imports cannot be `static`!", startPosition, _lexer.peekEndPosition());
+            if ((declModifiers & DeclModifiers::Extern) == DeclModifiers::Extern) printError("imports cannot be `extern`!", startPosition, _lexer.peekEndPosition());
             if (isConst) printError("imports cannot be `const`!", startPosition, _lexer.peekEndPosition());
-            if (isMut) printError("imports cannot be `mut`!", startPosition, _lexer.peekEndPosition());
-            if (isVolatile) printError("imports cannot be `volatile`!", startPosition, _lexer.peekEndPosition());
-            if (isAbstract) printError("imports cannot be `abstract`!", startPosition, _lexer.peekEndPosition());
-            if (isVirtual) printError("imports cannot be `virtual`!", startPosition, _lexer.peekEndPosition());
-            if (isOverride) printError("imports cannot be `override`!", startPosition, _lexer.peekEndPosition());
+            if ((declModifiers & DeclModifiers::Mut) == DeclModifiers::Mut) printError("imports cannot be `mut`!", startPosition, _lexer.peekEndPosition());
+            if ((declModifiers & DeclModifiers::Volatile) == DeclModifiers::Volatile) printError("imports cannot be `volatile`!", startPosition, _lexer.peekEndPosition());
+            if ((declModifiers & DeclModifiers::Abstract) == DeclModifiers::Abstract) printError("imports cannot be `abstract`!", startPosition, _lexer.peekEndPosition());
+            if ((declModifiers & DeclModifiers::Virtual) == DeclModifiers::Virtual) printError("imports cannot be `virtual`!", startPosition, _lexer.peekEndPosition());
+            if ((declModifiers & DeclModifiers::Override) == DeclModifiers::Override) printError("imports cannot be `override`!", startPosition, _lexer.peekEndPosition());
 
             return parseImportDecl(attributes, startPosition);
         case TokenType::NAMESPACE:
             if (visibility != Decl::Visibility::Unassigned) printError("namespaces cannot have visibility modifiers!", startPosition, _lexer.peekEndPosition());
-            if (isStatic) printError("namespaces cannot be `static`!", startPosition, _lexer.peekEndPosition());
-            if (isExtern) printError("namespaces cannot be `extern`!", startPosition, _lexer.peekEndPosition());
+            if ((declModifiers & DeclModifiers::Static) == DeclModifiers::Static) printError("namespaces cannot be `static`!", startPosition, _lexer.peekEndPosition());
+            if ((declModifiers & DeclModifiers::Extern) == DeclModifiers::Extern) printError("namespaces cannot be `extern`!", startPosition, _lexer.peekEndPosition());
             if (isConst) printError("namespaces cannot be `const`!", startPosition, _lexer.peekEndPosition());
-            if (isMut) printError("namespaces cannot be `mut`!", startPosition, _lexer.peekEndPosition());
-            if (isVolatile) printError("namespaces cannot be `volatile`!", startPosition, _lexer.peekEndPosition());
-            if (isAbstract) printError("namespaces cannot be `abstract`!", startPosition, _lexer.peekEndPosition());
-            if (isVirtual) printError("namespaces cannot be `virtual`!", startPosition, _lexer.peekEndPosition());
-            if (isOverride) printError("namespaces cannot be `override`!", startPosition, _lexer.peekEndPosition());
+            if ((declModifiers & DeclModifiers::Mut) == DeclModifiers::Mut) printError("namespaces cannot be `mut`!", startPosition, _lexer.peekEndPosition());
+            if ((declModifiers & DeclModifiers::Volatile) == DeclModifiers::Volatile) printError("namespaces cannot be `volatile`!", startPosition, _lexer.peekEndPosition());
+            if ((declModifiers & DeclModifiers::Abstract) == DeclModifiers::Abstract) printError("namespaces cannot be `abstract`!", startPosition, _lexer.peekEndPosition());
+            if ((declModifiers & DeclModifiers::Virtual) == DeclModifiers::Virtual) printError("namespaces cannot be `virtual`!", startPosition, _lexer.peekEndPosition());
+            if ((declModifiers & DeclModifiers::Override) == DeclModifiers::Override) printError("namespaces cannot be `override`!", startPosition, _lexer.peekEndPosition());
 
             return parseNamespaceDecl(attributes);
 
-        case TokenType::FUNC: {
-            DeclModifiers functionModifiers = DeclModifiers::None;
-
-            if (isStatic) functionModifiers |= DeclModifiers::Static;
-            if (isExtern) functionModifiers |= DeclModifiers::Extern;
-            if (isMut) functionModifiers |= DeclModifiers::Mut;
-            if (isVolatile) functionModifiers |= DeclModifiers::Volatile;
-            if (isAbstract) functionModifiers |= DeclModifiers::Abstract;
-            if (isVirtual) functionModifiers |= DeclModifiers::Virtual;
-            if (isOverride) functionModifiers |= DeclModifiers::Override;
-
-            return parseFunctionDecl(attributes, visibility, isConst, functionModifiers, startPosition);
-        }
-        case TokenType::INIT: {
-            DeclModifiers constructorModifiers = DeclModifiers::None;
-
-            if (isStatic) constructorModifiers |= DeclModifiers::Static;
-            if (isExtern) constructorModifiers |= DeclModifiers::Extern;
-            if (isMut) constructorModifiers |= DeclModifiers::Mut;
-            if (isVolatile) constructorModifiers |= DeclModifiers::Volatile;
-            if (isAbstract) constructorModifiers |= DeclModifiers::Abstract;
-            if (isVirtual) constructorModifiers |= DeclModifiers::Virtual;
-            if (isOverride) constructorModifiers |= DeclModifiers::Override;
-
-            return parseConstructorDecl(attributes, visibility, isConst, constructorModifiers, startPosition);
-        }
-        case TokenType::DEINIT: {
-            DeclModifiers destructorModifiers = DeclModifiers::None;
-
-            if (isStatic) destructorModifiers |= DeclModifiers::Static;
-            if (isExtern) destructorModifiers |= DeclModifiers::Extern;
-            if (isMut) destructorModifiers |= DeclModifiers::Mut;
-            if (isVolatile) destructorModifiers |= DeclModifiers::Volatile;
-            if (isAbstract) destructorModifiers |= DeclModifiers::Abstract;
-            if (isVirtual) destructorModifiers |= DeclModifiers::Virtual;
-            if (isOverride) destructorModifiers |= DeclModifiers::Override;
-
-            return parseDestructorDecl(attributes, visibility, isConst, destructorModifiers, startPosition);
-        }
+        case TokenType::FUNC:
+            return parseFunctionDecl(attributes, visibility, isConst, declModifiers, startPosition);
+        case TokenType::INIT:
+            return parseConstructorDecl(attributes, visibility, isConst, declModifiers, startPosition);
+        case TokenType::DEINIT:
+            return parseDestructorDecl(attributes, visibility, isConst, declModifiers, startPosition);
+        case TokenType::CALL:
+            // NOTE: Functors/functionoids cannot have templates arguments. This would potentially lead to confusing
+            //       syntax
+            return parseCallOperatorDecl(attributes, visibility, isConst, declModifiers, startPosition);
+        case TokenType::SUBSCRIPT:
+            return parseSubscriptOperator(attributes, visibility, isConst, startPosition, declModifiers);
         case TokenType::PROPERTY:
             // NOTE: Properties shouldn't be able to be templates, throwing random `variable.prop<int> = 21` looks weird
-            printError("`property` not yet supported!",
-                       _lexer.peekToken().startPosition, _lexer.peekToken().endPosition);
+            return parsePropertyDecl(attributes, visibility, isConst, declModifiers, startPosition);
         case TokenType::OPERATOR:
-            // TODO: Should operators be able to be simple templates? Swift allows it but I don't think it should be
-            //       supported.
-            printError("`operator` not yet supported!",
-                       _lexer.peekToken().startPosition, _lexer.peekToken().endPosition);
-
-
-        case TokenType::STRUCT: {
-            DeclModifiers structModifiers = DeclModifiers::None;
-
-            if (isStatic) structModifiers |= DeclModifiers::Static;
-            if (isExtern) structModifiers |= DeclModifiers::Extern;
-            if (isMut) structModifiers |= DeclModifiers::Mut;
-            if (isVolatile) structModifiers |= DeclModifiers::Volatile;
-            if (isAbstract) structModifiers |= DeclModifiers::Abstract;
-            if (isVirtual) structModifiers |= DeclModifiers::Virtual;
-            if (isOverride) structModifiers |= DeclModifiers::Override;
-
-            return parseStructDecl(attributes, visibility, isConst, startPosition, structModifiers, false);
-        }
-        case TokenType::CLASS: {
-            DeclModifiers classModifiers = DeclModifiers::None;
-
-            if (isStatic) classModifiers |= DeclModifiers::Static;
-            if (isExtern) classModifiers |= DeclModifiers::Extern;
-            if (isMut) classModifiers |= DeclModifiers::Mut;
-            if (isVolatile) classModifiers |= DeclModifiers::Volatile;
-            if (isAbstract) classModifiers |= DeclModifiers::Abstract;
-            if (isVirtual) classModifiers |= DeclModifiers::Virtual;
-            if (isOverride) classModifiers |= DeclModifiers::Override;
-
-            return parseStructDecl(attributes, visibility, isConst, startPosition, classModifiers, true);
-        }
+            // TODO: Should operators support templates? I think they would cause more confusion than benefit
+            return parseOperatorDecl(attributes, visibility, isConst, declModifiers, startPosition);
+        case TokenType::STRUCT:
+            return parseStructDecl(attributes, visibility, isConst, startPosition, declModifiers, false);
+        case TokenType::CLASS:
+            return parseStructDecl(attributes, visibility, isConst, startPosition, declModifiers, true);
         case TokenType::TRAIT:
             printError("`trait` not yet supported!",
                        _lexer.peekToken().startPosition, _lexer.peekToken().endPosition);
@@ -569,18 +514,8 @@ Decl* Parser::parseDecl() {
         case TokenType::VAR: {
             _lexer.consumeType(TokenType::VAR);
 
-            DeclModifiers variableModifiers = DeclModifiers::None;
-
-            if (isStatic) variableModifiers |= DeclModifiers::Static;
-            if (isExtern) variableModifiers |= DeclModifiers::Extern;
-            if (isMut) variableModifiers |= DeclModifiers::Mut;
-            if (isVolatile) variableModifiers |= DeclModifiers::Volatile;
-            if (isAbstract) variableModifiers |= DeclModifiers::Abstract;
-            if (isVirtual) variableModifiers |= DeclModifiers::Virtual;
-            if (isOverride) variableModifiers |= DeclModifiers::Override;
-
             VariableDecl* result = parseVariableDecl(attributes, visibility, isConst, startPosition,
-                                                     variableModifiers);
+                                                     declModifiers);
 
             if (!_lexer.consumeType(TokenType::SEMICOLON)) {
                 printError("expected closing `;` after variable declaration!",
@@ -600,7 +535,52 @@ Decl* Parser::parseDecl() {
             }
             break;
     }
+
     return nullptr;
+}
+
+CallOperatorDecl* Parser::parseCallOperatorDecl(std::vector<Attr*> attributes, Decl::Visibility visibility,
+                                                bool isConstExpr, DeclModifiers declModifiers,
+                                                TextPosition startPosition) {
+    Identifier callKeyword(_lexer.peekStartPosition(), _lexer.peekEndPosition(), "call");
+
+    if (!_lexer.consumeType(TokenType::CALL)) {
+        printError("expected `call`, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    if (_lexer.peekType() == TokenType::LESS) {
+        printError("unexpected `<` found after `call`, expected `(`! (note: `call` cannot have template arguments!)",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    if (_lexer.peekType() != TokenType::LPAREN) {
+        printError("expected call parameters, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    TextPosition endPosition;
+
+    std::vector<ParameterDecl*> parameters(parseParameters(&endPosition));
+    Type* returnType = nullptr;
+
+    if (_lexer.consumeType(TokenType::ARROW)) {
+        returnType = parseType();
+
+        endPosition = returnType->endPosition();
+    }
+
+    std::vector<Cont*> contracts(parseConts());
+
+    if (_lexer.peekType() != TokenType::LCURLY) {
+        printError("expected beginning `{` for call body, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    CompoundStmt* body = parseCompoundStmt();
+
+    return new CallOperatorDecl(_fileID, std::move(attributes), visibility, isConstExpr, callKeyword,
+                               declModifiers, parameters, returnType, contracts, body, startPosition, endPosition);
 }
 
 ConstructorDecl* Parser::parseConstructorDecl(std::vector<Attr*> attributes, Decl::Visibility visibility,
@@ -813,6 +793,59 @@ NamespaceDecl* Parser::parseNamespaceDecl(std::vector<Attr*> attributes) {
     return rootNamespace;
 }
 
+OperatorDecl* Parser::parseOperatorDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
+                                        DeclModifiers declModifiers, TextPosition startPosition) {
+    if (!_lexer.consumeType(TokenType::OPERATOR)) {
+        printError("expected `operator`, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    OperatorType operatorType = OperatorType::Unknown;
+
+    if (_lexer.consumeType(TokenType::PREFIX)) {
+        operatorType = OperatorType::Prefix;
+    } else if (_lexer.consumeType(TokenType::INFIX)) {
+        operatorType = OperatorType::Infix;
+    } else if (_lexer.consumeType(TokenType::POSTFIX)) {
+        operatorType = OperatorType::Postfix;
+    } else {
+        printError("unexpected token after `operator`, found `" + _lexer.peekCurrentSymbol() + "`! "
+                   "(expected `prefix`, `infix`, or `postfix`",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    TextPosition endPosition;
+    Identifier operatorIdentifier(_lexer.peekStartPosition(), _lexer.peekEndPosition(), _lexer.peekCurrentSymbol());
+
+    if (_lexer.peekMeta() != TokenMetaType::OPERATOR && _lexer.peekType() != TokenType::SYMBOL) {
+        printError("expected operator but found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    } else {
+        _lexer.consumeType(_lexer.peekType());
+    }
+
+    std::vector<ParameterDecl*> parameters = parseParameters(&endPosition);
+    Type* returnType = nullptr;
+
+    if (_lexer.consumeType(TokenType::ARROW)) {
+        returnType = parseType();
+
+        endPosition = returnType->endPosition();
+    }
+
+    std::vector<Cont*> contracts(parseConts());
+
+    if (_lexer.peekType() != TokenType::LCURLY) {
+        printError("expected beginning `{` for `operator` declaration, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    CompoundStmt* body = parseCompoundStmt();
+
+    return new OperatorDecl(_fileID, std::move(attributes), visibility, isConstExpr, operatorType, operatorIdentifier,
+                            declModifiers, parameters, returnType, contracts, body, startPosition, endPosition);
+}
+
 std::vector<TemplateParameterDecl*> Parser::parseTemplateParameters() {
     // TODO: Support default values
     if (!_lexer.consumeType(TokenType::LESS)) {
@@ -973,6 +1006,110 @@ std::vector<ParameterDecl*> Parser::parseParameters(TextPosition* paramsEndPosit
     return parameters;
 }
 
+PropertyDecl* Parser::parsePropertyDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
+                                        DeclModifiers declModifiers, TextPosition startPosition) {
+    if (!_lexer.consumeType(TokenType::PROPERTY)) {
+        printError("expected `property`, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    Identifier propertyIdentifier = parseIdentifier();
+
+    if (!_lexer.consumeType(TokenType::COLON)) {
+        printError("expected `:` after property name, properties MUST have a type specified!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    Type* propertyType = parseType();
+    std::vector<PropertyGetDecl*> getters;
+    PropertySetDecl* setter = nullptr;
+
+    if (!_lexer.consumeType(TokenType::LCURLY)) {
+        printError("expected opening `{` for property, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    while (_lexer.peekType() != TokenType::RCURLY && _lexer.peekType() != TokenType::ENDOFFILE) {
+        TextPosition getSetStartPosition = _lexer.peekStartPosition();
+
+        std::vector<Attr*> getSetAttributes = parseAttrs();
+        Decl::Visibility getSetVisibility = parseDeclVisibility();
+        bool isConst = false;
+        DeclModifiers getSetModifiers = parseDeclModifiers(&isConst);
+        std::string const& getOrSet = _lexer.peekCurrentSymbol();
+
+        if (getOrSet == "get") {
+            Identifier getIdentifier(_lexer.peekStartPosition(), _lexer.peekEndPosition(), "get");
+            TextPosition getEndPosition = _lexer.peekEndPosition();
+
+            _lexer.consumeType(TokenType::SYMBOL);
+
+            PropertyGetDecl::GetResult getResultType = PropertyGetDecl::GetResult::Normal;
+            Type* getReturnType = propertyType->deepCopy();
+
+            // Support for `get ref` and `get ref mut`
+            if (_lexer.consumeType(TokenType::REF)) {
+                if (_lexer.consumeType(TokenType::MUT)) {
+                    getReturnType = new ReferenceType(Type::Qualifier::Mut, getReturnType);
+
+                    getResultType = PropertyGetDecl::GetResult::RefMut;
+                } else {
+                    getReturnType = new ReferenceType(Type::Qualifier::Immut, getReturnType);
+
+                    getResultType = PropertyGetDecl::GetResult::Ref;
+                }
+            }
+
+            std::vector<Cont*> contracts = parseConts();
+
+            if (_lexer.peekType() != TokenType::LCURLY) {
+                printError("expected beginning `{` for property `get` body!",
+                           _lexer.peekStartPosition(), _lexer.peekEndPosition());
+            }
+
+            CompoundStmt* getterBody = parseCompoundStmt();
+
+            getters.push_back(new PropertyGetDecl(_fileID, getSetAttributes, getSetVisibility, isConst,
+                                                  getIdentifier, getSetModifiers, getReturnType, contracts, getterBody,
+                                                  getSetStartPosition, getEndPosition, getResultType));
+        } else if (getOrSet == "set") {
+            if (setter != nullptr) {
+                printError("duplicate `set` found! (there can only be one `set` body per property)",
+                           _lexer.peekStartPosition(), _lexer.peekEndPosition());
+            }
+
+            Identifier setIdentifier(_lexer.peekStartPosition(), _lexer.peekEndPosition(), "get");
+            TextPosition setEndPosition = _lexer.peekEndPosition();
+
+            _lexer.consumeType(TokenType::SYMBOL);
+
+            std::vector<Cont*> contracts = parseConts();
+
+            if (_lexer.peekType() != TokenType::LCURLY) {
+                printError("expected beginning `{` for property `set` body!",
+                           _lexer.peekStartPosition(), _lexer.peekEndPosition());
+            }
+
+            CompoundStmt* setterBody = parseCompoundStmt();
+
+            setter = new PropertySetDecl(_fileID, getSetAttributes, getSetVisibility, isConstExpr, setIdentifier,
+                                         getSetModifiers, propertyType->deepCopy(), contracts, setterBody,
+                                         getSetStartPosition, setEndPosition);
+        } else {
+            printError("unknown keyword `" + getOrSet + "`, expected `get` or `set`!",
+                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
+        }
+    }
+
+    if (!_lexer.consumeType(TokenType::RCURLY)) {
+        printError("expected closing `}` for property, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    return new PropertyDecl(_fileID, std::move(attributes), visibility, isConstExpr, propertyIdentifier, propertyType,
+                            startPosition, propertyType->endPosition(), declModifiers, getters, setter);
+}
+
 StructDecl* Parser::parseStructDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
                                     TextPosition startPosition, DeclModifiers declModifiers, bool isClass) {
     std::string errorName;
@@ -1062,6 +1199,116 @@ StructDecl* Parser::parseStructDecl(std::vector<Attr*> attributes, Decl::Visibil
                                       startPosition, endPosition, isClass, inheritedTypes, contracts, members,
                                       constructors, destructor, templateParameters);
     }
+}
+
+SubscriptOperatorDecl* Parser::parseSubscriptOperator(std::vector<Attr*> attributes, Decl::Visibility visibility,
+                                                      bool isConstExpr, TextPosition startPosition,
+                                                      DeclModifiers declModifiers) {
+    Identifier subscriptKeyword(_lexer.peekStartPosition(), _lexer.peekEndPosition(),
+                                "subscript");
+
+    if (!_lexer.consumeType(TokenType::SUBSCRIPT)) {
+        printError("expected `subscript`, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    TextPosition endPosition;
+    std::vector<ParameterDecl*> parameters = parseParameters(&endPosition);
+
+    if (!_lexer.consumeType(TokenType::ARROW)) {
+        printError("expected `->` for subscript type, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    Type* subscriptType = parseType();
+    std::vector<SubscriptOperatorGetDecl*> getters;
+    SubscriptOperatorSetDecl* setter = nullptr;
+
+    if (!_lexer.consumeType(TokenType::LCURLY)) {
+        printError("expected opening `{` for subscript, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    while (_lexer.peekType() != TokenType::RCURLY && _lexer.peekType() != TokenType::ENDOFFILE) {
+        TextPosition getSetStartPosition = _lexer.peekStartPosition();
+
+        std::vector<Attr*> getSetAttributes = parseAttrs();
+        Decl::Visibility getSetVisibility = parseDeclVisibility();
+        bool isConst = false;
+        DeclModifiers getSetModifiers = parseDeclModifiers(&isConst);
+        std::string const& getOrSet = _lexer.peekCurrentSymbol();
+
+        if (getOrSet == "get") {
+            Identifier getIdentifier(_lexer.peekStartPosition(), _lexer.peekEndPosition(), "get");
+            TextPosition getEndPosition = _lexer.peekEndPosition();
+
+            _lexer.consumeType(TokenType::SYMBOL);
+
+            SubscriptOperatorGetDecl::GetResult getResultType = SubscriptOperatorGetDecl::GetResult::Normal;
+            Type* getReturnType = subscriptType->deepCopy();
+
+            // Support for `get ref` and `get ref mut`
+            if (_lexer.consumeType(TokenType::REF)) {
+                if (_lexer.consumeType(TokenType::MUT)) {
+                    getReturnType = new ReferenceType(Type::Qualifier::Mut, getReturnType);
+
+                    getResultType = SubscriptOperatorGetDecl::GetResult::RefMut;
+                } else {
+                    getReturnType = new ReferenceType(Type::Qualifier::Immut, getReturnType);
+
+                    getResultType = SubscriptOperatorGetDecl::GetResult::Ref;
+                }
+            }
+
+            std::vector<Cont*> contracts = parseConts();
+
+            if (_lexer.peekType() != TokenType::LCURLY) {
+                printError("expected beginning `{` for subscript `get` body!",
+                           _lexer.peekStartPosition(), _lexer.peekEndPosition());
+            }
+
+            CompoundStmt* getterBody = parseCompoundStmt();
+
+            getters.push_back(new SubscriptOperatorGetDecl(_fileID, getSetAttributes, getSetVisibility, isConst,
+                                                  getIdentifier, getSetModifiers, getReturnType, contracts, getterBody,
+                                                  getSetStartPosition, getEndPosition, getResultType));
+        } else if (getOrSet == "set") {
+            if (setter != nullptr) {
+                printError("duplicate `set` found! (there can only be one `set` body per subscript)",
+                           _lexer.peekStartPosition(), _lexer.peekEndPosition());
+            }
+
+            Identifier setIdentifier(_lexer.peekStartPosition(), _lexer.peekEndPosition(), "get");
+            TextPosition setEndPosition = _lexer.peekEndPosition();
+
+            _lexer.consumeType(TokenType::SYMBOL);
+
+            std::vector<Cont*> contracts = parseConts();
+
+            if (_lexer.peekType() != TokenType::LCURLY) {
+                printError("expected beginning `{` for subscript `set` body!",
+                           _lexer.peekStartPosition(), _lexer.peekEndPosition());
+            }
+
+            CompoundStmt* setterBody = parseCompoundStmt();
+
+            setter = new SubscriptOperatorSetDecl(_fileID, getSetAttributes, getSetVisibility, isConstExpr,
+                                                  setIdentifier, getSetModifiers, subscriptType->deepCopy(), contracts,
+                                                  setterBody, getSetStartPosition, setEndPosition);
+        } else {
+            printError("unknown keyword `" + getOrSet + "`, expected `get` or `set`!",
+                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
+        }
+    }
+
+    if (!_lexer.consumeType(TokenType::RCURLY)) {
+        printError("expected closing `}` for subscript, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    return new SubscriptOperatorDecl(_fileID, std::move(attributes), visibility, isConstExpr, subscriptKeyword,
+                                     parameters, subscriptType, startPosition, endPosition, declModifiers, getters,
+                                     setter);
 }
 
 VariableDecl* Parser::parseVariableDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,

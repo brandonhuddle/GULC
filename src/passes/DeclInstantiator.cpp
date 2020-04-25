@@ -212,14 +212,36 @@ void gulc::DeclInstantiator::processDecl(gulc::Decl* decl, bool isGlobal) {
             // We skip imports, they're no longer useful here...
             break;
 
+        case Decl::Kind::CallOperator:
+        case Decl::Kind::Constructor:
+        case Decl::Kind::Destructor:
         case Decl::Kind::Function:
+        case Decl::Kind::Operator:
             processFunctionDecl(llvm::dyn_cast<FunctionDecl>(decl));
             break;
         case Decl::Kind::Namespace:
             processNamespaceDecl(llvm::dyn_cast<NamespaceDecl>(decl));
             break;
+        case Decl::Kind::Property:
+            processPropertyDecl(llvm::dyn_cast<PropertyDecl>(decl));
+            break;
+        case Decl::Kind::PropertyGet:
+            processPropertyGetDecl(llvm::dyn_cast<PropertyGetDecl>(decl));
+            break;
+        case Decl::Kind::PropertySet:
+            processPropertySetDecl(llvm::dyn_cast<PropertySetDecl>(decl));
+            break;
         case Decl::Kind::Struct:
             processStructDecl(llvm::dyn_cast<StructDecl>(decl));
+            break;
+        case Decl::Kind::SubscriptOperator:
+            processSubscriptOperatorDecl(llvm::dyn_cast<SubscriptOperatorDecl>(decl));
+            break;
+        case Decl::Kind::SubscriptOperatorGet:
+            processSubscriptOperatorGetDecl(llvm::dyn_cast<SubscriptOperatorGetDecl>(decl));
+            break;
+        case Decl::Kind::SubscriptOperatorSet:
+            processSubscriptOperatorSetDecl(llvm::dyn_cast<SubscriptOperatorSetDecl>(decl));
             break;
         case Decl::Kind::TemplateFunction:
             processTemplateFunctionDecl(llvm::dyn_cast<TemplateFunctionDecl>(decl));
@@ -257,6 +279,29 @@ void gulc::DeclInstantiator::processParameterDecl(gulc::ParameterDecl* parameter
         printError("function parameter type `" + parameterDecl->type->toString() + "` was not found!",
                    parameterDecl->startPosition(), parameterDecl->endPosition());
     }
+}
+
+void gulc::DeclInstantiator::processPropertyDecl(gulc::PropertyDecl* propertyDecl) {
+    if (!resolveType(propertyDecl->type)) {
+        printError("property type `" + propertyDecl->type->toString() + "` was not found!",
+                   propertyDecl->startPosition(), propertyDecl->endPosition());
+    }
+
+    for (PropertyGetDecl* getter : propertyDecl->getters()) {
+        processDecl(getter);
+    }
+
+    if (propertyDecl->hasSetter()) {
+        processDecl(propertyDecl->setter());
+    }
+}
+
+void gulc::DeclInstantiator::processPropertyGetDecl(gulc::PropertyGetDecl* propertyGetDecl) {
+    processFunctionDecl(propertyGetDecl);
+}
+
+void gulc::DeclInstantiator::processPropertySetDecl(gulc::PropertySetDecl* propertySetDecl) {
+    processFunctionDecl(propertySetDecl);
 }
 
 void gulc::DeclInstantiator::processStructDecl(gulc::StructDecl* structDecl, bool calculateSizeAndVTable) {
@@ -310,6 +355,15 @@ void gulc::DeclInstantiator::processStructDecl(gulc::StructDecl* structDecl, boo
                 }
             }
         }
+    }
+
+    // Make sure we process the constructors and destructor since they are NOT in the `ownedMembers` list...
+    for (ConstructorDecl* constructor : structDecl->constructors()) {
+        processDecl(constructor);
+    }
+
+    if (structDecl->destructor != nullptr) {
+        processDecl(structDecl->destructor);
     }
 
     if (structDecl->baseStruct != nullptr) {
@@ -458,6 +512,39 @@ void gulc::DeclInstantiator::processStructDecl(gulc::StructDecl* structDecl, boo
     _workingDecls.pop_back();
 
     structDecl->isInstantiated = true;
+}
+
+void gulc::DeclInstantiator::processSubscriptOperatorDecl(gulc::SubscriptOperatorDecl* subscriptOperatorDecl) {
+    for (ParameterDecl* parameter : subscriptOperatorDecl->parameters()) {
+        processParameterDecl(parameter);
+    }
+
+    // Return type might be null for `void`
+    if (subscriptOperatorDecl->type != nullptr) {
+        if (!resolveType(subscriptOperatorDecl->type)) {
+            printError("subscript type `" + subscriptOperatorDecl->type->toString() + "` was not found!",
+                       subscriptOperatorDecl->startPosition(), subscriptOperatorDecl->endPosition());
+        }
+    } else {
+        printError("subscripts MUST have a type!",
+                   subscriptOperatorDecl->startPosition(), subscriptOperatorDecl->endPosition());
+    }
+
+    for (SubscriptOperatorGetDecl* getter : subscriptOperatorDecl->getters()) {
+        processDecl(getter);
+    }
+
+    if (subscriptOperatorDecl->hasSetter()) {
+        processDecl(subscriptOperatorDecl->setter());
+    }
+}
+
+void gulc::DeclInstantiator::processSubscriptOperatorGetDecl(gulc::SubscriptOperatorGetDecl* subscriptOperatorGetDecl) {
+    processFunctionDecl(subscriptOperatorGetDecl);
+}
+
+void gulc::DeclInstantiator::processSubscriptOperatorSetDecl(gulc::SubscriptOperatorSetDecl* subscriptOperatorSetDecl) {
+    processFunctionDecl(subscriptOperatorSetDecl);
 }
 
 void gulc::DeclInstantiator::processTemplateFunctionDecl(gulc::TemplateFunctionDecl* templateFunctionDecl) {

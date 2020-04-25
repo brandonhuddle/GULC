@@ -13,6 +13,8 @@
 #include <ast/decls/VariableDecl.hpp>
 #include <Target.hpp>
 #include <ast/exprs/ValueLiteralExpr.hpp>
+#include <ast/decls/PropertyDecl.hpp>
+#include <ast/decls/SubscriptOperatorDecl.hpp>
 
 namespace gulc {
     /**
@@ -56,7 +58,13 @@ namespace gulc {
         void processFunctionDecl(FunctionDecl* functionDecl);
         void processNamespaceDecl(NamespaceDecl* namespaceDecl);
         void processParameterDecl(ParameterDecl* parameterDecl);
+        void processPropertyDecl(PropertyDecl* propertyDecl);
+        void processPropertyGetDecl(PropertyGetDecl* propertyGetDecl);
+        void processPropertySetDecl(PropertySetDecl* propertySetDecl);
         void processStructDecl(StructDecl* structDecl, bool calculateSizeAndVTable = true);
+        void processSubscriptOperatorDecl(SubscriptOperatorDecl* subscriptOperatorDecl);
+        void processSubscriptOperatorGetDecl(SubscriptOperatorGetDecl* subscriptOperatorGetDecl);
+        void processSubscriptOperatorSetDecl(SubscriptOperatorSetDecl* subscriptOperatorSetDecl);
         void processTemplateFunctionDecl(TemplateFunctionDecl* templateFunctionDecl);
         void processTemplateParameterDecl(TemplateParameterDecl* templateParameterDecl);
         void processTemplateStructDecl(TemplateStructDecl* templateStructDecl);

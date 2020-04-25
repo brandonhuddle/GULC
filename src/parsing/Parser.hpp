@@ -33,6 +33,10 @@
 #include <ast/decls/DestructorDecl.hpp>
 #include <ast/decls/StructDecl.hpp>
 #include <ast/conts/WhereCont.hpp>
+#include <ast/decls/PropertyDecl.hpp>
+#include <ast/decls/OperatorDecl.hpp>
+#include <ast/decls/CallOperatorDecl.hpp>
+#include <ast/decls/SubscriptOperatorDecl.hpp>
 #include "Lexer.hpp"
 #include "ASTFile.hpp"
 
@@ -59,8 +63,12 @@ namespace gulc {
         Type* parseType();
 
         Decl::Visibility parseDeclVisibility();
+        DeclModifiers parseDeclModifiers(bool* isConstExpr);
 
         Decl* parseDecl();
+        CallOperatorDecl* parseCallOperatorDecl(std::vector<Attr*> attributes, Decl::Visibility visibility,
+                                                bool isConstExpr, DeclModifiers declModifiers,
+                                                TextPosition startPosition);
         ConstructorDecl* parseConstructorDecl(std::vector<Attr*> attributes, Decl::Visibility visibility,
                                               bool isConstExpr,
                                               DeclModifiers declModifiers, TextPosition startPosition);
@@ -71,10 +79,17 @@ namespace gulc {
                                         DeclModifiers declModifiers, TextPosition startPosition);
         ImportDecl* parseImportDecl(std::vector<Attr*> attributes, TextPosition startPosition);
         NamespaceDecl* parseNamespaceDecl(std::vector<Attr*> attributes);
+        OperatorDecl* parseOperatorDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
+                                        DeclModifiers declModifiers, TextPosition startPosition);
         std::vector<TemplateParameterDecl*> parseTemplateParameters();
         std::vector<ParameterDecl*> parseParameters(TextPosition* endPosition);
+        PropertyDecl* parsePropertyDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
+                                        DeclModifiers declModifiers, TextPosition startPosition);
         StructDecl* parseStructDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
                                     TextPosition startPosition, DeclModifiers declModifiers, bool isClass);
+        SubscriptOperatorDecl* parseSubscriptOperator(std::vector<Attr*> attributes, Decl::Visibility visibility,
+                                                      bool isConstExpr, TextPosition startPosition,
+                                                      DeclModifiers declModifiers);
         VariableDecl* parseVariableDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
                                         TextPosition startPosition, DeclModifiers declModifiers);
 

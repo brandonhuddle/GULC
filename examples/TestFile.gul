@@ -1,6 +1,66 @@
 import std;
 import std.io as IO;
 
+struct Example {
+    private var _length: i32;
+
+    public property length: i32 {
+        get {
+            return _length;
+        }
+        protected set {
+            _length = value;
+        }
+    }
+
+    // Callable as `x + y`
+    public operator infix +(right: Example) -> Example {
+        return right;
+    }
+
+    // Callable as `++x`
+    public operator prefix ++() -> Example {
+        return this;
+    }
+
+    // Callable as `x++`
+    public operator postfix ++() -> Example {
+        return this;
+    }
+
+    // Callable as `x as i32`
+    // NOTE: I'm going to allow this to be supported solely as something that CAN be used but shouldn't in 99% of
+    //       situations
+    // Useful Situation: `(vec3i32) as vec3f32` these are custom types that make sense to have `as` support
+    // Bad Use: `(i32) as string` this would be better for something like `(i32).toString()`
+    //public operator as i32 {
+    //    return 12;
+    //}
+
+    // Callable as `x()`
+    public call() -> i32 {
+        return 55;
+    }
+
+    // Callable as `x(param1: 12)`
+    // NOTE: These should NOT support templates
+    public call(param1: i32) -> i32 {
+        return param1;
+    }
+
+    // Callable as `x[x: 1, y: 2]`
+    // NOTE: This is mostly an extension for `PropertyDecl`, it works the same just with different syntax.
+    public subscript(x: i32, y: i32) -> i8 {
+        // `get ref` and `get ref mut` also supported.
+        get {
+
+        }
+        set {
+
+        }
+    }
+}
+
 func _start() {
 
 }

@@ -35,6 +35,8 @@
 #include <ast/exprs/TernaryExpr.hpp>
 #include <ast/exprs/ValueLiteralExpr.hpp>
 #include <ast/exprs/VariableDeclExpr.hpp>
+#include <ast/decls/PropertyDecl.hpp>
+#include <ast/decls/SubscriptOperatorDecl.hpp>
 
 namespace gulc {
     /**
@@ -77,7 +79,13 @@ namespace gulc {
         void processFunctionDecl(FunctionDecl* functionDecl);
         void processNamespaceDecl(NamespaceDecl* namespaceDecl);
         void processParameterDecl(ParameterDecl* parameterDecl) const;
+        void processPropertyDecl(PropertyDecl* propertyDecl);
+        void processPropertyGetDecl(PropertyGetDecl* propertyGetDecl);
+        void processPropertySetDecl(PropertySetDecl* propertySetDecl);
         void processStructDecl(StructDecl* structDecl);
+        void processSubscriptOperatorDecl(SubscriptOperatorDecl* subscriptOperatorDecl);
+        void processSubscriptOperatorGetDecl(SubscriptOperatorGetDecl* subscriptOperatorGetDecl);
+        void processSubscriptOperatorSetDecl(SubscriptOperatorSetDecl* subscriptOperatorSetDecl);
         void processTemplateFunctionDecl(TemplateFunctionDecl* templateFunctionDecl);
         void processTemplateParameterDecl(TemplateParameterDecl* templateParameterDecl) const;
         void processTemplateStructDecl(TemplateStructDecl* templateStructDecl);

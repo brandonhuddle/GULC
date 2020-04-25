@@ -914,6 +914,14 @@ Token Lexer::parseToken(std::string& tokenText, TextPosition startPosition, bool
         result.metaType = TokenMetaType::KEYWORD;
         result.tokenType = TokenType::DEINIT;
         result.currentSymbol = "deinit";
+    } else if (tokenText == "call") {
+        result.metaType = TokenMetaType::KEYWORD;
+        result.tokenType = TokenType::CALL;
+        result.currentSymbol = "call";
+    } else if (tokenText == "subscript") {
+        result.metaType = TokenMetaType::KEYWORD;
+        result.tokenType = TokenType::SUBSCRIPT;
+        result.currentSymbol = "subscript";
     } else {
         result.metaType = TokenMetaType::VALUE;
         result.tokenType = TokenType::SYMBOL;
