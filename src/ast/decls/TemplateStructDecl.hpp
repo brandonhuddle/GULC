@@ -79,14 +79,12 @@ namespace gulc {
             for (std::size_t i = 0; i < _templateParameters.size(); ++i) {
                 if (_templateParameters[i]->templateParameterKind() == TemplateParameterDecl::TemplateParameterKind::Typename) {
                     if (!llvm::isa<TypeExpr>(templateArguments[i])) {
-                        // TODO: Should this be an exception??
                         std::cerr << "INTERNAL ERROR: `TemplateStructDecl::getInstantiation` received non-type argument where type was expected!" << std::endl;
                         std::exit(1);
                     }
                 } else {
                     // Const
                     if (llvm::isa<TypeExpr>(templateArguments[i])) {
-                        // TODO: Should this be an exception??
                         std::cerr << "INTERNAL ERROR: `TemplateStructDecl::getInstantiation` received type argument where const literal was expected!" << std::endl;
                         std::exit(1);
                     }

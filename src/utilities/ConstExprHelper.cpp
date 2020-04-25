@@ -30,7 +30,6 @@ bool gulc::ConstExprHelper::compareAreSame(const gulc::Expr* left, const gulc::E
                 return leftValueLiteral->value() == rightValueLiteral->value();
             }
             default:
-                // TODO: We need to support comparing literals
                 std::cerr << "FATAL ERROR: `gulc::ConstExprHelper::compareAreSame` has unknown const expr type!" << std::endl;
                 std::exit(1);
                 break;

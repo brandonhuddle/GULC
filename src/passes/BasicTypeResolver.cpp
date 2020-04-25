@@ -289,7 +289,6 @@ void gulc::BasicTypeResolver::processVariableDecl(gulc::VariableDecl* variableDe
         }
     }
 
-    // TODO: Should we handle the variable's initial value? I think we should for `const` expressions
     if (variableDecl->type == nullptr) {
         printError("variables outside of function bodies and similar MUST have a type specified!",
                    variableDecl->startPosition(), variableDecl->endPosition());

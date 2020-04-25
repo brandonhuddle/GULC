@@ -274,10 +274,13 @@ void gulc::DeclInstantiator::processNamespaceDecl(gulc::NamespaceDecl* namespace
 }
 
 void gulc::DeclInstantiator::processParameterDecl(gulc::ParameterDecl* parameterDecl) {
-    // TODO: Should we also handle the default value here? It might be useful to `const` expressions...
     if (!resolveType(parameterDecl->type)) {
         printError("function parameter type `" + parameterDecl->type->toString() + "` was not found!",
                    parameterDecl->startPosition(), parameterDecl->endPosition());
+    }
+
+    if (parameterDecl->defaultValue != nullptr) {
+        processConstExpr(parameterDecl->defaultValue);
     }
 }
 
@@ -625,7 +628,6 @@ void gulc::DeclInstantiator::processVariableDecl(gulc::VariableDecl* variableDec
         }
     }
 
-    // TODO: Should we handle the variable's initial value? I think we should for `const` expressions
     if (variableDecl->type == nullptr) {
         printError("variables outside of function bodies and similar MUST have a type specified!",
                    variableDecl->startPosition(), variableDecl->endPosition());
@@ -634,6 +636,10 @@ void gulc::DeclInstantiator::processVariableDecl(gulc::VariableDecl* variableDec
             printError("variable type `" + variableDecl->type->toString() + "` was not found!",
                        variableDecl->type->startPosition(), variableDecl->type->endPosition());
         }
+    }
+
+    if (isGlobal && variableDecl->initialValue != nullptr) {
+        processConstExpr(variableDecl->initialValue);
     }
 }
 

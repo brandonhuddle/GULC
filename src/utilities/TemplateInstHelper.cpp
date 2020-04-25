@@ -285,7 +285,6 @@ void gulc::TemplateInstHelper::instantiateParameterDecl(gulc::ParameterDecl* par
     instantiateType(parameterDecl->type);
 
     if (parameterDecl->defaultValue != nullptr) {
-        // TODO: Should we be calling this??
         instantiateExpr(parameterDecl->defaultValue);
     }
 }

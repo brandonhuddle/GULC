@@ -9,7 +9,6 @@ namespace gulc {
         Unknown,
         Prefix,
         Infix,
-        // TODO: We don't parse this right now. Only really used for '++' and '--', you can't make a custom one
         Postfix
 
     };

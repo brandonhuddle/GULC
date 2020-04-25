@@ -18,13 +18,6 @@ int main() {
         parsedFiles.push_back(parser.parseFile(i, filePaths[i]));
     }
 
-    // TODO:
-    //  1. [DONE] Finish support for `ValueLiteralExpr` usage in templates
-    //  2. [DONE] Verify that our template system works properly in more niche scenarios
-    //  3. DeclResolver - Resolve any Decl references within any Stmt or Expr
-    //  4. ???
-    //  5. Be poor because this is open source.
-
     // Resolve all types as much as possible, leaving `TemplatedType`s for any templates
     BasicTypeResolver basicTypeResolver(filePaths);
     basicTypeResolver.processFiles(parsedFiles);

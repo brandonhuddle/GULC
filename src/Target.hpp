@@ -13,8 +13,6 @@ namespace gulc {
 
         enum class OS {
             Linux,
-            // TODO: Fix the weird LLVM bug found on Windows caused by the LLVM Triple string destructor being weird,
-            //       (bug seems to be out of our hands, seems to be a bug within the Windows C++ library?)
             Windows
         };
 

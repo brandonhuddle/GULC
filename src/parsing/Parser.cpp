@@ -494,7 +494,6 @@ Decl* Parser::parseDecl() {
             // NOTE: Properties shouldn't be able to be templates, throwing random `variable.prop<int> = 21` looks weird
             return parsePropertyDecl(attributes, visibility, isConst, declModifiers, startPosition);
         case TokenType::OPERATOR:
-            // TODO: Should operators support templates? I think they would cause more confusion than benefit
             return parseOperatorDecl(attributes, visibility, isConst, declModifiers, startPosition);
         case TokenType::STRUCT:
             return parseStructDecl(attributes, visibility, isConst, startPosition, declModifiers, false);

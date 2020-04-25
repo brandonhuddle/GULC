@@ -30,7 +30,6 @@ namespace gulc {
             }
         }
 
-        // TODO: Should we differentiate between the ending `>` in a template type?
         TextPosition endPosition() const override {
             return _identifier.endPosition();
         }
