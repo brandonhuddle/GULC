@@ -45,6 +45,7 @@ namespace gulc {
         bool isAbstract() const { return (_declModifiers & DeclModifiers::Abstract) == DeclModifiers::Abstract; }
         bool isVirtual() const { return (_declModifiers & DeclModifiers::Virtual) == DeclModifiers::Virtual; }
         bool isOverride() const { return (_declModifiers & DeclModifiers::Override) == DeclModifiers::Override; }
+        bool isPrototype() const { return (_declModifiers & DeclModifiers::Prototype) == DeclModifiers::Prototype; }
 
         // Makes checking if it is virtual at all easier
         bool isAnyVirtual() const { return isVirtual() || isAbstract() || isOverride(); }

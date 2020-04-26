@@ -115,14 +115,19 @@ void gulc::BasicTypeResolver::processDecl(gulc::Decl* decl, bool isGlobal) {
         case Decl::Kind::TemplateStruct:
             processTemplateStructDecl(llvm::dyn_cast<TemplateStructDecl>(decl));
             break;
+        case Decl::Kind::TemplateTrait:
+            processTemplateTraitDecl(llvm::dyn_cast<TemplateTraitDecl>(decl));
+            break;
+        case Decl::Kind::Trait:
+            processTraitDecl(llvm::dyn_cast<TraitDecl>(decl));
+            break;
         case Decl::Kind::Variable:
             processVariableDecl(llvm::dyn_cast<VariableDecl>(decl), isGlobal);
             break;
 
         default:
-//            printError("unknown declaration found!",
-//                       decl->startPosition(), decl->endPosition());
-            // If we don't know the declaration we just skip it, we don't care in this pass
+            printError("INTERNAL ERROR - unhandled Decl type found in `BasicTypeResolver`!",
+                       decl->startPosition(), decl->endPosition());
             break;
     }
 }
@@ -281,6 +286,42 @@ void gulc::BasicTypeResolver::processTemplateStructDecl(gulc::TemplateStructDecl
     _templateParameters.pop_back();
 }
 
+void gulc::BasicTypeResolver::processTemplateTraitDecl(gulc::TemplateTraitDecl* templateTraitDecl) {
+    for (TemplateParameterDecl* templateParameter : templateTraitDecl->templateParameters()) {
+        processTemplateParameterDecl(templateParameter);
+    }
+
+    _templateParameters.push_back(&templateTraitDecl->templateParameters());
+
+    processTraitDecl(templateTraitDecl);
+
+    _templateParameters.pop_back();
+}
+
+void gulc::BasicTypeResolver::processTraitDecl(gulc::TraitDecl* traitDecl) {
+    for (Type*& inheritedType : traitDecl->inheritedTypes()) {
+        resolveType(inheritedType);
+    }
+
+    _containingDecls.push_back(traitDecl);
+
+    for (Decl* member : traitDecl->ownedMembers()) {
+        processDecl(member, false);
+
+        if (llvm::isa<VariableDecl>(member)) {
+            // Trait members can only be `const` or `static`
+            auto variableMember = llvm::dyn_cast<VariableDecl>(member);
+
+            if (!variableMember->isConstExpr() && !variableMember->isStatic()) {
+                printError("traits can only contain `const` or `static` variables!",
+                           variableMember->startPosition(), variableMember->endPosition());
+            }
+        }
+    }
+
+    _containingDecls.pop_back();
+}
+
 void gulc::BasicTypeResolver::processVariableDecl(gulc::VariableDecl* variableDecl, bool isGlobal) const {
     if (isGlobal) {
         if (!variableDecl->isConstExpr() && !variableDecl->isStatic()) {
@@ -342,7 +383,10 @@ void gulc::BasicTypeResolver::processStmt(gulc::Stmt* stmt) const {
         case Stmt::Kind::Expr:
             processExpr(llvm::dyn_cast<Expr>(stmt));
             break;
+
         default:
+            printError("INTERNAL ERROR - unhandled Stmt type found in `BasicTypeResolver`!",
+                       stmt->startPosition(), stmt->endPosition());
             break;
     }
 }
@@ -520,7 +564,10 @@ void gulc::BasicTypeResolver::processExpr(gulc::Expr* expr) const {
         case Expr::Kind::VariableDecl:
             processVariableDeclExpr(llvm::dyn_cast<VariableDeclExpr>(expr));
             break;
+
         default:
+            printError("INTERNAL ERROR - unhandled Expr type found in `BasicTypeResolver`!",
+                       expr->startPosition(), expr->endPosition());
             break;
     }
 }

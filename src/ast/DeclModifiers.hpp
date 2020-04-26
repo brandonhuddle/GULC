@@ -11,6 +11,8 @@ namespace gulc {
         Virtual = 1u << 4u,
         Override = 1u << 5u,
         Extern = 1u << 6u,
+        // Used for `func example();` with no body
+        Prototype = 1u << 7u,
     };
 
     inline DeclModifiers operator|(DeclModifiers left, DeclModifiers right) { return static_cast<DeclModifiers>(static_cast<int>(left) | static_cast<int>(right)); }

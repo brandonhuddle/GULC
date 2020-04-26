@@ -79,6 +79,12 @@ add_executable(gulc
         src/ast/decls/TemplateStructDecl.hpp
         src/ast/decls/TemplateStructInstDecl.cpp
         src/ast/decls/TemplateStructInstDecl.hpp
+        src/ast/decls/TemplateTraitDecl.cpp
+        src/ast/decls/TemplateTraitDecl.hpp
+        src/ast/decls/TemplateTraitInstDecl.cpp
+        src/ast/decls/TemplateTraitInstDecl.hpp
+        src/ast/decls/TraitDecl.cpp
+        src/ast/decls/TraitDecl.hpp
         src/ast/decls/VariableDecl.cpp
         src/ast/decls/VariableDecl.hpp
 
@@ -100,6 +106,8 @@ add_executable(gulc
         src/ast/types/TemplatedType.hpp
         src/ast/types/TemplateTypenameRefType.cpp
         src/ast/types/TemplateTypenameRefType.hpp
+        src/ast/types/TraitType.cpp
+        src/ast/types/TraitType.hpp
         src/ast/types/UnresolvedType.cpp
         src/ast/types/UnresolvedType.hpp
         src/ast/types/VTableType.cpp

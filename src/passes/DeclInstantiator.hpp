@@ -15,6 +15,8 @@
 #include <ast/exprs/ValueLiteralExpr.hpp>
 #include <ast/decls/PropertyDecl.hpp>
 #include <ast/decls/SubscriptOperatorDecl.hpp>
+#include <ast/decls/TraitDecl.hpp>
+#include <ast/decls/TemplateTraitDecl.hpp>
 
 namespace gulc {
     /**
@@ -69,6 +71,9 @@ namespace gulc {
         void processTemplateParameterDecl(TemplateParameterDecl* templateParameterDecl);
         void processTemplateStructDecl(TemplateStructDecl* templateStructDecl);
         void processTemplateStructInstDecl(TemplateStructInstDecl* templateStructInstDecl);
+        void processTemplateTraitDecl(TemplateTraitDecl* templateTraitDecl);
+        void processTemplateTraitInstDecl(TemplateTraitInstDecl* templateTraitInstDecl);
+        void processTraitDecl(TraitDecl* traitDecl);
         void processVariableDecl(VariableDecl* variableDecl, bool isGlobal);
 
         // This will process a `Decl` while also checking for any circular dependencies using `_workingDecls`

@@ -37,6 +37,7 @@
 #include <ast/decls/OperatorDecl.hpp>
 #include <ast/decls/CallOperatorDecl.hpp>
 #include <ast/decls/SubscriptOperatorDecl.hpp>
+#include <ast/decls/TraitDecl.hpp>
 #include "Lexer.hpp"
 #include "ASTFile.hpp"
 
@@ -90,6 +91,8 @@ namespace gulc {
         SubscriptOperatorDecl* parseSubscriptOperator(std::vector<Attr*> attributes, Decl::Visibility visibility,
                                                       bool isConstExpr, TextPosition startPosition,
                                                       DeclModifiers declModifiers);
+        TraitDecl* parseTraitDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
+                                  TextPosition startPosition, DeclModifiers declModifiers);
         VariableDecl* parseVariableDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
                                         TextPosition startPosition, DeclModifiers declModifiers);
 

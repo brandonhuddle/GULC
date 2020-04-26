@@ -19,6 +19,7 @@ namespace gulc {
             Struct,
             Templated,
             TemplateTypenameRef,
+            Trait,
             Unresolved,
             VTable
         };

@@ -37,7 +37,7 @@ namespace gulc {
          * NOTE: The instantiation is NOT guaranteed to be completely constructed.
          * NOTE: `templateArguments` MUST have default values included
          *
-         * @param templateArguments - arguments for the template, function might steal these
+         * @param templateArguments - arguments for the template
          * @param result - the found struct instantiation
          *
          * @return true for new TemplateStructInstDecl, false for existing

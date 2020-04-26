@@ -28,6 +28,7 @@
 #include <ast/exprs/PrefixOperatorExpr.hpp>
 #include <ast/exprs/TernaryExpr.hpp>
 #include <ast/exprs/VariableDeclExpr.hpp>
+#include <ast/decls/TemplateTraitDecl.hpp>
 
 namespace gulc {
     /**
@@ -52,6 +53,9 @@ namespace gulc {
         void instantiateTemplateStructInstDecl(TemplateStructDecl* parentTemplateStruct,
                                                TemplateStructInstDecl* templateStructInstDecl,
                                                bool processBodyStmts);
+        void instantiateTemplateTraitInstDecl(TemplateTraitDecl* parentTemplateTrait,
+                                              TemplateTraitInstDecl* templateTraitInstDecl,
+                                              bool processBodyStmts);
 
     protected:
         std::vector<TemplateParameterDecl*>* templateParameters;

@@ -47,6 +47,37 @@ void gulc::TemplateInstHelper::instantiateTemplateStructInstDecl(gulc::TemplateS
     }
 }
 
+void gulc::TemplateInstHelper::instantiateTemplateTraitInstDecl(gulc::TemplateTraitDecl* parentTemplateTrait,
+                                                                gulc::TemplateTraitInstDecl* templateTraitInstDecl,
+                                                                bool processBodyStmts) {
+    this->processBodyStmts = processBodyStmts;
+
+    // We instantiate the arguments here just in case any of them are default values that reference other template
+    // parameters
+    for (Expr* templateArgument : templateTraitInstDecl->templateArguments()) {
+        instantiateExpr(templateArgument);
+    }
+
+    templateParameters = &parentTemplateTrait->templateParameters();
+    templateArguments = &templateTraitInstDecl->templateArguments();
+
+    for (Attr* attribute : templateTraitInstDecl->attributes()) {
+        instantiateAttr(attribute);
+    }
+
+    for (Cont* contract : templateTraitInstDecl->contracts()) {
+        instantiateCont(contract);
+    }
+
+    for (Type*& inheritedType : templateTraitInstDecl->inheritedTypes()) {
+        instantiateType(inheritedType);
+    }
+
+    for (Decl* ownedMember : templateTraitInstDecl->ownedMembers()) {
+        instantiateDecl(ownedMember);
+    }
+}
+
 void gulc::TemplateInstHelper::instantiateAttr(gulc::Attr* attr) const {
     // TODO: There currently isn't anything to do here...
 }

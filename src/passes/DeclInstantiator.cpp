@@ -13,6 +13,7 @@
 #include <utilities/SignatureComparer.hpp>
 #include <utilities/TypeHelper.hpp>
 #include <ast/types/VTableType.hpp>
+#include <ast/types/TraitType.hpp>
 
 void gulc::DeclInstantiator::processFiles(std::vector<ASTFile>& files) {
     for (ASTFile& file : files) {
@@ -249,13 +250,19 @@ void gulc::DeclInstantiator::processDecl(gulc::Decl* decl, bool isGlobal) {
         case Decl::Kind::TemplateStruct:
             processTemplateStructDecl(llvm::dyn_cast<TemplateStructDecl>(decl));
             break;
+        case Decl::Kind::TemplateTrait:
+            processTemplateTraitDecl(llvm::dyn_cast<TemplateTraitDecl>(decl));
+            break;
+        case Decl::Kind::Trait:
+            processTraitDecl(llvm::dyn_cast<TraitDecl>(decl));
+            break;
         case Decl::Kind::Variable:
             processVariableDecl(llvm::dyn_cast<VariableDecl>(decl), isGlobal);
             break;
 
         default:
-//            printError("unknown declaration found!",
-//                       decl->startPosition(), decl->endPosition());
+            printError("INTERNAL ERROR - unhandled Decl type found in `DeclInstantiator`!",
+                       decl->startPosition(), decl->endPosition());
             // If we don't know the declaration we just skip it, we don't care in this pass
             break;
     }
@@ -618,6 +625,69 @@ void gulc::DeclInstantiator::processTemplateStructInstDecl(gulc::TemplateStructI
                                                          templateStructInstDecl, false);
 
     processStructDecl(templateStructInstDecl);
+}
+
+void gulc::DeclInstantiator::processTemplateTraitDecl(gulc::TemplateTraitDecl* templateTraitDecl) {
+    // The trait could already have been instantiated. We skip any that have already been processed...
+    if (templateTraitDecl->isInstantiated) {
+        return;
+    }
+
+    _workingDecls.push_back(templateTraitDecl);
+
+    for (TemplateParameterDecl* templateParameter : templateTraitDecl->templateParameters()) {
+        processTemplateParameterDecl(templateParameter);
+    }
+
+    _workingDecls.pop_back();
+
+    // TODO: Apply the same solution as `TemplateStructDecl` here...
+//    processTraitDecl(templateTraitDecl);
+    templateTraitDecl->isInstantiated = true;
+
+    for (TemplateTraitInstDecl* templateTraitInstDecl : templateTraitDecl->templateInstantiations()) {
+        processTemplateTraitInstDecl(templateTraitInstDecl);
+    }
+}
+
+void gulc::DeclInstantiator::processTemplateTraitInstDecl(gulc::TemplateTraitInstDecl* templateTraitInstDecl) {
+    // The trait could already have been instantiated. We skip any that have already been processed...
+    if (templateTraitInstDecl->isInstantiated) {
+        return;
+    }
+
+    TemplateInstHelper templateInstHelper;
+    templateInstHelper.instantiateTemplateTraitInstDecl(templateTraitInstDecl->parentTemplateTrait(),
+                                                         templateTraitInstDecl, false);
+
+    processTraitDecl(templateTraitInstDecl);
+}
+
+void gulc::DeclInstantiator::processTraitDecl(gulc::TraitDecl* traitDecl) {
+    // The trait could already have been instantiated. We skip any that have already been processed...
+    if (traitDecl->isInstantiated) {
+        return;
+    }
+
+    _workingDecls.push_back(traitDecl);
+
+    for (Type*& inheritedType : traitDecl->inheritedTypes()) {
+        if (!resolveType(inheritedType)) {
+            printError("trait inherited type `" + inheritedType->toString() + "` was not found!",
+                       traitDecl->startPosition(), traitDecl->endPosition());
+        }
+
+        if (!llvm::isa<TraitType>(inheritedType)) {
+            printError("traits can only extend other traits! (`" + inheritedType->toString() + "` is not a trait!)",
+                       inheritedType->startPosition(), inheritedType->endPosition());
+        }
+    }
+
+    for (Decl* member : traitDecl->ownedMembers()) {
+        processDecl(member, false);
+    }
+
+    _workingDecls.pop_back();
 }
 
 void gulc::DeclInstantiator::processVariableDecl(gulc::VariableDecl* variableDecl, bool isGlobal) {

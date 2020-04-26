@@ -23,6 +23,7 @@
 #include <ast/exprs/ArrayLiteralExpr.hpp>
 #include <ast/exprs/TypeExpr.hpp>
 #include <ast/decls/TemplateStructDecl.hpp>
+#include <ast/decls/TemplateTraitDecl.hpp>
 #include "Parser.hpp"
 
 using namespace gulc;
@@ -500,8 +501,7 @@ Decl* Parser::parseDecl() {
         case TokenType::CLASS:
             return parseStructDecl(attributes, visibility, isConst, startPosition, declModifiers, true);
         case TokenType::TRAIT:
-            printError("`trait` not yet supported!",
-                       _lexer.peekToken().startPosition, _lexer.peekToken().endPosition);
+            return parseTraitDecl(attributes, visibility, isConst, startPosition, declModifiers);
         case TokenType::UNION:
             printError("`union` not yet supported!",
                        _lexer.peekToken().startPosition, _lexer.peekToken().endPosition);
@@ -570,13 +570,20 @@ CallOperatorDecl* Parser::parseCallOperatorDecl(std::vector<Attr*> attributes, D
     }
 
     std::vector<Cont*> contracts(parseConts());
+    CompoundStmt* body = nullptr;
 
-    if (_lexer.peekType() != TokenType::LCURLY) {
-        printError("expected beginning `{` for call body, found `" + _lexer.peekCurrentSymbol() + "`!",
-                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    if (_lexer.consumeType(TokenType::SEMICOLON)) {
+        // If there is a semicolon then the function is marked as a `prototype`, mainly used for `trait` parsing
+        body = new CompoundStmt({}, {}, {});
+        declModifiers |= DeclModifiers::Prototype;
+    } else {
+        if (_lexer.peekType() != TokenType::LCURLY) {
+            printError("expected beginning `{` for call body, found `" + _lexer.peekCurrentSymbol() + "`!",
+                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
+        }
+
+        body = parseCompoundStmt();
     }
-
-    CompoundStmt* body = parseCompoundStmt();
 
     return new CallOperatorDecl(_fileID, std::move(attributes), visibility, isConstExpr, callKeyword,
                                declModifiers, parameters, returnType, contracts, body, startPosition, endPosition);
@@ -622,13 +629,20 @@ ConstructorDecl* Parser::parseConstructorDecl(std::vector<Attr*> attributes, Dec
 
     std::vector<ParameterDecl*> parameters(parseParameters(&endPosition));
     std::vector<Cont*> contracts(parseConts());
+    CompoundStmt* body = nullptr;
 
-    if (_lexer.peekType() != TokenType::LCURLY) {
-        printError("expected beginning `{` for init body, found `" + _lexer.peekCurrentSymbol() + "`!",
-                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    if (_lexer.consumeType(TokenType::SEMICOLON)) {
+        // If there is a semicolon then the function is marked as a `prototype`, mainly used for `trait` parsing
+        body = new CompoundStmt({}, {}, {});
+        declModifiers |= DeclModifiers::Prototype;
+    } else {
+        if (_lexer.peekType() != TokenType::LCURLY) {
+            printError("expected beginning `{` for init body, found `" + _lexer.peekCurrentSymbol() + "`!",
+                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
+        }
+
+        body = parseCompoundStmt();
     }
-
-    CompoundStmt* body = parseCompoundStmt();
 
     return new ConstructorDecl(_fileID, std::move(attributes), visibility, isConstExpr, initKeyword,
                                declModifiers, parameters, contracts, body, startPosition, endPosition,
@@ -663,13 +677,20 @@ DestructorDecl* Parser::parseDestructorDecl(std::vector<Attr*> attributes, Decl:
     }
 
     std::vector<Cont*> contracts(parseConts());
+    CompoundStmt* body = nullptr;
 
-    if (_lexer.peekType() != TokenType::LCURLY) {
-        printError("expected beginning `{` for init body, found `" + _lexer.peekCurrentSymbol() + "`!",
-                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    if (_lexer.consumeType(TokenType::SEMICOLON)) {
+        // If there is a semicolon then the function is marked as a `prototype`, mainly used for `trait` parsing
+        body = new CompoundStmt({}, {}, {});
+        declModifiers |= DeclModifiers::Prototype;
+    } else {
+        if (_lexer.peekType() != TokenType::LCURLY) {
+            printError("expected beginning `{` for deinit body, found `" + _lexer.peekCurrentSymbol() + "`!",
+                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
+        }
+
+        body = parseCompoundStmt();
     }
-
-    CompoundStmt* body = parseCompoundStmt();
 
     return new DestructorDecl(_fileID, std::move(attributes), visibility, isConstExpr, deinitKeyword,
                                declModifiers, contracts, body, startPosition, endPosition);
@@ -701,13 +722,20 @@ FunctionDecl* Parser::parseFunctionDecl(std::vector<Attr*> attributes, Decl::Vis
     }
 
     std::vector<Cont*> contracts(parseConts());
+    CompoundStmt* body = nullptr;
 
-    if (_lexer.peekType() != TokenType::LCURLY) {
-        printError("expected beginning `{` for `func` declaration, found `" + _lexer.peekCurrentSymbol() + "`!",
-                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    if (_lexer.consumeType(TokenType::SEMICOLON)) {
+        // If there is a semicolon then the function is marked as a `prototype`, mainly used for `trait` parsing
+        body = new CompoundStmt({}, {}, {});
+        declModifiers |= DeclModifiers::Prototype;
+    } else {
+        if (_lexer.peekType() != TokenType::LCURLY) {
+            printError("expected beginning `{` for `func` declaration, found `" + _lexer.peekCurrentSymbol() + "`!",
+                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
+        }
+
+        body = parseCompoundStmt();
     }
-
-    CompoundStmt* body = parseCompoundStmt();
 
     if (templateParameters.empty()) {
         return new FunctionDecl(_fileID, std::move(attributes), visibility, isConstExpr, funcName,
@@ -850,13 +878,20 @@ OperatorDecl* Parser::parseOperatorDecl(std::vector<Attr*> attributes, Decl::Vis
     }
 
     std::vector<Cont*> contracts(parseConts());
+    CompoundStmt* body = nullptr;
 
-    if (_lexer.peekType() != TokenType::LCURLY) {
-        printError("expected beginning `{` for `operator` declaration, found `" + _lexer.peekCurrentSymbol() + "`!",
-                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    if (_lexer.consumeType(TokenType::SEMICOLON)) {
+        // If there is a semicolon then the function is marked as a `prototype`, mainly used for `trait` parsing
+        body = new CompoundStmt({}, {}, {});
+        declModifiers |= DeclModifiers::Prototype;
+    } else {
+        if (_lexer.peekType() != TokenType::LCURLY) {
+            printError("expected beginning `{` for `operator` declaration, found `" + _lexer.peekCurrentSymbol() + "`!",
+                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
+        }
+
+        body = parseCompoundStmt();
     }
-
-    CompoundStmt* body = parseCompoundStmt();
 
     return new OperatorDecl(_fileID, std::move(attributes), visibility, isConstExpr, operatorType, operatorIdentifier,
                             declModifiers, parameters, returnType, contracts, body, startPosition, endPosition);
@@ -1077,13 +1112,20 @@ PropertyDecl* Parser::parsePropertyDecl(std::vector<Attr*> attributes, Decl::Vis
             }
 
             std::vector<Cont*> contracts = parseConts();
+            CompoundStmt* getterBody = nullptr;
 
-            if (_lexer.peekType() != TokenType::LCURLY) {
-                printError("expected beginning `{` for property `get` body!",
-                           _lexer.peekStartPosition(), _lexer.peekEndPosition());
+            if (_lexer.consumeType(TokenType::SEMICOLON)) {
+                // If there is a semicolon then the function is marked as a `prototype`, mainly used for `trait` parsing
+                getterBody = new CompoundStmt({}, {}, {});
+                declModifiers |= DeclModifiers::Prototype;
+            } else {
+                if (_lexer.peekType() != TokenType::LCURLY) {
+                    printError("expected beginning `{` for property `get` body!",
+                               _lexer.peekStartPosition(), _lexer.peekEndPosition());
+                }
+
+                getterBody = parseCompoundStmt();
             }
-
-            CompoundStmt* getterBody = parseCompoundStmt();
 
             getters.push_back(new PropertyGetDecl(_fileID, getSetAttributes, getSetVisibility, isConst,
                                                   getIdentifier, getSetModifiers, getReturnType, contracts, getterBody,
@@ -1100,13 +1142,20 @@ PropertyDecl* Parser::parsePropertyDecl(std::vector<Attr*> attributes, Decl::Vis
             _lexer.consumeType(TokenType::SYMBOL);
 
             std::vector<Cont*> contracts = parseConts();
+            CompoundStmt* setterBody = nullptr;
 
-            if (_lexer.peekType() != TokenType::LCURLY) {
-                printError("expected beginning `{` for property `set` body!",
-                           _lexer.peekStartPosition(), _lexer.peekEndPosition());
+            if (_lexer.consumeType(TokenType::SEMICOLON)) {
+                // If there is a semicolon then the function is marked as a `prototype`, mainly used for `trait` parsing
+                setterBody = new CompoundStmt({}, {}, {});
+                declModifiers |= DeclModifiers::Prototype;
+            } else {
+                if (_lexer.peekType() != TokenType::LCURLY) {
+                    printError("expected beginning `{` for property `set` body!",
+                               _lexer.peekStartPosition(), _lexer.peekEndPosition());
+                }
+
+                setterBody = parseCompoundStmt();
             }
-
-            CompoundStmt* setterBody = parseCompoundStmt();
 
             setter = new PropertySetDecl(_fileID, getSetAttributes, getSetVisibility, isConstExpr, setIdentifier,
                                          getSetModifiers, propertyType->deepCopy(), contracts, setterBody,
@@ -1277,13 +1326,20 @@ SubscriptOperatorDecl* Parser::parseSubscriptOperator(std::vector<Attr*> attribu
             }
 
             std::vector<Cont*> contracts = parseConts();
+            CompoundStmt* getterBody = nullptr;
 
-            if (_lexer.peekType() != TokenType::LCURLY) {
-                printError("expected beginning `{` for subscript `get` body!",
-                           _lexer.peekStartPosition(), _lexer.peekEndPosition());
+            if (_lexer.consumeType(TokenType::SEMICOLON)) {
+                // If there is a semicolon then the function is marked as a `prototype`, mainly used for `trait` parsing
+                getterBody = new CompoundStmt({}, {}, {});
+                declModifiers |= DeclModifiers::Prototype;
+            } else {
+                if (_lexer.peekType() != TokenType::LCURLY) {
+                    printError("expected beginning `{` for subscript `get` body!",
+                               _lexer.peekStartPosition(), _lexer.peekEndPosition());
+                }
+
+                getterBody = parseCompoundStmt();
             }
-
-            CompoundStmt* getterBody = parseCompoundStmt();
 
             getters.push_back(new SubscriptOperatorGetDecl(_fileID, getSetAttributes, getSetVisibility, isConst,
                                                   getIdentifier, getSetModifiers, getReturnType, contracts, getterBody,
@@ -1300,13 +1356,20 @@ SubscriptOperatorDecl* Parser::parseSubscriptOperator(std::vector<Attr*> attribu
             _lexer.consumeType(TokenType::SYMBOL);
 
             std::vector<Cont*> contracts = parseConts();
+            CompoundStmt* setterBody = nullptr;
 
-            if (_lexer.peekType() != TokenType::LCURLY) {
-                printError("expected beginning `{` for subscript `set` body!",
-                           _lexer.peekStartPosition(), _lexer.peekEndPosition());
+            if (_lexer.consumeType(TokenType::SEMICOLON)) {
+                // If there is a semicolon then the function is marked as a `prototype`, mainly used for `trait` parsing
+                setterBody = new CompoundStmt({}, {}, {});
+                declModifiers |= DeclModifiers::Prototype;
+            } else {
+                if (_lexer.peekType() != TokenType::LCURLY) {
+                    printError("expected beginning `{` for subscript `set` body!",
+                               _lexer.peekStartPosition(), _lexer.peekEndPosition());
+                }
+
+                setterBody = parseCompoundStmt();
             }
-
-            CompoundStmt* setterBody = parseCompoundStmt();
 
             setter = new SubscriptOperatorSetDecl(_fileID, getSetAttributes, getSetVisibility, isConstExpr,
                                                   setIdentifier, getSetModifiers, subscriptType->deepCopy(), contracts,
@@ -1325,6 +1388,70 @@ SubscriptOperatorDecl* Parser::parseSubscriptOperator(std::vector<Attr*> attribu
     return new SubscriptOperatorDecl(_fileID, std::move(attributes), visibility, isConstExpr, subscriptKeyword,
                                      parameters, subscriptType, startPosition, endPosition, declModifiers, getters,
                                      setter);
+}
+
+TraitDecl* Parser::parseTraitDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
+                                  TextPosition startPosition, DeclModifiers declModifiers) {
+    if (!_lexer.consumeType(TokenType::TRAIT)) {
+        printError("expected `trait`, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    if (_lexer.peekType() != TokenType::SYMBOL && _lexer.peekType() != TokenType::ATSYMBOL) {
+        printError("expected identifier after `trait`, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    Identifier name = parseIdentifier();
+    TextPosition endPosition = name.endPosition();
+
+    std::vector<TemplateParameterDecl*> templateParameters;
+
+    if (_lexer.peekType() == TokenType::LESS) {
+        templateParameters = parseTemplateParameters();
+    }
+
+    std::vector<Type*> inheritedTypes;
+
+    if (_lexer.consumeType(TokenType::COLON)) {
+        while (true) {
+            inheritedTypes.push_back(parseType());
+
+            if (!_lexer.consumeType(TokenType::COMMA)) {
+                break;
+            }
+        }
+    }
+
+    // NOTE: Only template traits can have contracts, non-templates don't have anything that could be contractual
+    std::vector<Cont*> contracts(parseConts());
+
+    if (!_lexer.consumeType(TokenType::LCURLY)) {
+        printError("expected beginning `{` for trait `" + name.name() + "`, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    std::vector<Decl*> members;
+
+    while (_lexer.peekType() != TokenType::RCURLY && _lexer.peekType() != TokenType::ENDOFFILE) {
+        Decl* parsedMember = parseDecl();
+
+        members.push_back(parsedMember);
+    }
+
+    if (!_lexer.consumeType(TokenType::RCURLY)) {
+        printError("expected ending `}` for trait `" + name.name() + "`, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    if (templateParameters.empty()) {
+        return new TraitDecl(_fileID, std::move(attributes), visibility, isConstExpr, name,
+                             startPosition, endPosition, inheritedTypes, contracts, members);
+    } else {
+        return new TemplateTraitDecl(_fileID, std::move(attributes), visibility, isConstExpr, name,
+                                     startPosition, endPosition, inheritedTypes, contracts, members,
+                                     templateParameters);
+    }
 }
 
 VariableDecl* Parser::parseVariableDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,

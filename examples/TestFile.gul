@@ -1,6 +1,10 @@
 import std;
 import std.io as IO;
 
+trait TestTrait {
+    func test() -> i32;
+}
+
 struct Example {
     public init() {
 
