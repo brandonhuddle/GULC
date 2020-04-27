@@ -10,6 +10,7 @@ namespace gulc {
         static bool classof(const Node* node) { return node->getNodeKind() == Node::Kind::Type; }
 
         enum class Kind {
+            Alias,
             BuiltIn,
             Dimension,
             Enum,

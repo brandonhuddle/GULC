@@ -1,8 +1,19 @@
 import std;
 import std.io as IO;
 
+// `prefix []` is a special case to allow `[,,][]i32` dynamic arrays
+//typealias prefix []<T, const dimensions: u64> = array<T, dimensions>;
+// `prefix x` is another special case allowing for `?i32`, `^i32`, `&i32`, etc. allowing for custom usages of unused
+// prefix characters. If it's found not to be too ambiguous and isn't too difficult to parse this might be extended to
+// support identifiers such as `shared<T> = std.shared_ptr<T>;` allowing for `shared i32`. This currently is not
+// supported though.
+// TODO: Support this
+//typealias prefix &<T> = ref T;
+// Basic `typealias` working the same as it does in Swift, C++ (typedef), etc.
+typealias int = i32;
+
 trait TestTrait {
-    func test() -> i32;
+    func test() -> int;
 }
 
 struct Example {

@@ -13,14 +13,14 @@ void gulc::TemplateInstHelper::instantiateTemplateStructInstDecl(gulc::TemplateS
                                                                  bool processBodyStmts) {
     this->processBodyStmts = processBodyStmts;
 
+    templateParameters = &parentTemplateStruct->templateParameters();
+    templateArguments = &templateStructInstDecl->templateArguments();
+
     // We instantiate the arguments here just in case any of them are default values that reference other template
     // parameters
     for (Expr* templateArgument : templateStructInstDecl->templateArguments()) {
         instantiateExpr(templateArgument);
     }
-
-    templateParameters = &parentTemplateStruct->templateParameters();
-    templateArguments = &templateStructInstDecl->templateArguments();
 
     for (Attr* attribute : templateStructInstDecl->attributes()) {
         instantiateAttr(attribute);
@@ -52,14 +52,14 @@ void gulc::TemplateInstHelper::instantiateTemplateTraitInstDecl(gulc::TemplateTr
                                                                 bool processBodyStmts) {
     this->processBodyStmts = processBodyStmts;
 
+    templateParameters = &parentTemplateTrait->templateParameters();
+    templateArguments = &templateTraitInstDecl->templateArguments();
+
     // We instantiate the arguments here just in case any of them are default values that reference other template
     // parameters
     for (Expr* templateArgument : templateTraitInstDecl->templateArguments()) {
         instantiateExpr(templateArgument);
     }
-
-    templateParameters = &parentTemplateTrait->templateParameters();
-    templateArguments = &templateTraitInstDecl->templateArguments();
 
     for (Attr* attribute : templateTraitInstDecl->attributes()) {
         instantiateAttr(attribute);
@@ -76,6 +76,21 @@ void gulc::TemplateInstHelper::instantiateTemplateTraitInstDecl(gulc::TemplateTr
     for (Decl* ownedMember : templateTraitInstDecl->ownedMembers()) {
         instantiateDecl(ownedMember);
     }
+}
+
+void gulc::TemplateInstHelper::instantiateType(gulc::Type*& type,
+                                               std::vector<TemplateParameterDecl*>* templateParameters,
+                                               std::vector<Expr*>* templateArguments) {
+    this->templateParameters = templateParameters;
+    this->templateArguments = templateArguments;
+
+    // We instantiate the arguments here just in case any of them are default values that reference other template
+    // parameters
+    for (Expr* templateArgument : *templateArguments) {
+        instantiateExpr(templateArgument);
+    }
+
+    instantiateType(type);
 }
 
 void gulc::TemplateInstHelper::instantiateAttr(gulc::Attr* attr) const {

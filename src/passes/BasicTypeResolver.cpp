@@ -121,6 +121,9 @@ void gulc::BasicTypeResolver::processDecl(gulc::Decl* decl, bool isGlobal) {
         case Decl::Kind::Trait:
             processTraitDecl(llvm::dyn_cast<TraitDecl>(decl));
             break;
+        case Decl::Kind::TypeAlias:
+            processTypeAliasDecl(llvm::dyn_cast<TypeAliasDecl>(decl));
+            break;
         case Decl::Kind::Variable:
             processVariableDecl(llvm::dyn_cast<VariableDecl>(decl), isGlobal);
             break;
@@ -320,6 +323,23 @@ void gulc::BasicTypeResolver::processTraitDecl(gulc::TraitDecl* traitDecl) {
     }
 
     _containingDecls.pop_back();
+}
+
+void gulc::BasicTypeResolver::processTypeAliasDecl(gulc::TypeAliasDecl* typeAliasDecl) {
+    // TODO: Detect circular references with the potential for `typealias prefix ^<T> = ^T;` or something.
+    for (TemplateParameterDecl* templateParameter : typeAliasDecl->templateParameters()) {
+        processTemplateParameterDecl(templateParameter);
+    }
+
+    if (typeAliasDecl->hasTemplateParameters()) {
+        _templateParameters.push_back(&typeAliasDecl->templateParameters());
+    }
+
+    resolveType(typeAliasDecl->typeValue);
+
+    if (typeAliasDecl->hasTemplateParameters()) {
+        _templateParameters.pop_back();
+    }
 }
 
 void gulc::BasicTypeResolver::processVariableDecl(gulc::VariableDecl* variableDecl, bool isGlobal) const {

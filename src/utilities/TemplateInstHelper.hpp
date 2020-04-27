@@ -56,6 +56,8 @@ namespace gulc {
         void instantiateTemplateTraitInstDecl(TemplateTraitDecl* parentTemplateTrait,
                                               TemplateTraitInstDecl* templateTraitInstDecl,
                                               bool processBodyStmts);
+        void instantiateType(Type*& type, std::vector<TemplateParameterDecl*>* templateParameters,
+                             std::vector<Expr*>* templateArguments);
 
     protected:
         std::vector<TemplateParameterDecl*>* templateParameters;

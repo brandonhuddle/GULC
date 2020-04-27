@@ -478,6 +478,17 @@ Decl* Parser::parseDecl() {
             if ((declModifiers & DeclModifiers::Override) == DeclModifiers::Override) printError("namespaces cannot be `override`!", startPosition, _lexer.peekEndPosition());
 
             return parseNamespaceDecl(attributes);
+        case TokenType::TYPEALIAS:
+            if ((declModifiers & DeclModifiers::Static) == DeclModifiers::Static) printError("typealiases cannot be `static`!", startPosition, _lexer.peekEndPosition());
+            if ((declModifiers & DeclModifiers::Extern) == DeclModifiers::Extern) printError("typealiases cannot be `extern`!", startPosition, _lexer.peekEndPosition());
+            if (isConst) printError("typealiases cannot be `const`!", startPosition, _lexer.peekEndPosition());
+            if ((declModifiers & DeclModifiers::Mut) == DeclModifiers::Mut) printError("typealiases cannot be `mut`!", startPosition, _lexer.peekEndPosition());
+            if ((declModifiers & DeclModifiers::Volatile) == DeclModifiers::Volatile) printError("typealiases cannot be `volatile`!", startPosition, _lexer.peekEndPosition());
+            if ((declModifiers & DeclModifiers::Abstract) == DeclModifiers::Abstract) printError("typealiases cannot be `abstract`!", startPosition, _lexer.peekEndPosition());
+            if ((declModifiers & DeclModifiers::Virtual) == DeclModifiers::Virtual) printError("typealiases cannot be `virtual`!", startPosition, _lexer.peekEndPosition());
+            if ((declModifiers & DeclModifiers::Override) == DeclModifiers::Override) printError("typealiases cannot be `override`!", startPosition, _lexer.peekEndPosition());
+
+            return parseTypeAliasDecl(attributes, visibility, startPosition);
 
         case TokenType::FUNC:
             return parseFunctionDecl(attributes, visibility, isConst, declModifiers, startPosition);
@@ -1452,6 +1463,70 @@ TraitDecl* Parser::parseTraitDecl(std::vector<Attr*> attributes, Decl::Visibilit
                                      startPosition, endPosition, inheritedTypes, contracts, members,
                                      templateParameters);
     }
+}
+
+TypeAliasDecl* Parser::parseTypeAliasDecl(std::vector<Attr*> attributes, Decl::Visibility visibility,
+                                          TextPosition startPosition) {
+    if (!_lexer.consumeType(TokenType::TYPEALIAS)) {
+        printError("expected `typealias`, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    TypeAliasType typeAliasType;
+    Identifier aliasIdentifier;
+
+    if (_lexer.consumeType(TokenType::PREFIX)) {
+        typeAliasType = TypeAliasType::Prefix;
+
+        TextPosition aliasStartPosition = _lexer.peekStartPosition();
+
+        // TODO: Support custom prefix operators such as `?`, `^`, `&`, `%`, etc.
+        if (_lexer.consumeType(TokenType::LSQUARE)) {
+            // Dimension type
+            TextPosition aliasEndPosition = _lexer.peekEndPosition();
+
+            if (!_lexer.consumeType(TokenType::RSQUARE)) {
+                printError("expected `]` for `prefix []`, found `" + _lexer.peekCurrentSymbol() + "`!",
+                           _lexer.peekStartPosition(), _lexer.peekEndPosition());
+            }
+
+            aliasIdentifier = Identifier(aliasStartPosition, aliasEndPosition, "[]");
+        } else {
+            printError("unexpected token after `typealias prefix`, expected `[]` but found `" + _lexer.peekCurrentSymbol() + "`!",
+                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
+        }
+    } else {
+        typeAliasType = TypeAliasType::Normal;
+
+        if (_lexer.peekType() != TokenType::SYMBOL && _lexer.peekType() != TokenType::ATSYMBOL) {
+            printError("expected identifier after `trait`, found `" + _lexer.peekCurrentSymbol() + "`!",
+                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
+        }
+
+        aliasIdentifier = parseIdentifier();
+    }
+    std::vector<TemplateParameterDecl*> templateParameters;
+
+    if (_lexer.peekType() == TokenType::LESS) {
+        templateParameters = parseTemplateParameters();
+    }
+
+    if (!_lexer.consumeType(TokenType::EQUALS)) {
+        printError("expected `=` for `typealias`, found `" + _lexer.peekCurrentSymbol() = "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    Type* typeValue = parseType();
+
+    TextPosition endPosition = _lexer.peekEndPosition();
+
+    if (!_lexer.consumeType(TokenType::SEMICOLON)) {
+        printError("expected `;` to end `typealias`, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    return new TypeAliasDecl(_fileID, std::move(attributes), visibility, typeAliasType, aliasIdentifier,
+                             templateParameters, typeValue, startPosition, endPosition);
 }
 
 VariableDecl* Parser::parseVariableDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,

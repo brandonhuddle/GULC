@@ -10,6 +10,11 @@
 #include <ast/types/StructType.hpp>
 #include <ast/decls/TemplateStructDecl.hpp>
 #include <ast/types/TemplatedType.hpp>
+#include <ast/decls/TraitDecl.hpp>
+#include <ast/decls/TemplateTraitDecl.hpp>
+#include <ast/types/TraitType.hpp>
+#include <ast/decls/TypeAliasDecl.hpp>
+#include <ast/types/AliasType.hpp>
 #include "TypeHelper.hpp"
 
 bool gulc::TypeHelper::resolveType(gulc::Type*& type, ASTFile const* currentFile,
@@ -96,6 +101,31 @@ bool gulc::TypeHelper::resolveType(gulc::Type*& type, ASTFile const* currentFile
                                     // We keep searching as this might be the wrong type...
                                 }
                             }
+                        } else if (llvm::isa<TemplateTraitDecl>(checkContainer)) {
+                            auto checkTemplateTrait = llvm::dyn_cast<TemplateTraitDecl>(checkContainer);
+
+                            if (checkTemplateTrait->identifier().name() == checkName) {
+                                // TODO: Support optional template parameters
+                                if (checkTemplateTrait->templateParameters().size() == unresolvedType->templateArguments.size()) {
+                                    potentialTemplates.push_back(checkTemplateTrait);
+                                    // We keep searching as this might be the wrong type...
+                                }
+                            }
+                        } else if (llvm::isa<TypeAliasDecl>(checkContainer)) {
+                            auto checkAlias = llvm::dyn_cast<TypeAliasDecl>(checkContainer);
+
+                            if (checkAlias->identifier().name() == checkName) {
+                                // We skip any aliases that don't have template parameters (since we have arguments)
+                                if (!checkAlias->hasTemplateParameters()) {
+                                    continue;
+                                }
+
+                                // TODO: Support optional template parameters
+                                if (checkAlias->templateParameters().size() == unresolvedType->templateArguments.size()) {
+                                    potentialTemplates.push_back(checkAlias);
+                                    // We keep searching as this might be the wrong type...
+                                }
+                            }
                         }
                     } else {
                         if (llvm::isa<StructDecl>(checkContainer)) {
@@ -105,6 +135,44 @@ bool gulc::TypeHelper::resolveType(gulc::Type*& type, ASTFile const* currentFile
                                 auto result = new StructType(unresolvedType->qualifier(), checkStruct,
                                                              unresolvedType->startPosition(),
                                                              unresolvedType->endPosition());
+                                result->setIsLValue(unresolvedType->isLValue());
+
+                                delete unresolvedType;
+
+                                type = result;
+
+                                return true;
+                            }
+                        } else if (llvm::isa<TraitDecl>(checkContainer)) {
+                            auto checkTrait = llvm::dyn_cast<TraitDecl>(checkContainer);
+
+                            if (checkTrait->identifier().name() == checkName) {
+                                auto result = new TraitType(unresolvedType->qualifier(), checkTrait,
+                                                            unresolvedType->startPosition(),
+                                                            unresolvedType->endPosition());
+                                result->setIsLValue(unresolvedType->isLValue());
+
+                                delete unresolvedType;
+
+                                type = result;
+
+                                return true;
+                            }
+                        } else if (llvm::isa<TypeAliasDecl>(checkContainer)) {
+                            auto checkAlias = llvm::dyn_cast<TypeAliasDecl>(checkContainer);
+
+                            if (checkAlias->identifier().name() == checkName) {
+                                // We skip any aliases that have template parameters (since we have no arguments)
+                                if (checkAlias->hasTemplateParameters()) {
+                                    continue;
+                                }
+
+                                // Rather than access `checkAlias->typeValue` we return an `AliasType`
+                                // this is due to the fact that if `checkAlias->typeValue` isn't resolve yet we will
+                                // give an error in the wrong spot OR potentially resolve it to the wrong area.
+                                auto result = new AliasType(unresolvedType->qualifier(), checkAlias,
+                                                            unresolvedType->startPosition(),
+                                                            unresolvedType->endPosition());
                                 result->setIsLValue(unresolvedType->isLValue());
 
                                 delete unresolvedType;
@@ -132,6 +200,31 @@ bool gulc::TypeHelper::resolveType(gulc::Type*& type, ASTFile const* currentFile
                                 // We keep searching as this might be the wrong type...
                             }
                         }
+                    } else if (llvm::isa<TemplateTraitDecl>(checkContainer)) {
+                        auto checkTemplateTrait = llvm::dyn_cast<TemplateTraitDecl>(checkContainer);
+
+                        if (checkTemplateTrait->identifier().name() == checkName) {
+                            // TODO: Support optional template parameters
+                            if (checkTemplateTrait->templateParameters().size() == unresolvedType->templateArguments.size()) {
+                                potentialTemplates.push_back(checkTemplateTrait);
+                                // We keep searching as this might be the wrong type...
+                            }
+                        }
+                    } else if (llvm::isa<TypeAliasDecl>(checkContainer)) {
+                        auto checkAlias = llvm::dyn_cast<TypeAliasDecl>(checkContainer);
+
+                        if (checkAlias->identifier().name() == checkName) {
+                            // We skip any aliases that don't have template parameters (since we have arguments)
+                            if (!checkAlias->hasTemplateParameters()) {
+                                continue;
+                            }
+
+                            // TODO: Support optional template parameters
+                            if (checkAlias->templateParameters().size() == unresolvedType->templateArguments.size()) {
+                                potentialTemplates.push_back(checkAlias);
+                                // We keep searching as this might be the wrong type...
+                            }
+                        }
                     }
                 } else {
                     if (llvm::isa<StructDecl>(checkContainer)) {
@@ -149,11 +242,51 @@ bool gulc::TypeHelper::resolveType(gulc::Type*& type, ASTFile const* currentFile
 
                             return true;
                         }
+                    } else if (llvm::isa<TraitDecl>(checkContainer)) {
+                        auto checkTrait = llvm::dyn_cast<TraitDecl>(checkContainer);
+
+                        if (checkTrait->identifier().name() == checkName) {
+                            auto result = new TraitType(unresolvedType->qualifier(), checkTrait,
+                                                        unresolvedType->startPosition(),
+                                                        unresolvedType->endPosition());
+                            result->setIsLValue(unresolvedType->isLValue());
+
+                            delete unresolvedType;
+
+                            type = result;
+
+                            return true;
+                        }
+                    } else if (llvm::isa<TypeAliasDecl>(checkContainer)) {
+                        auto checkAlias = llvm::dyn_cast<TypeAliasDecl>(checkContainer);
+
+                        if (checkAlias->identifier().name() == checkName) {
+                            // We skip any aliases that have template parameters (since we have no arguments)
+                            if (checkAlias->hasTemplateParameters()) {
+                                continue;
+                            }
+
+                            // Rather than access `checkAlias->typeValue` we return an `AliasType`
+                            // this is due to the fact that if `checkAlias->typeValue` isn't resolve yet we will
+                            // give an error in the wrong spot OR potentially resolve it to the wrong area.
+                            auto result = new AliasType(unresolvedType->qualifier(), checkAlias,
+                                                        unresolvedType->startPosition(),
+                                                        unresolvedType->endPosition());
+                            result->setIsLValue(unresolvedType->isLValue());
+
+                            delete unresolvedType;
+
+                            type = result;
+
+                            return true;
+                        }
                     }
                 }
             }
 
             // Then check our imports
+            // TODO: When checking imports account for ambiguity. Don't return true on first found Decl, keep searching
+            //       to make sure the type isn't ambiguous
 
             if (templated && !potentialTemplates.empty()) {
                 auto result = new TemplatedType(unresolvedType->qualifier(), potentialTemplates,
@@ -178,6 +311,10 @@ bool gulc::TypeHelper::resolveType(gulc::Type*& type, ASTFile const* currentFile
 
 bool gulc::TypeHelper::typeIsConstExpr(gulc::Type* resolvedType) {
     switch (resolvedType->getTypeKind()) {
+        case Type::Kind::Alias: {
+            auto aliasType = llvm::dyn_cast<AliasType>(resolvedType);
+            return typeIsConstExpr(aliasType->decl()->typeValue);
+        }
         case Type::Kind::BuiltIn:
             return true;
         case Type::Kind::Dimension:
@@ -200,6 +337,10 @@ bool gulc::TypeHelper::typeIsConstExpr(gulc::Type* resolvedType) {
             //       or not so we lie and say it is. If it turns out it isn't that must be handled in a pass
             return true;
         }
+        case Type::Kind::Trait: {
+            auto traitType = llvm::dyn_cast<TraitType>(resolvedType);
+            return traitType->decl()->isConstExpr();
+        }
         case Type::Kind::TemplateTypenameRef: {
             // NOTE: A template typename is considered const-qualified in this pass.
             //       If this is being used in a situation where `const` is required then the argument will be checked
@@ -220,14 +361,18 @@ bool gulc::TypeHelper::compareAreSame(const gulc::Type* left, const gulc::Type* 
     }
 
     switch (left->getTypeKind()) {
-        // TODO: Once we add `alias`/`typedef` how will we account for that here?
+        case Type::Kind::Alias: {
+            auto leftAlias = llvm::dyn_cast<AliasType>(left);
+            auto rightAlias = llvm::dyn_cast<AliasType>(right);
+
+            return compareAreSame(leftAlias->decl()->typeValue, rightAlias->decl()->typeValue);
+        }
         case Type::Kind::BuiltIn: {
             auto leftBuiltIn = llvm::dyn_cast<BuiltInType>(left);
             auto rightBuiltIn = llvm::dyn_cast<BuiltInType>(right);
 
-            // NOTE: All `BuiltIn` types are uniquely named, we use the names for comparison
-            //       (mainly for function overloading, `int` and `i32`
-            //        are both signed 32-bit integers but are NOT the same)
+            // NOTE: `typealias int = i32;` will mean `i32 == int` so they are the same type
+            //       `typealias` will be its own type that references a `BuiltInType`
             return leftBuiltIn->name() == rightBuiltIn->name();
         }
         case Type::Kind::Dimension:
@@ -265,6 +410,12 @@ bool gulc::TypeHelper::compareAreSame(const gulc::Type* left, const gulc::Type* 
             auto rightTemplateTypenameRef = llvm::dyn_cast<TemplateTypenameRefType>(right);
 
             return leftTemplateTypenameRef->refTemplateParameter() == rightTemplateTypenameRef->refTemplateParameter();
+        }
+        case Type::Kind::Trait: {
+            auto leftTrait = llvm::dyn_cast<TraitType>(left);
+            auto rightTrait = llvm::dyn_cast<TraitType>(right);
+
+            return leftTrait->decl() == rightTrait->decl();
         }
         case Type::Kind::Unresolved: {
             std::cerr << "FATAL ERROR: Unresolved types cannot be compared!" << std::endl;

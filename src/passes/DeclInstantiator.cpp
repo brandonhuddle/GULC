@@ -73,53 +73,35 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type) {
             bool declIsExact = true;
 
             switch (checkDecl->getDeclKind()) {
+                // TODO:
                 case Decl::Kind::TemplateStruct: {
                     auto templateStructDecl = llvm::dyn_cast<TemplateStructDecl>(checkDecl);
 
-                    if (templateStructDecl->templateParameters().size() <
-                        templatedType->templateArguments().size()) {
-                        // If there are more template arguments than parameters then we skip this Decl...
-                        break;
-                    }
+                    compareDeclTemplateArgsToParams(templatedType->templateArguments(),
+                                                    templateStructDecl->templateParameters(),
+                                                    &declIsMatch, &declIsExact);
 
-                    for (int i = 0; i < templateStructDecl->templateParameters().size(); ++i) {
-                        if (i >= templatedType->templateArguments().size()) {
-                            // TODO: Once we support default values for template types we need to account for them here.
-                            declIsMatch = false;
-                            declIsExact = false;
-                            break;
-                        } else {
-                            if (templateStructDecl->templateParameters()[i]->templateParameterKind() ==
-                                TemplateParameterDecl::TemplateParameterKind::Typename) {
-                                if (!llvm::isa<TypeExpr>(templatedType->templateArguments()[i])) {
-                                    // If the parameter is a `typename` then the argument MUST be a resolved type
-                                    declIsMatch = false;
-                                    declIsExact = false;
-                                    break;
-                                }
-                            } else {
-                                if (llvm::isa<TypeExpr>(templatedType->templateArguments()[i])) {
-                                    // If the parameter is a `const` then it MUST NOT be a type...
-                                    declIsMatch = false;
-                                    declIsExact = false;
-                                    break;
-                                } else if (llvm::isa<ValueLiteralExpr>(templatedType->templateArguments()[i])) {
-                                    auto valueLiteral = llvm::dyn_cast<ValueLiteralExpr>(templatedType->templateArguments()[i]);
+                    // NOTE: Once we've reached this point the decl has been completely evaluated...
 
-                                    if (!TypeHelper::compareAreSame(templateStructDecl->templateParameters()[i]->constType, valueLiteral->valueType)) {
-                                        // TODO: Support checking if an implicit cast is possible...
-                                        declIsMatch = false;
-                                        declIsExact = false;
-                                        break;
-                                    }
-                                } else {
-                                    printError("unsupported expression in template arguments list!",
-                                               templatedType->templateArguments()[i]->startPosition(),
-                                               templatedType->templateArguments()[i]->endPosition());
-                                }
-                            }
-                        }
-                    }
+                    break;
+                }
+                case Decl::Kind::TemplateTrait: {
+                    auto templateTraitDecl = llvm::dyn_cast<TemplateTraitDecl>(checkDecl);
+
+                    compareDeclTemplateArgsToParams(templatedType->templateArguments(),
+                                                    templateTraitDecl->templateParameters(),
+                                                    &declIsMatch, &declIsExact);
+
+                    // NOTE: Once we've reached this point the decl has been completely evaluated...
+
+                    break;
+                }
+                case Decl::Kind::TypeAlias: {
+                    auto typeAliasDecl = llvm::dyn_cast<TypeAliasDecl>(checkDecl);
+
+                    compareDeclTemplateArgsToParams(templatedType->templateArguments(),
+                                                    typeAliasDecl->templateParameters(),
+                                                    &declIsMatch, &declIsExact);
 
                     // NOTE: Once we've reached this point the decl has been completely evaluated...
 
@@ -179,6 +161,18 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type) {
                 // If the template struct instantiation isn't instantiated we have to call the `processDependantDecl`
                 // We call this instead of `processTemplateStructInstDecl` so that we properly check for circular
                 // references
+                // TODO: Should we always do this? This could cause an issue in some niche scenarios when compiling
+                //       a pointer to a tempalte struct. One potential issue is below:
+                //       ```
+                //       struct Example {
+                //           var member: *TemplateExample<i32>;
+                //       }
+                //       struct TemplateExample<T> : Example {
+                //           // This template will be processed AFTER `Example` and COULD cause a bug where
+                //           // instantiating `TemplateExample<i32>` causes a false error. We don't need
+                //           // `TemplateExample<i32>` to be processed for `Example` to be processed.
+                //       }
+                //       ```
                 if (!templateStructInstDecl->isInstantiated) {
                     processDependantDecl(templateStructInstDecl);
                 }
@@ -189,6 +183,35 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type) {
                 type = newType;
 
                 return true;
+            }
+            case Decl::Kind::TemplateTrait: {
+                auto templateTraitDecl = llvm::dyn_cast<TemplateTraitDecl>(foundTemplateDecl);
+
+                TemplateTraitInstDecl* templateTraitInstDecl = nullptr;
+                templateTraitDecl->getInstantiation(templatedType->templateArguments(), &templateTraitInstDecl);
+
+                // TODO: Ditto to above.
+                if (!templateTraitInstDecl->isInstantiated) {
+                    processDependantDecl(templateTraitInstDecl);
+                }
+
+                Type* newType = new TraitType(templatedType->qualifier(), templateTraitInstDecl,
+                                              templatedType->startPosition(), templatedType->endPosition());
+                delete type;
+                type = newType;
+
+                return true;
+            }
+            case Decl::Kind::TypeAlias: {
+                auto typeAlias = llvm::dyn_cast<TypeAliasDecl>(foundTemplateDecl);
+
+                // TODO: Should we apply the `qualifier`?
+                Type* newType = typeAlias->getInstantiation(templatedType->templateArguments());
+                delete type;
+                type = newType;
+
+                // We pass the `newType` back into `resolveType` since it might be a `TemplatedType`
+                return resolveType(newType);
             }
             default:
                 printWarning("[INTERNAL] unknown template declaration found in `BaseResolver::resolveType`!",
@@ -205,6 +228,61 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type) {
     }
 
     return false;
+}
+
+void gulc::DeclInstantiator::compareDeclTemplateArgsToParams(const std::vector<Expr*>& args,
+                                                             const std::vector<TemplateParameterDecl*>& params,
+                                                             bool* outIsMatch, bool* outIsExact) const {
+    if (params.size() < args.size()) {
+        // If there are more template arguments than parameters then we skip this Decl...
+        *outIsMatch = false;
+        *outIsExact = false;
+        return;
+    }
+
+    *outIsMatch = true;
+    // TODO: Once we support implicit casts and default template parameter values we need to set this to false
+    //       when we implicit cast or use a default template parameter.
+    *outIsExact = true;
+
+    for (int i = 0; i < params.size(); ++i) {
+        if (i >= args.size()) {
+            // TODO: Once we support default values for template types we need to account for them here.
+            *outIsMatch = false;
+            *outIsExact = false;
+            break;
+        } else {
+            if (params[i]->templateParameterKind() == TemplateParameterDecl::TemplateParameterKind::Typename) {
+                if (!llvm::isa<TypeExpr>(args[i])) {
+                    // If the parameter is a `typename` then the argument MUST be a resolved type
+                    *outIsMatch = false;
+                    *outIsExact = false;
+                    break;
+                }
+            } else {
+                if (llvm::isa<TypeExpr>(args[i])) {
+                    // If the parameter is a `const` then it MUST NOT be a type...
+                    *outIsMatch = false;
+                    *outIsExact = false;
+                    break;
+                } else if (llvm::isa<ValueLiteralExpr>(args[i])) {
+                    auto valueLiteral = llvm::dyn_cast<ValueLiteralExpr>(args[i]);
+
+                    if (!TypeHelper::compareAreSame(params[i]->constType, valueLiteral->valueType)) {
+                        // TODO: Support checking if an implicit cast is possible...
+                        *outIsMatch = false;
+                        *outIsExact = false;
+                        break;
+                    }
+                } else {
+                    printError("unsupported expression in template arguments list!",
+                               args[i]->startPosition(), args[i]->endPosition());
+                }
+            }
+        }
+    }
+
+    // NOTE: Once we've reached this point the decl has been completely evaluated...
 }
 
 void gulc::DeclInstantiator::processDecl(gulc::Decl* decl, bool isGlobal) {
@@ -255,6 +333,9 @@ void gulc::DeclInstantiator::processDecl(gulc::Decl* decl, bool isGlobal) {
             break;
         case Decl::Kind::Trait:
             processTraitDecl(llvm::dyn_cast<TraitDecl>(decl));
+            break;
+        case Decl::Kind::TypeAlias:
+            processTypeAliasDecl(llvm::dyn_cast<TypeAliasDecl>(decl));
             break;
         case Decl::Kind::Variable:
             processVariableDecl(llvm::dyn_cast<VariableDecl>(decl), isGlobal);
@@ -688,6 +769,17 @@ void gulc::DeclInstantiator::processTraitDecl(gulc::TraitDecl* traitDecl) {
     }
 
     _workingDecls.pop_back();
+}
+
+void gulc::DeclInstantiator::processTypeAliasDecl(gulc::TypeAliasDecl* typeAliasDecl) {
+    // TODO: Detect circular references with the potential for `typealias prefix ^<T> = ^T;` or something.
+    for (TemplateParameterDecl* templateParameter : typeAliasDecl->templateParameters()) {
+        processTemplateParameterDecl(templateParameter);
+    }
+
+    // NOTE: We don't process `typeAliasDecl->typeValue` again here. We want to keep the `TemplatedType` if it has one
+    // TODO: Once we add a `PartialType` for handling partially resolved templates we need to process
+    //       `typeAliasDecl->typeValue` here again.
 }
 
 void gulc::DeclInstantiator::processVariableDecl(gulc::VariableDecl* variableDecl, bool isGlobal) {

@@ -922,6 +922,10 @@ Token Lexer::parseToken(std::string& tokenText, TextPosition startPosition, bool
         result.metaType = TokenMetaType::KEYWORD;
         result.tokenType = TokenType::SUBSCRIPT;
         result.currentSymbol = "subscript";
+    } else if (tokenText == "typealias") {
+        result.metaType = TokenMetaType::KEYWORD;
+        result.tokenType = TokenType::TYPEALIAS;
+        result.currentSymbol = "typealias";
     } else {
         result.metaType = TokenMetaType::VALUE;
         result.tokenType = TokenType::SYMBOL;

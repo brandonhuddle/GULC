@@ -17,6 +17,7 @@
 #include <ast/decls/SubscriptOperatorDecl.hpp>
 #include <ast/decls/TraitDecl.hpp>
 #include <ast/decls/TemplateTraitDecl.hpp>
+#include <ast/decls/TypeAliasDecl.hpp>
 
 namespace gulc {
     /**
@@ -56,6 +57,10 @@ namespace gulc {
 
         bool resolveType(Type*& type);
 
+        void compareDeclTemplateArgsToParams(std::vector<Expr*> const& args,
+                                             std::vector<TemplateParameterDecl*> const& params,
+                                             bool* outIsMatch, bool* outIsExact) const;
+
         void processDecl(Decl* decl, bool isGlobal = true);
         void processFunctionDecl(FunctionDecl* functionDecl);
         void processNamespaceDecl(NamespaceDecl* namespaceDecl);
@@ -74,6 +79,7 @@ namespace gulc {
         void processTemplateTraitDecl(TemplateTraitDecl* templateTraitDecl);
         void processTemplateTraitInstDecl(TemplateTraitInstDecl* templateTraitInstDecl);
         void processTraitDecl(TraitDecl* traitDecl);
+        void processTypeAliasDecl(TypeAliasDecl* typeAliasDecl);
         void processVariableDecl(VariableDecl* variableDecl, bool isGlobal);
 
         // This will process a `Decl` while also checking for any circular dependencies using `_workingDecls`

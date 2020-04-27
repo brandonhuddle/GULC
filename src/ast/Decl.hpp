@@ -43,6 +43,8 @@ namespace gulc {
 
             Attribute,
 
+            TypeAlias,
+
             Namespace,
 
             Enum,

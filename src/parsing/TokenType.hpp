@@ -70,6 +70,7 @@ namespace gulc {
         DEINIT, // Destructor
         CALL, // Functor/functionoid
         SUBSCRIPT, // Indexer
+        TYPEALIAS,
 
         // Modifier Tokens
         PUBLIC, // 'public'

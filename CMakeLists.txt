@@ -85,11 +85,15 @@ add_executable(gulc
         src/ast/decls/TemplateTraitInstDecl.hpp
         src/ast/decls/TraitDecl.cpp
         src/ast/decls/TraitDecl.hpp
+        src/ast/decls/TypeAliasDecl.cpp
+        src/ast/decls/TypeAliasDecl.hpp
         src/ast/decls/VariableDecl.cpp
         src/ast/decls/VariableDecl.hpp
 
         src/ast/Type.cpp
         src/ast/Type.hpp
+        src/ast/types/AliasType.cpp
+        src/ast/types/AliasType.hpp
         src/ast/types/BuiltInType.cpp
         src/ast/types/BuiltInType.hpp
         src/ast/types/DimensionType.cpp

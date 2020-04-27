@@ -38,6 +38,7 @@
 #include <ast/decls/PropertyDecl.hpp>
 #include <ast/decls/SubscriptOperatorDecl.hpp>
 #include <ast/decls/TemplateTraitDecl.hpp>
+#include <ast/decls/TypeAliasDecl.hpp>
 
 namespace gulc {
     /**
@@ -92,6 +93,7 @@ namespace gulc {
         void processTemplateStructDecl(TemplateStructDecl* templateStructDecl);
         void processTemplateTraitDecl(TemplateTraitDecl* templateTraitDecl);
         void processTraitDecl(TraitDecl* traitDecl);
+        void processTypeAliasDecl(TypeAliasDecl* typeAliasDecl);
         void processVariableDecl(VariableDecl* variableDecl, bool isGlobal) const;
 
         void processStmt(Stmt* stmt) const;
