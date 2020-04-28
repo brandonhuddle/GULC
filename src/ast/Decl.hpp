@@ -39,7 +39,6 @@ namespace gulc {
             Trait,
             TemplateTrait,
             TemplateTraitInst,
-            Union,
 
             Attribute,
 

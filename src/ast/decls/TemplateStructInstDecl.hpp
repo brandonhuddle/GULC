@@ -65,9 +65,10 @@ namespace gulc {
             }
 
             return new TemplateStructInstDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr,
-                                              _identifier, _startPosition, _endPosition, _isClass,
-                                              copiedInheritedTypes, copiedContracts, copiedOwnedMembers, copiedConstructors,
-                                              copiedDestructorDecl, _parentTemplateStruct, copiedTemplateArguments);
+                                              _identifier, _startPosition, _endPosition,
+                                              _structKind, copiedInheritedTypes, copiedContracts, copiedOwnedMembers,
+                                              copiedConstructors, copiedDestructorDecl, _parentTemplateStruct,
+                                              copiedTemplateArguments);
         }
 
         ~TemplateStructInstDecl() override {
@@ -83,12 +84,12 @@ namespace gulc {
         TemplateStructInstDecl(unsigned int sourceFileID, std::vector<Attr*> attributes, Decl::Visibility visibility,
                                bool isConstExpr, Identifier identifier,
                                TextPosition startPosition, TextPosition endPosition,
-                               bool isClass, std::vector<Type*> inheritedTypes, std::vector<Cont*> contracts,
+                               Kind structKind, std::vector<Type*> inheritedTypes, std::vector<Cont*> contracts,
                                std::vector<Decl*> ownedMembers, std::vector<ConstructorDecl*> constructors,
                                DestructorDecl* destructor, TemplateStructDecl* parentTemplateStruct,
                                std::vector<Expr*> templateArguments)
                 : StructDecl(Decl::Kind::TemplateStructInst, sourceFileID, std::move(attributes), visibility,
-                             isConstExpr, std::move(identifier), startPosition, endPosition, isClass,
+                             isConstExpr, std::move(identifier), startPosition, endPosition, structKind,
                              std::move(inheritedTypes), std::move(contracts), std::move(ownedMembers),
                              std::move(constructors), destructor),
                   _parentTemplateStruct(parentTemplateStruct), _templateArguments(std::move(templateArguments)) {}

@@ -508,14 +508,16 @@ Decl* Parser::parseDecl() {
         case TokenType::OPERATOR:
             return parseOperatorDecl(attributes, visibility, isConst, declModifiers, startPosition);
         case TokenType::STRUCT:
-            return parseStructDecl(attributes, visibility, isConst, startPosition, declModifiers, false);
+            return parseStructDecl(attributes, visibility, isConst, startPosition, declModifiers,
+                                   StructDecl::Kind::Struct);
         case TokenType::CLASS:
-            return parseStructDecl(attributes, visibility, isConst, startPosition, declModifiers, true);
+            return parseStructDecl(attributes, visibility, isConst, startPosition, declModifiers,
+                                   StructDecl::Kind::Class);
+        case TokenType::UNION:
+            return parseStructDecl(attributes, visibility, isConst, startPosition, declModifiers,
+                                   StructDecl::Kind::Union);
         case TokenType::TRAIT:
             return parseTraitDecl(attributes, visibility, isConst, startPosition, declModifiers);
-        case TokenType::UNION:
-            printError("`union` not yet supported!",
-                       _lexer.peekToken().startPosition, _lexer.peekToken().endPosition);
 
         case TokenType::LET:
             printError("`let` cannot be used outside of function bodies or related! (use `static var` or `const var` instead)",
@@ -1187,23 +1189,31 @@ PropertyDecl* Parser::parsePropertyDecl(std::vector<Attr*> attributes, Decl::Vis
 }
 
 StructDecl* Parser::parseStructDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
-                                    TextPosition startPosition, DeclModifiers declModifiers, bool isClass) {
+                                    TextPosition startPosition, DeclModifiers declModifiers,
+                                    StructDecl::Kind structKind) {
     std::string errorName;
 
-    if (isClass) {
+    if (structKind == StructDecl::Kind::Class) {
         if (!_lexer.consumeType(TokenType::CLASS)) {
             printError("expected `class`, found `" + _lexer.peekCurrentSymbol() + "`!",
                        _lexer.peekStartPosition(), _lexer.peekEndPosition());
         }
 
         errorName = "class";
-    } else {
+    } else if (structKind == StructDecl::Kind::Struct) {
         if (!_lexer.consumeType(TokenType::STRUCT)) {
             printError("expected `struct`, found `" + _lexer.peekCurrentSymbol() + "`!",
                        _lexer.peekStartPosition(), _lexer.peekEndPosition());
         }
 
         errorName = "struct";
+    } else if (structKind == StructDecl::Kind::Union) {
+        if (!_lexer.consumeType(TokenType::UNION)) {
+            printError("expected `union`, found `" + _lexer.peekCurrentSymbol() + "`!",
+                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
+        }
+
+        errorName = "union";
     }
 
     if (_lexer.peekType() != TokenType::SYMBOL && _lexer.peekType() != TokenType::ATSYMBOL) {
@@ -1268,11 +1278,11 @@ StructDecl* Parser::parseStructDecl(std::vector<Attr*> attributes, Decl::Visibil
 
     if (templateParameters.empty()) {
         return new StructDecl(_fileID, std::move(attributes), visibility, isConstExpr, name,
-                              startPosition, endPosition, isClass, inheritedTypes, contracts, members, constructors,
+                              startPosition, endPosition, structKind, inheritedTypes, contracts, members, constructors,
                               destructor);
     } else {
         return new TemplateStructDecl(_fileID, std::move(attributes), visibility, isConstExpr, name,
-                                      startPosition, endPosition, isClass, inheritedTypes, contracts, members,
+                                      startPosition, endPosition, structKind, inheritedTypes, contracts, members,
                                       constructors, destructor, templateParameters);
     }
 }

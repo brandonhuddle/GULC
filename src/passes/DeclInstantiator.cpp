@@ -14,6 +14,7 @@
 #include <utilities/TypeHelper.hpp>
 #include <ast/types/VTableType.hpp>
 #include <ast/types/TraitType.hpp>
+#include <ast/types/AliasType.hpp>
 
 void gulc::DeclInstantiator::processFiles(std::vector<ASTFile>& files) {
     for (ASTFile& file : files) {
@@ -43,7 +44,22 @@ void gulc::DeclInstantiator::printWarning(std::string const& message, gulc::Text
 }
 
 bool gulc::DeclInstantiator::resolveType(gulc::Type*& type) {
-    if (llvm::isa<DimensionType>(type)) {
+    if (llvm::isa<AliasType>(type)) {
+        auto aliasType = llvm::dyn_cast<AliasType>(type);
+        Type* resultType = aliasType->decl()->getInstantiation({});
+
+        // We have to process the alias type value again...
+        bool resultBool = resolveType(resultType);
+
+        if (resultBool) {
+            delete type;
+            type = resultType;
+            return true;
+        } else {
+            delete resultType;
+            return false;
+        }
+    } else if (llvm::isa<DimensionType>(type)) {
         auto dimensionType = llvm::dyn_cast<DimensionType>(type);
 
         return resolveType(dimensionType->nestedType);
@@ -352,6 +368,13 @@ void gulc::DeclInstantiator::processDecl(gulc::Decl* decl, bool isGlobal) {
 void gulc::DeclInstantiator::processFunctionDecl(gulc::FunctionDecl* functionDecl) {
     for (ParameterDecl* parameter : functionDecl->parameters()) {
         processParameterDecl(parameter);
+    }
+
+    if (functionDecl->returnType != nullptr) {
+        if (!resolveType(functionDecl->returnType)) {
+            printError("function return type `" + functionDecl->returnType->toString() + "` was not found!",
+                       functionDecl->returnType->startPosition(), functionDecl->returnType->endPosition());
+        }
     }
 }
 
@@ -769,6 +792,8 @@ void gulc::DeclInstantiator::processTraitDecl(gulc::TraitDecl* traitDecl) {
     }
 
     _workingDecls.pop_back();
+
+    traitDecl->isInstantiated = true;
 }
 
 void gulc::DeclInstantiator::processTypeAliasDecl(gulc::TypeAliasDecl* typeAliasDecl) {

@@ -88,7 +88,8 @@ namespace gulc {
         PropertyDecl* parsePropertyDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
                                         DeclModifiers declModifiers, TextPosition startPosition);
         StructDecl* parseStructDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
-                                    TextPosition startPosition, DeclModifiers declModifiers, bool isClass);
+                                    TextPosition startPosition, DeclModifiers declModifiers,
+                                    StructDecl::Kind structKind);
         SubscriptOperatorDecl* parseSubscriptOperator(std::vector<Attr*> attributes, Decl::Visibility visibility,
                                                       bool isConstExpr, TextPosition startPosition,
                                                       DeclModifiers declModifiers);

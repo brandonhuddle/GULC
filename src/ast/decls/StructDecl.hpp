@@ -12,16 +12,34 @@ namespace gulc {
     public:
         static bool classof(const Decl* decl) { return decl->getDeclKind() == Decl::Kind::Struct; }
 
+        enum class Kind {
+            Struct,
+            Class,
+            Union
+        };
+
         StructDecl(unsigned int sourceFileID, std::vector<Attr*> attributes, Decl::Visibility visibility,
                    bool isConstExpr, Identifier identifier, TextPosition startPosition, TextPosition endPosition,
-                   bool isClass, std::vector<Type*> inheritedTypes, std::vector<Cont*> contracts,
+                   Kind structKind, std::vector<Type*> inheritedTypes, std::vector<Cont*> contracts,
                    std::vector<Decl*> ownedMembers, std::vector<ConstructorDecl*> constructors,
                    DestructorDecl* destructor)
                 : StructDecl(Decl::Kind::Struct, sourceFileID, std::move(attributes), visibility, isConstExpr,
-                             std::move(identifier), startPosition, endPosition, isClass, std::move(inheritedTypes),
+                             std::move(identifier), startPosition, endPosition, structKind, std::move(inheritedTypes),
                              std::move(contracts), std::move(ownedMembers), std::move(constructors), destructor) {}
 
-        bool isClass() const { return _isClass; }
+//        bool isClass() const { return _isClass; }
+        Kind structKind() const { return _structKind; }
+        std::string structKindName() const {
+            switch (_structKind) {
+                case Kind::Struct:
+                    return "struct";
+                case Kind::Class:
+                    return "class";
+                case Kind::Union:
+                    return "union";
+            }
+        }
+
         std::vector<Type*>& inheritedTypes() { return _inheritedTypes; }
         std::vector<Type*> const& inheritedTypes() const { return _inheritedTypes; }
         std::vector<Cont*>& contracts() { return _contracts; }
@@ -73,7 +91,7 @@ namespace gulc {
             }
 
             return new StructDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr,
-                                  _identifier, _startPosition, _endPosition, _isClass,
+                                  _identifier, _startPosition, _endPosition, _structKind,
                                   copiedInheritedTypes, copiedContracts, copiedOwnedMembers, copiedConstructors,
                                   copiedDestructorDecl);
         }
@@ -134,20 +152,20 @@ namespace gulc {
     protected:
         StructDecl(Decl::Kind declKind, unsigned int sourceFileID, std::vector<Attr*> attributes,
                    Decl::Visibility visibility, bool isConstExpr, Identifier identifier,
-                   TextPosition startPosition, TextPosition endPosition, bool isClass,
+                   TextPosition startPosition, TextPosition endPosition, Kind structKind,
                    std::vector<Type*> inheritedTypes, std::vector<Cont*> contracts, std::vector<Decl*> ownedMembers,
                    std::vector<ConstructorDecl*> constructors, DestructorDecl* destructor)
                 : Decl(declKind, sourceFileID, std::move(attributes), visibility, isConstExpr, std::move(identifier)),
                   baseStruct(nullptr), memoryLayout(), dataSizeWithoutPadding(0), dataSizeWithPadding(0),
                   vtableOwner(nullptr),
                   _startPosition(startPosition), _endPosition(endPosition),
-                  _isClass(isClass), _inheritedTypes(std::move(inheritedTypes)), _contracts(std::move(contracts)),
-                  _ownedMembers(std::move(ownedMembers)), _constructors(std::move(constructors)),
-                  destructor(destructor) {}
+                  _structKind(structKind), _inheritedTypes(std::move(inheritedTypes)),
+                  _contracts(std::move(contracts)), _ownedMembers(std::move(ownedMembers)),
+                  _constructors(std::move(constructors)), destructor(destructor) {}
 
         TextPosition _startPosition;
         TextPosition _endPosition;
-        bool _isClass;
+        Kind _structKind;
         // This a list of both the possible base struct AND the inherited traits
         std::vector<Type*> _inheritedTypes;
         std::vector<Cont*> _contracts;

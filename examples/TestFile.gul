@@ -16,6 +16,11 @@ trait TestTrait {
     func test() -> int;
 }
 
+union UnionTest {
+    var member1: i32;
+    var member2: i64;
+}
+
 struct Example {
     public init() {
 
