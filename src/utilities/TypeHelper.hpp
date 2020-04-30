@@ -12,16 +12,17 @@ namespace gulc {
         static bool resolveType(Type*& unresolvedType, ASTFile const* currentFile,
                                 std::vector<NamespaceDecl*>& namespacePrototypes,
                                 std::vector<std::vector<TemplateParameterDecl*>*> const& templateParameters,
-                                std::vector<gulc::Decl*> const& containingDecls);
+                                std::vector<gulc::Decl*> const& containingDecls, bool* outIsAmbiguous);
         static bool typeIsConstExpr(Type* resolvedType);
         static bool compareAreSame(Type const* left, Type const* right);
 
     protected:
         static bool resolveTypeToDecl(Type*& type, Decl* checkDecl, std::string const& checkName,
                                       bool templated, std::vector<Decl*>& potentialTemplates,
-                                      bool searchMembers, bool resolveToCheckDecl);
+                                      bool searchMembers, bool resolveToCheckDecl, Decl** outFoundDecl = nullptr);
         static bool resolveNamespacePathToDecl(std::vector<Identifier> const& namespacePath, std::size_t pathIndex,
                                                std::vector<Decl*> const& declList, Decl** resultDecl);
+        static bool checkImportForAmbiguity(ImportDecl* importDecl, std::string const& checkName, Decl* skipDecl);
 
     };
 }

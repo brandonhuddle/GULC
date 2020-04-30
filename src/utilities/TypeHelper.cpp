@@ -21,24 +21,26 @@
 bool gulc::TypeHelper::resolveType(gulc::Type*& type, ASTFile const* currentFile,
                                    std::vector<NamespaceDecl*>& namespacePrototypes,
                                    std::vector<std::vector<TemplateParameterDecl*>*> const& templateParameters,
-                                   std::vector<gulc::Decl*> const& containingDecls) {
+                                   std::vector<gulc::Decl*> const& containingDecls, bool* outIsAmbiguous) {
+    *outIsAmbiguous = false;
+
     switch (type->getTypeKind()) {
         case Type::Kind::BuiltIn:
             return true;
         case Type::Kind::Dimension: {
             auto dimensionType = llvm::dyn_cast<DimensionType>(type);
-            return resolveType(dimensionType->nestedType, currentFile, namespacePrototypes, templateParameters,
-                               containingDecls);
+            return resolveType(dimensionType->nestedType, currentFile, namespacePrototypes,
+                               templateParameters, containingDecls, outIsAmbiguous);
         }
         case Type::Kind::Pointer: {
             auto pointerType = llvm::dyn_cast<PointerType>(type);
-            return resolveType(pointerType->nestedType, currentFile, namespacePrototypes, templateParameters,
-                               containingDecls);
+            return resolveType(pointerType->nestedType, currentFile, namespacePrototypes,
+                               templateParameters, containingDecls, outIsAmbiguous);
         }
         case Type::Kind::Reference: {
             auto referenceType = llvm::dyn_cast<ReferenceType>(type);
-            return resolveType(referenceType->nestedType, currentFile, namespacePrototypes, templateParameters,
-                               containingDecls);
+            return resolveType(referenceType->nestedType, currentFile, namespacePrototypes,
+                               templateParameters, containingDecls, outIsAmbiguous);
         }
         case Type::Kind::Unresolved: {
             auto unresolvedType = llvm::dyn_cast<UnresolvedType>(type);
@@ -104,8 +106,29 @@ bool gulc::TypeHelper::resolveType(gulc::Type*& type, ASTFile const* currentFile
                     }
                 }
 
-                // If we still haven't found the container we check all namespace prototypes
+                // If we haven't found the container we check the imports with aliases
             exitCurrentFileDeclarationsLoop:
+                if (foundContainer == nullptr) {
+                    for (ImportDecl* checkImport : currentFile->imports) {
+                        if (checkImport->hasAlias()) {
+                            if (checkImport->importAlias().name() == firstPathName) {
+                                if (unresolvedType->namespacePath().size() > 1) {
+                                    if (resolveNamespacePathToDecl(unresolvedType->namespacePath(), 1,
+                                                                   checkImport->pointToNamespace->nestedDecls(),
+                                                                   &foundContainer)) {
+                                        goto exitNamespacePrototypesLoop;
+                                    }
+                                } else {
+                                    foundContainer = checkImport->pointToNamespace;
+                                    goto exitNamespacePrototypesLoop;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // If we still haven't found the container we check all namespace prototypes
+            exitImportAliasesLoop:
                 if (foundContainer == nullptr) {
                     for (NamespaceDecl* checkNamespace : namespacePrototypes) {
                         if (checkNamespace->identifier().name() == firstPathName) {
@@ -210,7 +233,6 @@ bool gulc::TypeHelper::resolveType(gulc::Type*& type, ASTFile const* currentFile
                     }
                 }
 
-
                 // Then check our file
                 for (Decl* checkDecl : currentFile->declarations) {
                     // We set `searchMembers` to false because the declarations in the current file may not actually be
@@ -222,8 +244,36 @@ bool gulc::TypeHelper::resolveType(gulc::Type*& type, ASTFile const* currentFile
                 }
 
                 // Then check our imports
-                // TODO: When checking imports account for ambiguity. Don't return true on first found Decl, keep searching
-                //       to make sure the type isn't ambiguous
+                {
+                    // For import we have to do an ambiguity check. If this isn't false when we find a Decl then that
+                    // means the type reference is ambiguous and needs to be manually disambiguated.
+                    bool typeWasResolved = false;
+                    Decl* foundDecl = nullptr;
+
+                    for (ImportDecl* checkImport : currentFile->imports) {
+                        // We ignore any imports with aliases (we can only implicitly search the non-aliased)
+                        if (!checkImport->hasAlias()) {
+                            if (!typeWasResolved) {
+                                if (resolveTypeToDecl(type, checkImport->pointToNamespace, checkName, templated,
+                                                      potentialTemplates, false, true,
+                                                      &foundDecl)) {
+                                    typeWasResolved = true;
+                                }
+                            } else {
+                                if (checkImportForAmbiguity(checkImport, checkName, foundDecl)) {
+                                    // Notify we resolved the type while also notifying that the type is ambiguous
+                                    *outIsAmbiguous = true;
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+
+                    if (typeWasResolved) {
+                        // If the type was resolved and wasn't ambiguous we return true here.
+                        return true;
+                    }
+                }
 
                 if (templated && !potentialTemplates.empty()) {
                     auto result = new TemplatedType(unresolvedType->qualifier(), potentialTemplates,
@@ -370,7 +420,7 @@ bool gulc::TypeHelper::compareAreSame(const gulc::Type* left, const gulc::Type* 
 bool gulc::TypeHelper::resolveTypeToDecl(Type*& type, gulc::Decl* checkDecl,
                                          std::string const& checkName, bool templated,
                                          std::vector<Decl*>& potentialTemplates,
-                                         bool searchMembers, bool resolveToCheckDecl) {
+                                         bool searchMembers, bool resolveToCheckDecl, Decl** outFoundDecl) {
     auto unresolvedType = llvm::dyn_cast<UnresolvedType>(type);
 
     switch (checkDecl->getDeclKind()) {
@@ -383,7 +433,11 @@ bool gulc::TypeHelper::resolveTypeToDecl(Type*& type, gulc::Decl* checkDecl,
                 // Nested Decl will always have `searchMembers` set to false to avoid following branches.
                 // We only want to check the owned members, not the members of the namespace members.
                 if (resolveTypeToDecl(type, checkNestedDecl, checkName, templated, potentialTemplates,
-                                      false, true)) {
+                                      false, true, outFoundDecl)) {
+                    if (outFoundDecl != nullptr) {
+                        *outFoundDecl = checkNestedDecl;
+                    }
+
                     // We only return true if the Decl was resolved
                     return true;
                 }
@@ -400,7 +454,11 @@ bool gulc::TypeHelper::resolveTypeToDecl(Type*& type, gulc::Decl* checkDecl,
                 // Nested Decl will always have `searchMembers` set to false to avoid following branches.
                 // We only want to check the owned members, not the members of the namespace members.
                 if (resolveTypeToDecl(type, checkNestedDecl, checkName, templated, potentialTemplates,
-                                      false, true)) {
+                                      false, true, outFoundDecl)) {
+                    if (outFoundDecl != nullptr) {
+                        *outFoundDecl = checkNestedDecl;
+                    }
+
                     // We only return true if the Decl was resolved
                     return true;
                 }
@@ -417,7 +475,11 @@ bool gulc::TypeHelper::resolveTypeToDecl(Type*& type, gulc::Decl* checkDecl,
                 // Nested Decl will always have `searchMembers` set to false to avoid following branches.
                 // We only want to check the owned members, not the members of the namespace members.
                 if (resolveTypeToDecl(type, checkNestedDecl, checkName, templated, potentialTemplates,
-                                      false, true)) {
+                                      false, true, outFoundDecl)) {
+                    if (outFoundDecl != nullptr) {
+                        *outFoundDecl = checkNestedDecl;
+                    }
+
                     // We only return true if the Decl was resolved
                     return true;
                 }
@@ -438,13 +500,21 @@ bool gulc::TypeHelper::resolveTypeToDecl(Type*& type, gulc::Decl* checkDecl,
 
                 type = result;
 
+                if (outFoundDecl != nullptr) {
+                    *outFoundDecl = checkDecl;
+                }
+
                 return true;
             } else if (searchMembers) {
                 for (Decl* checkNestedDecl : checkStruct->ownedMembers()) {
                     // Nested Decl will always have `searchMembers` set to false to avoid following branches.
                     // We only want to check the owned members, not the members of the namespace members.
                     if (resolveTypeToDecl(type, checkNestedDecl, checkName, templated, potentialTemplates,
-                                          false, true)) {
+                                          false, true, outFoundDecl)) {
+                        if (outFoundDecl != nullptr) {
+                            *outFoundDecl = checkNestedDecl;
+                        }
+
                         // We only return true if the Decl was resolved
                         return true;
                     }
@@ -468,13 +538,21 @@ bool gulc::TypeHelper::resolveTypeToDecl(Type*& type, gulc::Decl* checkDecl,
 
                 type = result;
 
+                if (outFoundDecl != nullptr) {
+                    *outFoundDecl = checkDecl;
+                }
+
                 return true;
             } else if (searchMembers) {
                 for (Decl* checkNestedDecl : checkTrait->ownedMembers()) {
                     // Nested Decl will always have `searchMembers` set to false to avoid following branches.
                     // We only want to check the owned members, not the members of the namespace members.
                     if (resolveTypeToDecl(type, checkNestedDecl, checkName, templated, potentialTemplates,
-                                          false, true)) {
+                                          false, true, outFoundDecl)) {
+                        if (outFoundDecl != nullptr) {
+                            *outFoundDecl = checkNestedDecl;
+                        }
+
                         // We only return true if the Decl was resolved
                         return true;
                     }
@@ -545,6 +623,10 @@ bool gulc::TypeHelper::resolveTypeToDecl(Type*& type, gulc::Decl* checkDecl,
                     delete unresolvedType;
 
                     type = result;
+
+                    if (outFoundDecl != nullptr) {
+                        *outFoundDecl = checkDecl;
+                    }
 
                     return true;
                 }
@@ -631,5 +713,53 @@ bool gulc::TypeHelper::resolveNamespacePathToDecl(const std::vector<Identifier>&
                 continue;
         }
     }
+    return false;
+}
+
+bool gulc::TypeHelper::checkImportForAmbiguity(gulc::ImportDecl* importDecl, const std::string& checkName,
+                                               gulc::Decl* skipDecl) {
+    for (Decl* checkDecl : importDecl->pointToNamespace->nestedDecls()) {
+        if (checkDecl == skipDecl) continue;
+
+        switch (checkDecl->getDeclKind()) {
+            case Decl::Kind::Struct: {
+                auto structDecl = llvm::dyn_cast<StructDecl>(checkDecl);
+
+                if (structDecl->identifier().name() == checkName) {
+                    // If the identifier is the same then we found an ambiguity.
+                    return true;
+                }
+
+                break;
+            }
+            case Decl::Kind::Trait: {
+                auto traitDecl = llvm::dyn_cast<TraitDecl>(checkDecl);
+
+                if (traitDecl->identifier().name() == checkName) {
+                    // If the identifier is the same then we found an ambiguity.
+                    return true;
+                }
+
+                break;
+            }
+            case Decl::Kind::TypeAlias: {
+                auto typeAlias = llvm::dyn_cast<TypeAliasDecl>(checkDecl);
+
+                // We skip the templates, we can't resolve to them
+                if (typeAlias->hasTemplateParameters()) continue;
+
+                if (typeAlias->identifier().name() == checkName) {
+                    // If the identifier is the same then we found an ambiguity.
+                    return true;
+                }
+
+                break;
+            }
+            default:
+                // NOTE: We don't have to handle any templates
+                continue;
+        }
+    }
+
     return false;
 }

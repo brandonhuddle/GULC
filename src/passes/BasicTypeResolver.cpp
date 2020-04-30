@@ -36,10 +36,16 @@ void gulc::BasicTypeResolver::printWarning(std::string const& message, gulc::Tex
 }
 
 bool gulc::BasicTypeResolver::resolveType(gulc::Type*& type) const {
+    bool isAmbiguous = false;
     bool result = TypeHelper::resolveType(type, _currentFile, _namespacePrototypes, _templateParameters,
-                                          _containingDecls);
+                                          _containingDecls, &isAmbiguous);
 
     if (result) {
+        if (isAmbiguous) {
+            printError("type `" + type->toString() + "` is ambiguous!",
+                       type->startPosition(), type->endPosition());
+        }
+
         processType(type);
     }
 
