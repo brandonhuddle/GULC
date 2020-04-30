@@ -4,17 +4,21 @@
 #include <ast/Decl.hpp>
 #include <vector>
 #include <optional>
+#include "NamespaceDecl.hpp"
 
 namespace gulc {
     class ImportDecl : public Decl {
     public:
         static bool classof(const Decl* decl) { return decl->getDeclKind() == Decl::Kind::Import; }
 
+        // Namespace the import points to, we don't own this so we don't free it...
+        NamespaceDecl* pointToNamespace;
+
         ImportDecl(unsigned int sourceFileID, std::vector<Attr*> attributes,
                    TextPosition importStartPosition, TextPosition importEndPosition,
                    std::vector<Identifier> importPath)
                 : Decl(Decl::Kind::Import, sourceFileID, std::move(attributes),
-                       Decl::Visibility::Unassigned, false, {}),
+                       Decl::Visibility::Unassigned, false, {}, DeclModifiers::None),
                   _importStartPosition(importStartPosition), _importEndPosition(importEndPosition),
                   _importPath(std::move(importPath)), _asStartPosition(), _asEndPosition(),
                   _importAlias() {}
@@ -24,7 +28,7 @@ namespace gulc {
                    std::vector<Identifier> importPath, TextPosition asStartPosition, TextPosition asEndPosition,
                    Identifier importAlias)
                 : Decl(Decl::Kind::Import, sourceFileID, std::move(attributes),
-                       Decl::Visibility::Unassigned, false, {}),
+                       Decl::Visibility::Unassigned, false, {}, DeclModifiers::None),
                   _importStartPosition(importStartPosition), _importEndPosition(importEndPosition),
                   _importPath(std::move(importPath)), _asStartPosition(asStartPosition), _asEndPosition(asEndPosition),
                   _importAlias(importAlias) {}
@@ -36,6 +40,16 @@ namespace gulc {
         TextPosition asStartPosition() const { return _asStartPosition; }
         TextPosition asEndPosition() const { return _asEndPosition; }
         Identifier const& importAlias() const { return _importAlias.value(); }
+
+        std::string importPathToString() const {
+            std::string result = _importPath[0].name();
+
+            for (std::size_t i = 1; i < _importPath.size(); ++i) {
+                result += "." + _importPath[i].name();
+            }
+
+            return result;
+        }
 
         TextPosition startPosition() const override { return _importStartPosition; }
         TextPosition endPosition() const override {
@@ -58,16 +72,21 @@ namespace gulc {
                 copiedAttributes.push_back(attribute->deepCopy());
             }
 
+            ImportDecl* result = nullptr;
+
             if (_importAlias.has_value()) {
-                return new ImportDecl(_sourceFileID, copiedAttributes,
-                                      _importStartPosition, _importEndPosition,
-                                      _importPath, _asStartPosition, _asEndPosition,
-                                      _importAlias.value());
+                result =  new ImportDecl(_sourceFileID, copiedAttributes,
+                                         _importStartPosition, _importEndPosition,
+                                         _importPath, _asStartPosition, _asEndPosition,
+                                         _importAlias.value());
             } else {
-                return new ImportDecl(_sourceFileID, copiedAttributes,
-                                      _importStartPosition, _importEndPosition,
-                                      _importPath);
+                result =  new ImportDecl(_sourceFileID, copiedAttributes,
+                                         _importStartPosition, _importEndPosition,
+                                         _importPath);
             }
+
+            result->pointToNamespace = pointToNamespace;
+            return result;
         }
 
     protected:

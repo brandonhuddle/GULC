@@ -24,14 +24,16 @@ namespace gulc {
         TemplateParameterDecl(unsigned int sourceFileID, std::vector<Attr*> attributes, Identifier identifier,
                               TextPosition startPosition, TextPosition endPosition)
                 : Decl(Decl::Kind::TemplateParameter, sourceFileID, std::move(attributes),
-                       Decl::Visibility::Unassigned, true, std::move(identifier)),
+                       Decl::Visibility::Unassigned, true, std::move(identifier),
+                       DeclModifiers::None),
                   constType(nullptr), _templateParameterKind(TemplateParameterKind::Typename),
                   _startPosition(startPosition), _endPosition(endPosition) {}
         // Constructor for `const`
         TemplateParameterDecl(unsigned int sourceFileID, std::vector<Attr*> attributes, Identifier identifier,
                               Type* type, TextPosition startPosition, TextPosition endPosition)
                 : Decl(Decl::Kind::TemplateParameter, sourceFileID, std::move(attributes),
-                       Decl::Visibility::Unassigned, true, std::move(identifier)),
+                       Decl::Visibility::Unassigned, true, std::move(identifier),
+                       DeclModifiers::None),
                   constType(type), _templateParameterKind(TemplateParameterKind::Const),
                   _startPosition(startPosition), _endPosition(endPosition) {}
 

@@ -39,17 +39,6 @@ namespace gulc {
         std::vector<Cont*> const& contracts() const { return _contracts; }
         CompoundStmt* body() const { return _body; }
 
-        bool isStatic() const { return (_declModifiers & DeclModifiers::Static) == DeclModifiers::Static; }
-        bool isMutable() const { return (_declModifiers & DeclModifiers::Mut) == DeclModifiers::Mut; }
-        bool isVolatile() const { return (_declModifiers & DeclModifiers::Volatile) == DeclModifiers::Volatile; }
-        bool isAbstract() const { return (_declModifiers & DeclModifiers::Abstract) == DeclModifiers::Abstract; }
-        bool isVirtual() const { return (_declModifiers & DeclModifiers::Virtual) == DeclModifiers::Virtual; }
-        bool isOverride() const { return (_declModifiers & DeclModifiers::Override) == DeclModifiers::Override; }
-        bool isPrototype() const { return (_declModifiers & DeclModifiers::Prototype) == DeclModifiers::Prototype; }
-
-        // Makes checking if it is virtual at all easier
-        bool isAnyVirtual() const { return isVirtual() || isAbstract() || isOverride(); }
-
         bool throws() const { return _throws; }
         bool hasContract() const { return !_contracts.empty(); }
 
@@ -107,8 +96,9 @@ namespace gulc {
                      DeclModifiers declModifiers, std::vector<ParameterDecl*> parameters, Type* returnType,
                      std::vector<Cont*> contracts, CompoundStmt* body,
                      TextPosition startPosition, TextPosition endPosition)
-                : Decl(declKind, sourceFileID, std::move(attributes), visibility, isConstExpr, std::move(identifier)),
-                  _declModifiers(declModifiers), _parameters(std::move(parameters)), returnType(returnType),
+                : Decl(declKind, sourceFileID, std::move(attributes), visibility, isConstExpr, std::move(identifier),
+                       declModifiers),
+                  _parameters(std::move(parameters)), returnType(returnType),
                   _contracts(std::move(contracts)), _body(body),
                   _startPosition(startPosition), _endPosition(endPosition), _throws(false) {
             for (Cont* contract : _contracts) {
@@ -119,7 +109,6 @@ namespace gulc {
             }
         }
 
-        DeclModifiers _declModifiers;
         std::vector<ParameterDecl*> _parameters;
         std::vector<Cont*> _contracts;
         CompoundStmt* _body;

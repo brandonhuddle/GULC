@@ -21,20 +21,12 @@ namespace gulc {
                               TextPosition startPosition, TextPosition endPosition, DeclModifiers declModifiers,
                               std::vector<SubscriptOperatorGetDecl*> getters, SubscriptOperatorSetDecl* setter)
                 : Decl(Decl::Kind::SubscriptOperator, sourceFileID, std::move(attributes), visibility,
-                       isConstExpr, std::move(identifier)),
+                       isConstExpr, std::move(identifier), declModifiers),
                   type(type), _parameters(std::move(parameters)), _startPosition(startPosition),
-                  _endPosition(endPosition), _declModifiers(declModifiers), _getters(std::move(getters)),
-                  _setter(setter) {}
+                  _endPosition(endPosition), _getters(std::move(getters)), _setter(setter) {}
 
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }
-
-        bool isStatic() const { return (_declModifiers & DeclModifiers::Static) == DeclModifiers::Static; }
-        bool isMutable() const { return (_declModifiers & DeclModifiers::Mut) == DeclModifiers::Mut; }
-        bool isVolatile() const { return (_declModifiers & DeclModifiers::Volatile) == DeclModifiers::Volatile; }
-        bool isAbstract() const { return (_declModifiers & DeclModifiers::Abstract) == DeclModifiers::Abstract; }
-        bool isVirtual() const { return (_declModifiers & DeclModifiers::Virtual) == DeclModifiers::Virtual; }
-        bool isOverride() const { return (_declModifiers & DeclModifiers::Override) == DeclModifiers::Override; }
 
         std::vector<ParameterDecl*>& parameters() { return _parameters; }
         std::vector<ParameterDecl*> const& parameters() const { return _parameters; }
@@ -87,7 +79,6 @@ namespace gulc {
     protected:
         TextPosition _startPosition;
         TextPosition _endPosition;
-        DeclModifiers _declModifiers;
         std::vector<ParameterDecl*> _parameters;
         std::vector<SubscriptOperatorGetDecl*> _getters;
         SubscriptOperatorSetDecl* _setter;

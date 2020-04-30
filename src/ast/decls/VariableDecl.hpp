@@ -18,22 +18,14 @@ namespace gulc {
         DeclModifiers declModifiers() const { return _declModifiers; }
 
         VariableDecl(unsigned int sourceFileID, std::vector<Attr*> attributes, Decl::Visibility visibility,
-                     bool isConstExpr, Identifier identifier, Type* type, Expr* initialValue,
-                     TextPosition startPosition, TextPosition endPosition, DeclModifiers declModifiers)
+                     bool isConstExpr, Identifier identifier, DeclModifiers declModifiers,
+                     Type* type, Expr* initialValue, TextPosition startPosition, TextPosition endPosition)
                 : Decl(Decl::Kind::Variable, sourceFileID, std::move(attributes), visibility, isConstExpr,
-                       std::move(identifier)),
-                  type(type), initialValue(initialValue), _startPosition(startPosition), _endPosition(endPosition),
-                  _declModifiers(declModifiers) {}
+                       std::move(identifier), declModifiers),
+                  type(type), initialValue(initialValue), _startPosition(startPosition), _endPosition(endPosition) {}
 
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }
-
-        bool isStatic() const { return (_declModifiers & DeclModifiers::Static) == DeclModifiers::Static; }
-        bool isMutable() const { return (_declModifiers & DeclModifiers::Mut) == DeclModifiers::Mut; }
-        bool isVolatile() const { return (_declModifiers & DeclModifiers::Volatile) == DeclModifiers::Volatile; }
-        bool isAbstract() const { return (_declModifiers & DeclModifiers::Abstract) == DeclModifiers::Abstract; }
-        bool isVirtual() const { return (_declModifiers & DeclModifiers::Virtual) == DeclModifiers::Virtual; }
-        bool isOverride() const { return (_declModifiers & DeclModifiers::Override) == DeclModifiers::Override; }
 
         Decl* deepCopy() const override {
             std::vector<Attr*> copiedAttributes;
@@ -49,8 +41,8 @@ namespace gulc {
             }
 
             return new VariableDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr, _identifier,
-                                    type->deepCopy(), copiedInitialValue,
-                                    _startPosition, _endPosition, _declModifiers);
+                                    _declModifiers, type->deepCopy(), copiedInitialValue,
+                                    _startPosition, _endPosition);
         }
 
         ~VariableDecl() override {
@@ -61,7 +53,6 @@ namespace gulc {
     protected:
         TextPosition _startPosition;
         TextPosition _endPosition;
-        DeclModifiers _declModifiers;
 
     };
 }

@@ -12,13 +12,15 @@ namespace gulc {
         NamespaceDecl(unsigned int sourceFileID, std::vector<Attr*> attributes, Identifier identifier,
                       TextPosition startPosition, TextPosition endPosition)
                 : Decl(Kind::Namespace, sourceFileID, std::move(attributes),
-                       Decl::Visibility::Unassigned, false, std::move(identifier)),
+                       Decl::Visibility::Unassigned, false, std::move(identifier),
+                       DeclModifiers::None),
                   _startPosition(startPosition), _endPosition(endPosition), _nestedDecls(), _isPrototype(false) {}
         NamespaceDecl(unsigned int sourceFileID, std::vector<Attr*> attributes, Identifier identifier,
                       TextPosition startPosition, TextPosition endPosition, bool isPrototype,
                       std::vector<Decl*> nestedDecls)
                 : Decl(Kind::Namespace, sourceFileID, std::move(attributes),
-                       Decl::Visibility::Unassigned, false, std::move(identifier)),
+                       Decl::Visibility::Unassigned, false, std::move(identifier),
+                       DeclModifiers::None),
                   _startPosition(startPosition), _endPosition(endPosition), _nestedDecls(std::move(nestedDecls)),
                   _isPrototype(isPrototype) {}
 
@@ -59,6 +61,9 @@ namespace gulc {
                 delete decl;
             }
         }
+
+        // We use this to give us a link to the actual namespace with ALL `nestedDecls` from all sources
+        NamespaceDecl* prototype;
 
     protected:
         TextPosition _startPosition;

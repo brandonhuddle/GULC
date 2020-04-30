@@ -34,7 +34,7 @@ namespace gulc {
                       std::vector<TemplateParameterDecl*> templateParameters, Type* typeValue,
                       TextPosition startPosition, TextPosition endPosition)
                 : Decl(Decl::Kind::TypeAlias, sourceFileID, std::move(attributes), visibility, true,
-                       std::move(identifier)),
+                       std::move(identifier), DeclModifiers::None),
                   typeValue(typeValue), _startPosition(startPosition), _endPosition(endPosition),
                   _typeAliasType(typeAliasType), _templateParameters(std::move(templateParameters)) {}
 

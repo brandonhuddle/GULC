@@ -20,12 +20,12 @@ namespace gulc {
         std::vector<TemplateTraitInstDecl*> const& templateInstantiations() const { return _templateInstantiations; }
 
         TemplateTraitDecl(unsigned int sourceFileID, std::vector<Attr*> attributes, Decl::Visibility visibility,
-                          bool isConstExpr, Identifier identifier,
+                          bool isConstExpr, Identifier identifier, DeclModifiers declModifiers,
                           TextPosition startPosition, TextPosition endPosition,
                           std::vector<Type*> inheritedTypes, std::vector<Cont*> contracts,
                           std::vector<Decl*> ownedMembers, std::vector<TemplateParameterDecl*> templateParameters)
                 : TemplateTraitDecl(sourceFileID, std::move(attributes), visibility,
-                                    isConstExpr, std::move(identifier), startPosition, endPosition,
+                                    isConstExpr, std::move(identifier), declModifiers, startPosition, endPosition,
                                     std::move(inheritedTypes), std::move(contracts), std::move(ownedMembers),
                                     std::move(templateParameters), {}) {}
 
@@ -107,9 +107,10 @@ namespace gulc {
 
             // Here we "steal" the `templateArguments` (since we don't have a way to deep copy)
             *result = new TemplateTraitInstDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr,
-                                                 _identifier, _startPosition, _endPosition,
-                                                 copiedInheritedTypes, copiedContracts, copiedOwnedMembers,
-                                                 this, copiedTemplateArguments);
+                                                _identifier, _declModifiers,
+                                                _startPosition, _endPosition,
+                                                copiedInheritedTypes, copiedContracts, copiedOwnedMembers,
+                                                this, copiedTemplateArguments);
 
             _templateInstantiations.push_back(*result);
 
@@ -155,7 +156,8 @@ namespace gulc {
             }
 
             return new TemplateTraitDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr,
-                                          _identifier, _startPosition, _endPosition,
+                                          _identifier, _declModifiers,
+                                          _startPosition, _endPosition,
                                           copiedInheritedTypes, copiedContracts, copiedOwnedMembers,
                                           copiedTemplateParameters, copiedTemplateInstantiations);
         }
@@ -175,13 +177,13 @@ namespace gulc {
         std::vector<TemplateTraitInstDecl*> _templateInstantiations;
 
         TemplateTraitDecl(unsigned int sourceFileID, std::vector<Attr*> attributes, Decl::Visibility visibility,
-                           bool isConstExpr, Identifier identifier,
+                           bool isConstExpr, Identifier identifier, DeclModifiers declModifiers,
                            TextPosition startPosition, TextPosition endPosition,
                            std::vector<Type*> inheritedTypes, std::vector<Cont*> contracts,
                            std::vector<Decl*> ownedMembers, std::vector<TemplateParameterDecl*> templateParameters,
                            std::vector<TemplateTraitInstDecl*> templateInstantiations)
                 : TraitDecl(Decl::Kind::TemplateTrait, sourceFileID, std::move(attributes), visibility,
-                            isConstExpr, std::move(identifier), startPosition, endPosition,
+                            isConstExpr, std::move(identifier), declModifiers, startPosition, endPosition,
                             std::move(inheritedTypes), std::move(contracts), std::move(ownedMembers)),
                   _templateParameters(std::move(templateParameters)),
                   _templateInstantiations(std::move(templateInstantiations)) {}

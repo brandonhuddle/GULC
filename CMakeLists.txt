@@ -207,10 +207,14 @@ add_executable(gulc
         src/parsing/Parser.cpp
         src/parsing/Parser.hpp
 
+        src/passes/BasicDeclValidator.cpp
+        src/passes/BasicDeclValidator.hpp
         src/passes/BasicTypeResolver.cpp
         src/passes/BasicTypeResolver.hpp
         src/passes/DeclInstantiator.cpp
         src/passes/DeclInstantiator.hpp
+        src/passes/NamespacePrototyper.cpp
+        src/passes/NamespacePrototyper.hpp
 
         src/utilities/ConstExprHelper.cpp
         src/utilities/ConstExprHelper.hpp

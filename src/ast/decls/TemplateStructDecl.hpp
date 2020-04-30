@@ -21,15 +21,16 @@ namespace gulc {
         std::vector<TemplateStructInstDecl*> const& templateInstantiations() const { return _templateInstantiations; }
 
         TemplateStructDecl(unsigned int sourceFileID, std::vector<Attr*> attributes, Decl::Visibility visibility,
-                           bool isConstExpr, Identifier identifier,
+                           bool isConstExpr, Identifier identifier, DeclModifiers declModifiers,
                            TextPosition startPosition, TextPosition endPosition,
                            Kind structKind, std::vector<Type*> inheritedTypes, std::vector<Cont*> contracts,
                            std::vector<Decl*> ownedMembers, std::vector<ConstructorDecl*> constructors,
                            DestructorDecl* destructor, std::vector<TemplateParameterDecl*> templateParameters)
                 : TemplateStructDecl(sourceFileID, std::move(attributes), visibility,
-                                     isConstExpr, std::move(identifier), startPosition, endPosition, structKind,
-                                     std::move(inheritedTypes), std::move(contracts), std::move(ownedMembers),
-                                     std::move(constructors), destructor, std::move(templateParameters), {}) {}
+                                     isConstExpr, std::move(identifier), declModifiers, startPosition, endPosition,
+                                     structKind, std::move(inheritedTypes), std::move(contracts),
+                                     std::move(ownedMembers), std::move(constructors), destructor,
+                                     std::move(templateParameters), {}) {}
 
         /**
          * Get an instantiation of the template for the provided template arguments
@@ -131,7 +132,8 @@ namespace gulc {
 
             // Here we "steal" the `templateArguments` (since we don't have a way to deep copy)
             *result = new TemplateStructInstDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr,
-                                                 _identifier, _startPosition, _endPosition, _structKind,
+                                                 _identifier, _declModifiers,
+                                                 _startPosition, _endPosition, _structKind,
                                                  copiedInheritedTypes, copiedContracts, copiedOwnedMembers,
                                                  copiedConstructors, copiedDestructorDecl,
                                                  this, copiedTemplateArguments);
@@ -191,7 +193,8 @@ namespace gulc {
             }
 
             return new TemplateStructDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr,
-                                          _identifier, _startPosition, _endPosition,
+                                          _identifier, _declModifiers,
+                                          _startPosition, _endPosition,
                                           _structKind, copiedInheritedTypes, copiedContracts, copiedOwnedMembers,
                                           copiedConstructors, copiedDestructorDecl, copiedTemplateParameters,
                                           copiedTemplateInstantiations);
@@ -212,14 +215,14 @@ namespace gulc {
         std::vector<TemplateStructInstDecl*> _templateInstantiations;
 
         TemplateStructDecl(unsigned int sourceFileID, std::vector<Attr*> attributes, Decl::Visibility visibility,
-                           bool isConstExpr, Identifier identifier,
+                           bool isConstExpr, Identifier identifier, DeclModifiers declModifiers,
                            TextPosition startPosition, TextPosition endPosition,
                            Kind structKind, std::vector<Type*> inheritedTypes, std::vector<Cont*> contracts,
                            std::vector<Decl*> ownedMembers, std::vector<ConstructorDecl*> constructors,
                            DestructorDecl* destructor, std::vector<TemplateParameterDecl*> templateParameters,
                            std::vector<TemplateStructInstDecl*> templateInstantiations)
                 : StructDecl(Decl::Kind::TemplateStruct, sourceFileID, std::move(attributes), visibility,
-                             isConstExpr, std::move(identifier), startPosition, endPosition, structKind,
+                             isConstExpr, std::move(identifier), declModifiers, startPosition, endPosition, structKind,
                              std::move(inheritedTypes), std::move(contracts), std::move(ownedMembers),
                              std::move(constructors), destructor),
                   _templateParameters(std::move(templateParameters)),

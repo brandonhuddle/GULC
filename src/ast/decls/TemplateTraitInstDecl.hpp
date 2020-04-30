@@ -50,7 +50,8 @@ namespace gulc {
             }
 
             return new TemplateTraitInstDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr,
-                                              _identifier, _startPosition, _endPosition,
+                                              _identifier, _declModifiers,
+                                              _startPosition, _endPosition,
                                               copiedInheritedTypes, copiedContracts, copiedOwnedMembers,
                                               _parentTemplateTrait, copiedTemplateArguments);
         }
@@ -66,13 +67,13 @@ namespace gulc {
         std::vector<Expr*> _templateArguments;
 
         TemplateTraitInstDecl(unsigned int sourceFileID, std::vector<Attr*> attributes, Decl::Visibility visibility,
-                               bool isConstExpr, Identifier identifier,
+                               bool isConstExpr, Identifier identifier, DeclModifiers declModifiers,
                                TextPosition startPosition, TextPosition endPosition,
                                std::vector<Type*> inheritedTypes, std::vector<Cont*> contracts,
                                std::vector<Decl*> ownedMembers, TemplateTraitDecl* parentTemplateTrait,
                                std::vector<Expr*> templateArguments)
                 : TraitDecl(Decl::Kind::TemplateTraitInst, sourceFileID, std::move(attributes), visibility,
-                             isConstExpr, std::move(identifier), startPosition, endPosition,
+                             isConstExpr, std::move(identifier), declModifiers, startPosition, endPosition,
                              std::move(inheritedTypes), std::move(contracts), std::move(ownedMembers)),
                   _parentTemplateTrait(parentTemplateTrait), _templateArguments(std::move(templateArguments)) {}
 

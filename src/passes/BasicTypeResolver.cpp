@@ -36,7 +36,8 @@ void gulc::BasicTypeResolver::printWarning(std::string const& message, gulc::Tex
 }
 
 bool gulc::BasicTypeResolver::resolveType(gulc::Type*& type) const {
-    bool result = TypeHelper::resolveType(type, _currentFile, _templateParameters, _containingDecls);
+    bool result = TypeHelper::resolveType(type, _currentFile, _namespacePrototypes, _templateParameters,
+                                          _containingDecls);
 
     if (result) {
         processType(type);

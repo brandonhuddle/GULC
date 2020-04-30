@@ -15,9 +15,11 @@
 #include <ast/types/TraitType.hpp>
 #include <ast/decls/TypeAliasDecl.hpp>
 #include <ast/types/AliasType.hpp>
+#include <ast/decls/NamespaceDecl.hpp>
 #include "TypeHelper.hpp"
 
 bool gulc::TypeHelper::resolveType(gulc::Type*& type, ASTFile const* currentFile,
+                                   std::vector<NamespaceDecl*>& namespacePrototypes,
                                    std::vector<std::vector<TemplateParameterDecl*>*> const& templateParameters,
                                    std::vector<gulc::Decl*> const& containingDecls) {
     switch (type->getTypeKind()) {
@@ -25,32 +27,122 @@ bool gulc::TypeHelper::resolveType(gulc::Type*& type, ASTFile const* currentFile
             return true;
         case Type::Kind::Dimension: {
             auto dimensionType = llvm::dyn_cast<DimensionType>(type);
-            return resolveType(dimensionType->nestedType, currentFile, templateParameters, containingDecls);
+            return resolveType(dimensionType->nestedType, currentFile, namespacePrototypes, templateParameters,
+                               containingDecls);
         }
         case Type::Kind::Pointer: {
             auto pointerType = llvm::dyn_cast<PointerType>(type);
-            return resolveType(pointerType->nestedType, currentFile, templateParameters, containingDecls);
+            return resolveType(pointerType->nestedType, currentFile, namespacePrototypes, templateParameters,
+                               containingDecls);
         }
         case Type::Kind::Reference: {
             auto referenceType = llvm::dyn_cast<ReferenceType>(type);
-            return resolveType(referenceType->nestedType, currentFile, templateParameters, containingDecls);
+            return resolveType(referenceType->nestedType, currentFile, namespacePrototypes, templateParameters,
+                               containingDecls);
         }
         case Type::Kind::Unresolved: {
             auto unresolvedType = llvm::dyn_cast<UnresolvedType>(type);
 
             if (!unresolvedType->namespacePath().empty()) {
-                return false;
-            }
+                std::string const& firstPathName = unresolvedType->namespacePath()[0].name();
+                // This is the `Decl` the namespacePath points to (if found)
+                Decl* foundContainer = nullptr;
 
-            std::string const& checkName = unresolvedType->identifier().name();
-            bool templated = unresolvedType->hasTemplateArguments();
-            std::vector<Decl*> potentialTemplates;
+                // First search the `currentFile->declarations` for anything EXCEPT `NamespaceDecl`
+                // if we don't find the first identifier there then search `namespacePrototypes`
+                // (`namespacePrototypes` will contain the `NamespaceDecl`s that we skipped but will contain
+                //  the missing `Decl`s that are found in other files)
+                // TODO: How will we support templates within the namespace path? We allow nested structs so
+                //       `Temp<12>.InnerTemp<i32>.NestedTemp<i32, 12 + 4>` is a legal (but nasty to look at) type.
+                //       I'm thinking maybe a `NestedTemplatedType` that will take a template type as a `container`
+                //       and then a normal type for the nested type:
+                //       ```
+                //           struct NestedTemplatedType : Type {
+                //               var container: *TemplatedType;
+                //               var nestedType: *Type;
+                //           }
+                //       ```
+                //       Then when `TemplatedType` can be resolved we can resolve `NestedTemplatedType` as well.
+                for (Decl* checkDecl : currentFile->declarations) {
+                    switch (checkDecl->getDeclKind()) {
+                        case Decl::Kind::Struct: {
+                            if (firstPathName != checkDecl->identifier().name()) continue;
 
-            if (!templated) {
-                // First check if it is a built in type
-                if (BuiltInType::isBuiltInType(checkName)) {
-                    auto result = BuiltInType::get(unresolvedType->qualifier(), checkName,
-                                                   unresolvedType->startPosition(), unresolvedType->endPosition());
+                            auto checkStruct = llvm::dyn_cast<StructDecl>(checkDecl);
+
+                            if (unresolvedType->namespacePath().size() > 1) {
+                                if (resolveNamespacePathToDecl(unresolvedType->namespacePath(), 1,
+                                                               checkStruct->ownedMembers(), &foundContainer)) {
+                                    goto exitCurrentFileDeclarationsLoop;
+                                }
+                            } else {
+                                foundContainer = checkDecl;
+                                goto exitCurrentFileDeclarationsLoop;
+                            }
+
+                            break;
+                        }
+                        case Decl::Kind::Trait: {
+                            if (firstPathName != checkDecl->identifier().name()) continue;
+
+                            auto checkTrait = llvm::dyn_cast<TraitDecl>(checkDecl);
+
+                            if (unresolvedType->namespacePath().size() > 1) {
+                                if (resolveNamespacePathToDecl(unresolvedType->namespacePath(), 1,
+                                                               checkTrait->ownedMembers(), &foundContainer)) {
+                                    goto exitCurrentFileDeclarationsLoop;
+                                }
+                            } else {
+                                foundContainer = checkDecl;
+                                goto exitCurrentFileDeclarationsLoop;
+                            }
+
+                            break;
+                        }
+                        default:
+                            break;
+                    }
+                }
+
+                // If we still haven't found the container we check all namespace prototypes
+            exitCurrentFileDeclarationsLoop:
+                if (foundContainer == nullptr) {
+                    for (NamespaceDecl* checkNamespace : namespacePrototypes) {
+                        if (checkNamespace->identifier().name() == firstPathName) {
+                            if (unresolvedType->namespacePath().size() > 1) {
+                                if (resolveNamespacePathToDecl(unresolvedType->namespacePath(), 1,
+                                                               checkNamespace->nestedDecls(), &foundContainer)) {
+                                    goto exitNamespacePrototypesLoop;
+                                }
+                            } else {
+                                foundContainer = checkNamespace;
+                                goto exitNamespacePrototypesLoop;
+                            }
+                        }
+                    }
+                }
+
+                // If the container is still null then we return false, we didn't find the type.
+            exitNamespacePrototypesLoop:
+                if (foundContainer == nullptr) {
+                    return false;
+                }
+
+                std::string const& checkName = unresolvedType->identifier().name();
+                bool templated = unresolvedType->hasTemplateArguments();
+                std::vector<Decl*> potentialTemplates;
+
+                // Now that we have the container we need to search the container for the actual type...
+                // Since we're checking containers we allow searching members
+                if (resolveTypeToDecl(type, foundContainer, checkName, templated, potentialTemplates,
+                                      true, false)) {
+                    return true;
+                }
+
+                if (templated && !potentialTemplates.empty()) {
+                    auto result = new TemplatedType(unresolvedType->qualifier(), potentialTemplates,
+                                                    std::move(unresolvedType->templateArguments),
+                                                    unresolvedType->startPosition(), unresolvedType->endPosition());
                     result->setIsLValue(unresolvedType->isLValue());
 
                     delete unresolvedType;
@@ -58,249 +150,95 @@ bool gulc::TypeHelper::resolveType(gulc::Type*& type, ASTFile const* currentFile
                     type = result;
 
                     return true;
-                }
-            }
-
-            // Then if there are template parameters we'll check them
-            // NOTE: Template parameter types cannot be templated themselves
-            if (!templated && !templateParameters.empty()) {
-                for (std::vector<TemplateParameterDecl*>* checkTemplateParameters :
-                        gulc::reverse(templateParameters)) {
-                    for (TemplateParameterDecl* templateParameter : *checkTemplateParameters) {
-                        if (templateParameter->templateParameterKind() ==
-                            TemplateParameterDecl::TemplateParameterKind::Typename) {
-                            if (checkName == templateParameter->identifier().name()) {
-                                auto result = new TemplateTypenameRefType(unresolvedType->qualifier(),
-                                                                          templateParameter,
-                                                                          unresolvedType->startPosition(),
-                                                                          unresolvedType->endPosition());
-                                result->setIsLValue(unresolvedType->isLValue());
-
-                                delete unresolvedType;
-
-                                type = result;
-
-                                return true;
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Then check our containing decls
-            if (!containingDecls.empty()) {
-                for (Decl* checkContainer : gulc::reverse(containingDecls)) {
-                    if (templated) {
-                        if (llvm::isa<TemplateStructDecl>(checkContainer)) {
-                            auto checkTemplateStruct = llvm::dyn_cast<TemplateStructDecl>(checkContainer);
-
-                            if (checkTemplateStruct->identifier().name() == checkName) {
-                                // TODO: Support optional template parameters
-                                if (checkTemplateStruct->templateParameters().size() == unresolvedType->templateArguments.size()) {
-                                    potentialTemplates.push_back(checkTemplateStruct);
-                                    // We keep searching as this might be the wrong type...
-                                }
-                            }
-                        } else if (llvm::isa<TemplateTraitDecl>(checkContainer)) {
-                            auto checkTemplateTrait = llvm::dyn_cast<TemplateTraitDecl>(checkContainer);
-
-                            if (checkTemplateTrait->identifier().name() == checkName) {
-                                // TODO: Support optional template parameters
-                                if (checkTemplateTrait->templateParameters().size() == unresolvedType->templateArguments.size()) {
-                                    potentialTemplates.push_back(checkTemplateTrait);
-                                    // We keep searching as this might be the wrong type...
-                                }
-                            }
-                        } else if (llvm::isa<TypeAliasDecl>(checkContainer)) {
-                            auto checkAlias = llvm::dyn_cast<TypeAliasDecl>(checkContainer);
-
-                            if (checkAlias->identifier().name() == checkName) {
-                                // We skip any aliases that don't have template parameters (since we have arguments)
-                                if (!checkAlias->hasTemplateParameters()) {
-                                    continue;
-                                }
-
-                                // TODO: Support optional template parameters
-                                if (checkAlias->templateParameters().size() == unresolvedType->templateArguments.size()) {
-                                    potentialTemplates.push_back(checkAlias);
-                                    // We keep searching as this might be the wrong type...
-                                }
-                            }
-                        }
-                    } else {
-                        if (llvm::isa<StructDecl>(checkContainer)) {
-                            auto checkStruct = llvm::dyn_cast<StructDecl>(checkContainer);
-
-                            if (checkStruct->identifier().name() == checkName) {
-                                auto result = new StructType(unresolvedType->qualifier(), checkStruct,
-                                                             unresolvedType->startPosition(),
-                                                             unresolvedType->endPosition());
-                                result->setIsLValue(unresolvedType->isLValue());
-
-                                delete unresolvedType;
-
-                                type = result;
-
-                                return true;
-                            }
-                        } else if (llvm::isa<TraitDecl>(checkContainer)) {
-                            auto checkTrait = llvm::dyn_cast<TraitDecl>(checkContainer);
-
-                            if (checkTrait->identifier().name() == checkName) {
-                                auto result = new TraitType(unresolvedType->qualifier(), checkTrait,
-                                                            unresolvedType->startPosition(),
-                                                            unresolvedType->endPosition());
-                                result->setIsLValue(unresolvedType->isLValue());
-
-                                delete unresolvedType;
-
-                                type = result;
-
-                                return true;
-                            }
-                        } else if (llvm::isa<TypeAliasDecl>(checkContainer)) {
-                            auto checkAlias = llvm::dyn_cast<TypeAliasDecl>(checkContainer);
-
-                            if (checkAlias->identifier().name() == checkName) {
-                                // We skip any aliases that have template parameters (since we have no arguments)
-                                if (checkAlias->hasTemplateParameters()) {
-                                    continue;
-                                }
-
-                                // Rather than access `checkAlias->typeValue` we return an `AliasType`
-                                // this is due to the fact that if `checkAlias->typeValue` isn't resolve yet we will
-                                // give an error in the wrong spot OR potentially resolve it to the wrong area.
-                                auto result = new AliasType(unresolvedType->qualifier(), checkAlias,
-                                                            unresolvedType->startPosition(),
-                                                            unresolvedType->endPosition());
-                                result->setIsLValue(unresolvedType->isLValue());
-
-                                delete unresolvedType;
-
-                                type = result;
-
-                                return true;
-                            }
-                        }
-                    }
-                }
-            }
-
-
-            // Then check our file
-            for (Decl* checkContainer : currentFile->declarations) {
-                if (templated) {
-                    if (llvm::isa<TemplateStructDecl>(checkContainer)) {
-                        auto checkTemplateStruct = llvm::dyn_cast<TemplateStructDecl>(checkContainer);
-
-                        if (checkTemplateStruct->identifier().name() == checkName) {
-                            // TODO: Support optional template parameters
-                            if (checkTemplateStruct->templateParameters().size() == unresolvedType->templateArguments.size()) {
-                                potentialTemplates.push_back(checkTemplateStruct);
-                                // We keep searching as this might be the wrong type...
-                            }
-                        }
-                    } else if (llvm::isa<TemplateTraitDecl>(checkContainer)) {
-                        auto checkTemplateTrait = llvm::dyn_cast<TemplateTraitDecl>(checkContainer);
-
-                        if (checkTemplateTrait->identifier().name() == checkName) {
-                            // TODO: Support optional template parameters
-                            if (checkTemplateTrait->templateParameters().size() == unresolvedType->templateArguments.size()) {
-                                potentialTemplates.push_back(checkTemplateTrait);
-                                // We keep searching as this might be the wrong type...
-                            }
-                        }
-                    } else if (llvm::isa<TypeAliasDecl>(checkContainer)) {
-                        auto checkAlias = llvm::dyn_cast<TypeAliasDecl>(checkContainer);
-
-                        if (checkAlias->identifier().name() == checkName) {
-                            // We skip any aliases that don't have template parameters (since we have arguments)
-                            if (!checkAlias->hasTemplateParameters()) {
-                                continue;
-                            }
-
-                            // TODO: Support optional template parameters
-                            if (checkAlias->templateParameters().size() == unresolvedType->templateArguments.size()) {
-                                potentialTemplates.push_back(checkAlias);
-                                // We keep searching as this might be the wrong type...
-                            }
-                        }
-                    }
                 } else {
-                    if (llvm::isa<StructDecl>(checkContainer)) {
-                        auto checkStruct = llvm::dyn_cast<StructDecl>(checkContainer);
+                    return false;
+                }
+            } else {
+                std::string const& checkName = unresolvedType->identifier().name();
+                bool templated = unresolvedType->hasTemplateArguments();
+                std::vector<Decl*> potentialTemplates;
 
-                        if (checkStruct->identifier().name() == checkName) {
-                            auto result = new StructType(unresolvedType->qualifier(), checkStruct,
-                                                         unresolvedType->startPosition(),
-                                                         unresolvedType->endPosition());
-                            result->setIsLValue(unresolvedType->isLValue());
+                if (!templated) {
+                    // First check if it is a built in type
+                    if (BuiltInType::isBuiltInType(checkName)) {
+                        auto result = BuiltInType::get(unresolvedType->qualifier(), checkName,
+                                                       unresolvedType->startPosition(), unresolvedType->endPosition());
+                        result->setIsLValue(unresolvedType->isLValue());
 
-                            delete unresolvedType;
+                        delete unresolvedType;
 
-                            type = result;
+                        type = result;
 
-                            return true;
-                        }
-                    } else if (llvm::isa<TraitDecl>(checkContainer)) {
-                        auto checkTrait = llvm::dyn_cast<TraitDecl>(checkContainer);
+                        return true;
+                    }
+                }
 
-                        if (checkTrait->identifier().name() == checkName) {
-                            auto result = new TraitType(unresolvedType->qualifier(), checkTrait,
-                                                        unresolvedType->startPosition(),
-                                                        unresolvedType->endPosition());
-                            result->setIsLValue(unresolvedType->isLValue());
+                // Then if there are template parameters we'll check them
+                // NOTE: Template parameter types cannot be templated themselves
+                if (!templated && !templateParameters.empty()) {
+                    for (std::vector<TemplateParameterDecl*>* checkTemplateParameters :
+                            gulc::reverse(templateParameters)) {
+                        for (TemplateParameterDecl* templateParameter : *checkTemplateParameters) {
+                            if (templateParameter->templateParameterKind() ==
+                                TemplateParameterDecl::TemplateParameterKind::Typename) {
+                                if (checkName == templateParameter->identifier().name()) {
+                                    auto result = new TemplateTypenameRefType(unresolvedType->qualifier(),
+                                                                              templateParameter,
+                                                                              unresolvedType->startPosition(),
+                                                                              unresolvedType->endPosition());
+                                    result->setIsLValue(unresolvedType->isLValue());
 
-                            delete unresolvedType;
+                                    delete unresolvedType;
 
-                            type = result;
+                                    type = result;
 
-                            return true;
-                        }
-                    } else if (llvm::isa<TypeAliasDecl>(checkContainer)) {
-                        auto checkAlias = llvm::dyn_cast<TypeAliasDecl>(checkContainer);
-
-                        if (checkAlias->identifier().name() == checkName) {
-                            // We skip any aliases that have template parameters (since we have no arguments)
-                            if (checkAlias->hasTemplateParameters()) {
-                                continue;
+                                    return true;
+                                }
                             }
+                        }
+                    }
+                }
 
-                            // Rather than access `checkAlias->typeValue` we return an `AliasType`
-                            // this is due to the fact that if `checkAlias->typeValue` isn't resolve yet we will
-                            // give an error in the wrong spot OR potentially resolve it to the wrong area.
-                            auto result = new AliasType(unresolvedType->qualifier(), checkAlias,
-                                                        unresolvedType->startPosition(),
-                                                        unresolvedType->endPosition());
-                            result->setIsLValue(unresolvedType->isLValue());
-
-                            delete unresolvedType;
-
-                            type = result;
-
+                // Then check our containing decls
+                if (!containingDecls.empty()) {
+                    for (Decl* checkContainer : gulc::reverse(containingDecls)) {
+                        // Since we're checking containers we allow searching members
+                        if (resolveTypeToDecl(type, checkContainer, checkName, templated, potentialTemplates,
+                                              true, false)) {
                             return true;
                         }
                     }
                 }
-            }
 
-            // Then check our imports
-            // TODO: When checking imports account for ambiguity. Don't return true on first found Decl, keep searching
-            //       to make sure the type isn't ambiguous
 
-            if (templated && !potentialTemplates.empty()) {
-                auto result = new TemplatedType(unresolvedType->qualifier(), potentialTemplates,
-                                                std::move(unresolvedType->templateArguments),
-                                                unresolvedType->startPosition(), unresolvedType->endPosition());
-                result->setIsLValue(unresolvedType->isLValue());
+                // Then check our file
+                for (Decl* checkDecl : currentFile->declarations) {
+                    // We set `searchMembers` to false because the declarations in the current file may not actually be
+                    // our container
+                    if (resolveTypeToDecl(type, checkDecl, checkName, templated, potentialTemplates,
+                                          false, true)) {
+                        return true;
+                    }
+                }
 
-                delete unresolvedType;
+                // Then check our imports
+                // TODO: When checking imports account for ambiguity. Don't return true on first found Decl, keep searching
+                //       to make sure the type isn't ambiguous
 
-                type = result;
+                if (templated && !potentialTemplates.empty()) {
+                    auto result = new TemplatedType(unresolvedType->qualifier(), potentialTemplates,
+                                                    std::move(unresolvedType->templateArguments),
+                                                    unresolvedType->startPosition(), unresolvedType->endPosition());
+                    result->setIsLValue(unresolvedType->isLValue());
 
-                return true;
-            } else {
-                return false;
+                    delete unresolvedType;
+
+                    type = result;
+
+                    return true;
+                } else {
+                    return false;
+                }
             }
         }
         default:
@@ -426,5 +364,272 @@ bool gulc::TypeHelper::compareAreSame(const gulc::Type* left, const gulc::Type* 
             std::exit(1);
     }
 
+    return false;
+}
+
+bool gulc::TypeHelper::resolveTypeToDecl(Type*& type, gulc::Decl* checkDecl,
+                                         std::string const& checkName, bool templated,
+                                         std::vector<Decl*>& potentialTemplates,
+                                         bool searchMembers, bool resolveToCheckDecl) {
+    auto unresolvedType = llvm::dyn_cast<UnresolvedType>(type);
+
+    switch (checkDecl->getDeclKind()) {
+        case Decl::Kind::Namespace: {
+            if (!searchMembers) return false;
+
+            auto namespaceDecl = llvm::dyn_cast<NamespaceDecl>(checkDecl);
+
+            for (Decl* checkNestedDecl : namespaceDecl->nestedDecls()) {
+                // Nested Decl will always have `searchMembers` set to false to avoid following branches.
+                // We only want to check the owned members, not the members of the namespace members.
+                if (resolveTypeToDecl(type, checkNestedDecl, checkName, templated, potentialTemplates,
+                                      false, true)) {
+                    // We only return true if the Decl was resolved
+                    return true;
+                }
+            }
+        }
+        case Decl::Kind::TemplateStructInst: {
+            if (!searchMembers) return false;
+
+            // NOTE: To prevent any issues with template types we DON'T do a member search on templates, ONLY
+            //       template instantiations
+            auto templateStructInstDecl = llvm::dyn_cast<TemplateStructInstDecl>(checkDecl);
+
+            for (Decl* checkNestedDecl : templateStructInstDecl->ownedMembers()) {
+                // Nested Decl will always have `searchMembers` set to false to avoid following branches.
+                // We only want to check the owned members, not the members of the namespace members.
+                if (resolveTypeToDecl(type, checkNestedDecl, checkName, templated, potentialTemplates,
+                                      false, true)) {
+                    // We only return true if the Decl was resolved
+                    return true;
+                }
+            }
+        }
+        case Decl::Kind::TemplateTraitInst: {
+            if (!searchMembers) return false;
+
+            // NOTE: To prevent any issues with template types we DON'T do a member search on templates, ONLY
+            //       template instantiations
+            auto templateStructInstDecl = llvm::dyn_cast<TemplateStructInstDecl>(checkDecl);
+
+            for (Decl* checkNestedDecl : templateStructInstDecl->ownedMembers()) {
+                // Nested Decl will always have `searchMembers` set to false to avoid following branches.
+                // We only want to check the owned members, not the members of the namespace members.
+                if (resolveTypeToDecl(type, checkNestedDecl, checkName, templated, potentialTemplates,
+                                      false, true)) {
+                    // We only return true if the Decl was resolved
+                    return true;
+                }
+            }
+        }
+        case Decl::Kind::Struct: {
+            if (templated) return false;
+
+            auto checkStruct = llvm::dyn_cast<StructDecl>(checkDecl);
+
+            if (resolveToCheckDecl && checkStruct->identifier().name() == checkName) {
+                auto result = new StructType(unresolvedType->qualifier(), checkStruct,
+                                             unresolvedType->startPosition(),
+                                             unresolvedType->endPosition());
+                result->setIsLValue(unresolvedType->isLValue());
+
+                delete type;
+
+                type = result;
+
+                return true;
+            } else if (searchMembers) {
+                for (Decl* checkNestedDecl : checkStruct->ownedMembers()) {
+                    // Nested Decl will always have `searchMembers` set to false to avoid following branches.
+                    // We only want to check the owned members, not the members of the namespace members.
+                    if (resolveTypeToDecl(type, checkNestedDecl, checkName, templated, potentialTemplates,
+                                          false, true)) {
+                        // We only return true if the Decl was resolved
+                        return true;
+                    }
+                }
+            }
+
+            break;
+        }
+        case Decl::Kind::Trait: {
+            if (templated) return false;
+
+            auto checkTrait = llvm::dyn_cast<TraitDecl>(checkDecl);
+
+            if (resolveToCheckDecl && checkTrait->identifier().name() == checkName) {
+                auto result = new TraitType(unresolvedType->qualifier(), checkTrait,
+                                            unresolvedType->startPosition(),
+                                            unresolvedType->endPosition());
+                result->setIsLValue(unresolvedType->isLValue());
+
+                delete type;
+
+                type = result;
+
+                return true;
+            } else if (searchMembers) {
+                for (Decl* checkNestedDecl : checkTrait->ownedMembers()) {
+                    // Nested Decl will always have `searchMembers` set to false to avoid following branches.
+                    // We only want to check the owned members, not the members of the namespace members.
+                    if (resolveTypeToDecl(type, checkNestedDecl, checkName, templated, potentialTemplates,
+                                          false, true)) {
+                        // We only return true if the Decl was resolved
+                        return true;
+                    }
+                }
+            }
+
+            break;
+        }
+        case Decl::Kind::TemplateStruct: {
+            if (!templated) return false;
+
+            auto checkTemplateStruct = llvm::dyn_cast<TemplateStructDecl>(checkDecl);
+
+            if (resolveToCheckDecl && checkTemplateStruct->identifier().name() == checkName) {
+                // TODO: Support optional template parameters
+                if (checkTemplateStruct->templateParameters().size() == unresolvedType->templateArguments.size()) {
+                    potentialTemplates.push_back(checkTemplateStruct);
+                    // We keep searching as this might be the wrong type...
+                }
+            }
+
+            break;
+        }
+        case Decl::Kind::TemplateTrait: {
+            if (!templated) return false;
+
+            auto checkTemplateTrait = llvm::dyn_cast<TemplateTraitDecl>(checkDecl);
+
+            if (resolveToCheckDecl && checkTemplateTrait->identifier().name() == checkName) {
+                // TODO: Support optional template parameters
+                if (checkTemplateTrait->templateParameters().size() == unresolvedType->templateArguments.size()) {
+                    potentialTemplates.push_back(checkTemplateTrait);
+                    // We keep searching as this might be the wrong type...
+                }
+            }
+
+            break;
+        }
+        case Decl::Kind::TypeAlias: {
+            auto checkAlias = llvm::dyn_cast<TypeAliasDecl>(checkDecl);
+
+            if (resolveToCheckDecl && checkAlias->identifier().name() == checkName) {
+                if (templated) {
+                    // We skip any aliases that don't have template parameters (since we have arguments)
+                    if (!checkAlias->hasTemplateParameters()) {
+                        return false;
+                    }
+
+                    // TODO: Support optional template parameters
+                    if (checkAlias->templateParameters().size() == unresolvedType->templateArguments.size()) {
+                        potentialTemplates.push_back(checkAlias);
+                        // We keep searching as this might be the wrong type...
+                    }
+                } else {
+                    // We skip any aliases that have template parameters (since we have no arguments)
+                    if (checkAlias->hasTemplateParameters()) {
+                        return false;
+                    }
+
+                    // Rather than access `checkAlias->typeValue` we return an `AliasType`
+                    // this is due to the fact that if `checkAlias->typeValue` isn't resolve yet we will
+                    // give an error in the wrong spot OR potentially resolve it to the wrong area.
+                    auto result = new AliasType(unresolvedType->qualifier(), checkAlias,
+                                                unresolvedType->startPosition(),
+                                                unresolvedType->endPosition());
+                    result->setIsLValue(unresolvedType->isLValue());
+
+                    delete unresolvedType;
+
+                    type = result;
+
+                    return true;
+                }
+            }
+            break;
+        }
+        default:
+            break;
+    }
+
+    return false;
+}
+
+bool gulc::TypeHelper::resolveNamespacePathToDecl(const std::vector<Identifier>& namespacePath, std::size_t pathIndex,
+                                                  const std::vector<Decl*>& declList, gulc::Decl** resultDecl) {
+    for (Decl* checkDecl : declList) {
+        // NOTE: We currently don't support templated types.
+        //       (`Example<i32>::InnerType` and `Example<i8>::InnerType` are different types)
+        switch (checkDecl->getDeclKind()) {
+            case Decl::Kind::Namespace: {
+                if (checkDecl->identifier().name() != namespacePath[pathIndex].name()) continue;
+
+                if (pathIndex == namespacePath.size() - 1) {
+                    // We've reached the end of the namespace path, this is the correct decl
+                    *resultDecl = checkDecl;
+                    return true;
+                } else {
+                    // We need to search the namespace for a matching declaration
+                    auto checkNamespace = llvm::dyn_cast<NamespaceDecl>(checkDecl);
+
+                    if (resolveNamespacePathToDecl(namespacePath, pathIndex + 1,
+                                                   checkNamespace->nestedDecls(), resultDecl)) {
+                        // If it returns true then we return true, effectively exiting `resolveNamespacePathToDecl`
+                        // entirely
+                        return true;
+                    }
+                }
+
+                break;
+            }
+            case Decl::Kind::Struct: {
+                if (checkDecl->identifier().name() != namespacePath[pathIndex].name()) continue;
+
+                if (pathIndex == namespacePath.size() - 1) {
+                    // We've reached the end of the namespace path, this is the correct decl
+                    *resultDecl = checkDecl;
+                    return true;
+                } else {
+                    // We need to search the struct for a matching declaration
+                    auto checkStruct = llvm::dyn_cast<StructDecl>(checkDecl);
+
+                    if (resolveNamespacePathToDecl(namespacePath, pathIndex + 1,
+                                                   checkStruct->ownedMembers(), resultDecl)) {
+                        // If it returns true then we return true, effectively exiting `resolveNamespacePathToDecl`
+                        // entirely
+                        return true;
+                    }
+                }
+
+                break;
+            }
+            case Decl::Kind::Trait: {
+                if (checkDecl->identifier().name() != namespacePath[pathIndex].name()) continue;
+
+                if (pathIndex == namespacePath.size() - 1) {
+                    // We've reached the end of the namespace path, this is the correct decl
+                    *resultDecl = checkDecl;
+                    return true;
+                } else {
+                    // We need to search the trait for a matching declaration
+                    auto checkTrait = llvm::dyn_cast<TraitDecl>(checkDecl);
+
+                    if (resolveNamespacePathToDecl(namespacePath, pathIndex + 1,
+                                                   checkTrait->ownedMembers(), resultDecl)) {
+                        // If it returns true then we return true, effectively exiting `resolveNamespacePathToDecl`
+                        // entirely
+                        return true;
+                    }
+                }
+
+                break;
+            }
+            default:
+                continue;
+        }
+    }
     return false;
 }

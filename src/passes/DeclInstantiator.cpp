@@ -571,8 +571,8 @@ void gulc::DeclInstantiator::processStructDecl(gulc::StructDecl* structDecl, boo
         // To make things easier and less verbose we add the vtable as a hidden member of the `ownedMembers`
         if (structDecl->vtableOwner == structDecl) {
             auto vtableMember = new VariableDecl(structDecl->sourceFileID(), {}, Decl::Visibility::Private, false,
-                                                 Identifier({}, {}, "_"), new VTableType(), nullptr, {}, {},
-                                                 DeclModifiers::None);
+                                                 Identifier({}, {}, "_"), DeclModifiers::None,
+                                                 new VTableType(), nullptr, {}, {});
             structDecl->ownedMembers().insert(structDecl->ownedMembers().begin(), vtableMember);
         }
 
@@ -604,8 +604,8 @@ void gulc::DeclInstantiator::processStructDecl(gulc::StructDecl* structDecl, boo
                     auto paddingType = new FlatArrayType(Type::Qualifier::Immut, i8Type, lengthLiteral);
                     auto paddingExpr = new VariableDecl(structDecl->sourceFileID(), {}, Decl::Visibility::Private,
                                                         false, Identifier({}, {}, "_"),
-                                                        paddingType, nullptr, {}, {},
-                                                        DeclModifiers::None);
+                                                        DeclModifiers::None,
+                                                        paddingType, nullptr, {}, {});
 
                     structDecl->memoryLayout.push_back(paddingExpr);
                     // We have to add the padding expression here too so that it is deleted properly...
@@ -808,21 +808,10 @@ void gulc::DeclInstantiator::processTypeAliasDecl(gulc::TypeAliasDecl* typeAlias
 }
 
 void gulc::DeclInstantiator::processVariableDecl(gulc::VariableDecl* variableDecl, bool isGlobal) {
-    if (isGlobal) {
-        if (!variableDecl->isConstExpr() && !variableDecl->isStatic()) {
-            printError("global variables must be marked `const` or `static`!",
-                       variableDecl->startPosition(), variableDecl->endPosition());
-        }
-    }
-
-    if (variableDecl->type == nullptr) {
-        printError("variables outside of function bodies and similar MUST have a type specified!",
-                   variableDecl->startPosition(), variableDecl->endPosition());
-    } else {
-        if (!resolveType(variableDecl->type)) {
-            printError("variable type `" + variableDecl->type->toString() + "` was not found!",
-                       variableDecl->type->startPosition(), variableDecl->type->endPosition());
-        }
+    // We do the `const` and `static` check in our validator now.
+    if (!resolveType(variableDecl->type)) {
+        printError("variable type `" + variableDecl->type->toString() + "` was not found!",
+                   variableDecl->type->startPosition(), variableDecl->type->endPosition());
     }
 
     if (isGlobal && variableDecl->initialValue != nullptr) {

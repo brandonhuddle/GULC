@@ -51,13 +51,14 @@ namespace gulc {
      */
     class BasicTypeResolver {
     public:
-        explicit BasicTypeResolver(std::vector<std::string> const& filePaths)
-                : _filePaths(filePaths), _currentFile() {}
+        BasicTypeResolver(std::vector<std::string> const& filePaths, std::vector<NamespaceDecl*>& namespacePrototypes)
+                : _filePaths(filePaths), _namespacePrototypes(namespacePrototypes), _currentFile() {}
 
         void processFiles(std::vector<ASTFile>& files);
 
     private:
         std::vector<std::string> const& _filePaths;
+        std::vector<NamespaceDecl*>& _namespacePrototypes;
         ASTFile* _currentFile;
         // List of template parameter lists. Used to account for multiple levels of templates:
         //     struct Example1<T> { struct Example2<S> { func example3<U>(); } }

@@ -1277,11 +1277,11 @@ StructDecl* Parser::parseStructDecl(std::vector<Attr*> attributes, Decl::Visibil
     }
 
     if (templateParameters.empty()) {
-        return new StructDecl(_fileID, std::move(attributes), visibility, isConstExpr, name,
+        return new StructDecl(_fileID, std::move(attributes), visibility, isConstExpr, name, declModifiers,
                               startPosition, endPosition, structKind, inheritedTypes, contracts, members, constructors,
                               destructor);
     } else {
-        return new TemplateStructDecl(_fileID, std::move(attributes), visibility, isConstExpr, name,
+        return new TemplateStructDecl(_fileID, std::move(attributes), visibility, isConstExpr, name, declModifiers,
                                       startPosition, endPosition, structKind, inheritedTypes, contracts, members,
                                       constructors, destructor, templateParameters);
     }
@@ -1466,10 +1466,10 @@ TraitDecl* Parser::parseTraitDecl(std::vector<Attr*> attributes, Decl::Visibilit
     }
 
     if (templateParameters.empty()) {
-        return new TraitDecl(_fileID, std::move(attributes), visibility, isConstExpr, name,
+        return new TraitDecl(_fileID, std::move(attributes), visibility, isConstExpr, name, declModifiers,
                              startPosition, endPosition, inheritedTypes, contracts, members);
     } else {
-        return new TemplateTraitDecl(_fileID, std::move(attributes), visibility, isConstExpr, name,
+        return new TemplateTraitDecl(_fileID, std::move(attributes), visibility, isConstExpr, name, declModifiers,
                                      startPosition, endPosition, inheritedTypes, contracts, members,
                                      templateParameters);
     }
@@ -1562,8 +1562,8 @@ VariableDecl* Parser::parseVariableDecl(std::vector<Attr*> attributes, Decl::Vis
         initialValue = parseExpr();
     }
 
-    return new VariableDecl(_fileID, std::move(attributes), visibility, isConstExpr, variableIdentifier,
-                            variableType, initialValue, startPosition, endPosition, declModifiers);
+    return new VariableDecl(_fileID, std::move(attributes), visibility, isConstExpr, variableIdentifier, declModifiers,
+                            variableType, initialValue, startPosition, endPosition);
 }
 
 // Contracts ----------------------------------------------------------------------------------------------------------

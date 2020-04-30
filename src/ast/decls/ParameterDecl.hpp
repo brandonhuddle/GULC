@@ -28,7 +28,8 @@ namespace gulc {
                       Type* type, Expr* defaultValue, ParameterKind parameterKind,
                       TextPosition startPosition, TextPosition endPosition)
                 : Decl(Decl::Kind::Parameter, sourceFileID, std::move(attributes),
-                       Decl::Visibility::Unassigned, false, std::move(identifier)),
+                       Decl::Visibility::Unassigned, false, std::move(identifier),
+                       DeclModifiers::None),
                   type(type), defaultValue(defaultValue), _argumentLabel(std::move(argumentLabel)),
                   _parameterKind(parameterKind), _startPosition(startPosition), _endPosition(endPosition) {}
 

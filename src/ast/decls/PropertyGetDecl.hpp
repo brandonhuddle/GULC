@@ -24,6 +24,8 @@ namespace gulc {
                                std::move(contracts), body, startPosition, endPosition),
                   _getResult(getResult) {}
 
+        GetResult getResultType() const { return _getResult; }
+
         Decl* deepCopy() const override {
             std::vector<Attr*> copiedAttributes;
             copiedAttributes.reserve(_attributes.size());

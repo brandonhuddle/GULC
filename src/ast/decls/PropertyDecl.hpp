@@ -20,19 +20,12 @@ namespace gulc {
                      TextPosition startPosition, TextPosition endPosition, DeclModifiers declModifiers,
                      std::vector<PropertyGetDecl*> getters, PropertySetDecl* setter)
                 : Decl(Decl::Kind::Property, sourceFileID, std::move(attributes), visibility, isConstExpr,
-                       std::move(identifier)),
+                       std::move(identifier), declModifiers),
                   type(type), _startPosition(startPosition), _endPosition(endPosition),
-                  _declModifiers(declModifiers), _getters(std::move(getters)), _setter(setter) {}
+                  _getters(std::move(getters)), _setter(setter) {}
 
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }
-
-        bool isStatic() const { return (_declModifiers & DeclModifiers::Static) == DeclModifiers::Static; }
-        bool isMutable() const { return (_declModifiers & DeclModifiers::Mut) == DeclModifiers::Mut; }
-        bool isVolatile() const { return (_declModifiers & DeclModifiers::Volatile) == DeclModifiers::Volatile; }
-        bool isAbstract() const { return (_declModifiers & DeclModifiers::Abstract) == DeclModifiers::Abstract; }
-        bool isVirtual() const { return (_declModifiers & DeclModifiers::Virtual) == DeclModifiers::Virtual; }
-        bool isOverride() const { return (_declModifiers & DeclModifiers::Override) == DeclModifiers::Override; }
 
         std::vector<PropertyGetDecl*>& getters() { return _getters; }
         std::vector<PropertyGetDecl*> const& getters() const { return _getters; }
@@ -71,7 +64,6 @@ namespace gulc {
     protected:
         TextPosition _startPosition;
         TextPosition _endPosition;
-        DeclModifiers _declModifiers;
         std::vector<PropertyGetDecl*> _getters;
         PropertySetDecl* _setter;
 

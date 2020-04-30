@@ -10,13 +10,13 @@ namespace gulc {
     public:
         static bool classof(const Decl* decl) { return decl->getDeclKind() == Decl::Kind::Trait; }
 
-        TraitDecl(unsigned int sourceFileID, std::vector<Attr*> attributes,
-                  Decl::Visibility visibility, bool isConstExpr, Identifier identifier,
+        TraitDecl(unsigned int sourceFileID, std::vector<Attr*> attributes, Decl::Visibility visibility,
+                  bool isConstExpr, Identifier identifier, DeclModifiers declModifiers,
                   TextPosition startPosition, TextPosition endPosition, std::vector<Type*> inheritedTypes,
                   std::vector<Cont*> contracts, std::vector<Decl*> ownedMembers)
                 : TraitDecl(Decl::Kind::Trait, sourceFileID, std::move(attributes), visibility, isConstExpr,
-                            std::move(identifier), startPosition, endPosition, std::move(inheritedTypes),
-                            std::move(contracts), std::move(ownedMembers)) {}
+                            std::move(identifier), declModifiers, startPosition, endPosition,
+                            std::move(inheritedTypes), std::move(contracts), std::move(ownedMembers)) {}
 
         std::vector<Type*>& inheritedTypes() { return _inheritedTypes; }
         std::vector<Type*> const& inheritedTypes() const { return _inheritedTypes; }
@@ -55,7 +55,8 @@ namespace gulc {
             }
 
             return new TraitDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr,
-                                 _identifier, _startPosition, _endPosition,
+                                 _identifier, _declModifiers,
+                                 _startPosition, _endPosition,
                                  copiedInheritedTypes, copiedContracts, copiedOwnedMembers);
         }
 
@@ -78,10 +79,11 @@ namespace gulc {
 
     protected:
         TraitDecl(Decl::Kind declKind, unsigned int sourceFileID, std::vector<Attr*> attributes,
-                  Decl::Visibility visibility, bool isConstExpr, Identifier identifier,
+                  Decl::Visibility visibility, bool isConstExpr, Identifier identifier, DeclModifiers declModifiers,
                   TextPosition startPosition, TextPosition endPosition, std::vector<Type*> inheritedTypes,
                   std::vector<Cont*> contracts, std::vector<Decl*> ownedMembers)
-                : Decl(declKind, sourceFileID, std::move(attributes), visibility, isConstExpr, std::move(identifier)),
+                : Decl(declKind, sourceFileID, std::move(attributes), visibility, isConstExpr, std::move(identifier),
+                       declModifiers),
                   _startPosition(startPosition), _endPosition(endPosition), _inheritedTypes(std::move(inheritedTypes)),
                   _contracts(std::move(contracts)), _ownedMembers(std::move(ownedMembers)) {}
 

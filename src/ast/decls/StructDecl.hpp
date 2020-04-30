@@ -19,13 +19,15 @@ namespace gulc {
         };
 
         StructDecl(unsigned int sourceFileID, std::vector<Attr*> attributes, Decl::Visibility visibility,
-                   bool isConstExpr, Identifier identifier, TextPosition startPosition, TextPosition endPosition,
+                   bool isConstExpr, Identifier identifier, DeclModifiers declModifiers,
+                   TextPosition startPosition, TextPosition endPosition,
                    Kind structKind, std::vector<Type*> inheritedTypes, std::vector<Cont*> contracts,
                    std::vector<Decl*> ownedMembers, std::vector<ConstructorDecl*> constructors,
                    DestructorDecl* destructor)
                 : StructDecl(Decl::Kind::Struct, sourceFileID, std::move(attributes), visibility, isConstExpr,
-                             std::move(identifier), startPosition, endPosition, structKind, std::move(inheritedTypes),
-                             std::move(contracts), std::move(ownedMembers), std::move(constructors), destructor) {}
+                             std::move(identifier), declModifiers, startPosition, endPosition, structKind,
+                             std::move(inheritedTypes), std::move(contracts), std::move(ownedMembers),
+                             std::move(constructors), destructor) {}
 
 //        bool isClass() const { return _isClass; }
         Kind structKind() const { return _structKind; }
@@ -38,6 +40,8 @@ namespace gulc {
                 case Kind::Union:
                     return "union";
             }
+
+            return "[UNKNOWN]";
         }
 
         std::vector<Type*>& inheritedTypes() { return _inheritedTypes; }
@@ -90,8 +94,8 @@ namespace gulc {
                 copiedDestructorDecl = llvm::dyn_cast<DestructorDecl>(destructor->deepCopy());
             }
 
-            return new StructDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr,
-                                  _identifier, _startPosition, _endPosition, _structKind,
+            return new StructDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr, _identifier,
+                                  _declModifiers, _startPosition, _endPosition, _structKind,
                                   copiedInheritedTypes, copiedContracts, copiedOwnedMembers, copiedConstructors,
                                   copiedDestructorDecl);
         }
@@ -151,11 +155,12 @@ namespace gulc {
 
     protected:
         StructDecl(Decl::Kind declKind, unsigned int sourceFileID, std::vector<Attr*> attributes,
-                   Decl::Visibility visibility, bool isConstExpr, Identifier identifier,
+                   Decl::Visibility visibility, bool isConstExpr, Identifier identifier, DeclModifiers declModifiers,
                    TextPosition startPosition, TextPosition endPosition, Kind structKind,
                    std::vector<Type*> inheritedTypes, std::vector<Cont*> contracts, std::vector<Decl*> ownedMembers,
                    std::vector<ConstructorDecl*> constructors, DestructorDecl* destructor)
-                : Decl(declKind, sourceFileID, std::move(attributes), visibility, isConstExpr, std::move(identifier)),
+                : Decl(declKind, sourceFileID, std::move(attributes), visibility, isConstExpr, std::move(identifier),
+                       declModifiers),
                   baseStruct(nullptr), memoryLayout(), dataSizeWithoutPadding(0), dataSizeWithPadding(0),
                   vtableOwner(nullptr),
                   _startPosition(startPosition), _endPosition(endPosition),
