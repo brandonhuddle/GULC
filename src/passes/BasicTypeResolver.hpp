@@ -39,6 +39,7 @@
 #include <ast/decls/SubscriptOperatorDecl.hpp>
 #include <ast/decls/TemplateTraitDecl.hpp>
 #include <ast/decls/TypeAliasDecl.hpp>
+#include <ast/decls/EnumDecl.hpp>
 
 namespace gulc {
     /**
@@ -79,6 +80,7 @@ namespace gulc {
         void processType(Type* type) const;
 
         void processDecl(Decl* decl, bool isGlobal = true);
+        void processEnumDecl(EnumDecl* enumDecl);
         void processFunctionDecl(FunctionDecl* functionDecl);
         void processNamespaceDecl(NamespaceDecl* namespaceDecl);
         void processParameterDecl(ParameterDecl* parameterDecl) const;

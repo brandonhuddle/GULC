@@ -39,6 +39,7 @@
 #include <ast/decls/SubscriptOperatorDecl.hpp>
 #include <ast/decls/TraitDecl.hpp>
 #include <ast/decls/TypeAliasDecl.hpp>
+#include <ast/decls/EnumDecl.hpp>
 #include "Lexer.hpp"
 #include "ASTFile.hpp"
 
@@ -75,8 +76,9 @@ namespace gulc {
                                               bool isConstExpr,
                                               DeclModifiers declModifiers, TextPosition startPosition);
         DestructorDecl* parseDestructorDecl(std::vector<Attr*> attributes, Decl::Visibility visibility,
-                                            bool isConstExpr,
-                                            DeclModifiers declModifiers, TextPosition startPosition);
+                                            bool isConstExpr, DeclModifiers declModifiers, TextPosition startPosition);
+        EnumDecl* parseEnumDecl(std::vector<Attr*> attributes, Decl::Visibility visibility,
+                                bool isConstExpr, DeclModifiers declModifiers, TextPosition startPosition);
         FunctionDecl* parseFunctionDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
                                         DeclModifiers declModifiers, TextPosition startPosition);
         ImportDecl* parseImportDecl(std::vector<Attr*> attributes, TextPosition startPosition);

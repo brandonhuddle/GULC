@@ -16,6 +16,7 @@
 #include <ast/decls/TypeAliasDecl.hpp>
 #include <ast/decls/OperatorDecl.hpp>
 #include <ast/decls/CallOperatorDecl.hpp>
+#include <ast/decls/EnumDecl.hpp>
 
 namespace gulc {
     class BasicDeclValidator {
@@ -55,6 +56,7 @@ namespace gulc {
         void validateCallOperatorDecl(CallOperatorDecl* callOperatorDecl) const;
         void validateConstructorDecl(ConstructorDecl* constructorDecl) const;
         void validateDestructorDecl(DestructorDecl* destructorDecl) const;
+        void validateEnumDecl(EnumDecl* enumDecl) const;
         void validateFunctionDecl(FunctionDecl* functionDecl) const;
         void validateNamespaceDecl(NamespaceDecl* namespaceDecl);
         void validateOperatorDecl(OperatorDecl* operatorDecl) const;

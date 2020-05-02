@@ -16,6 +16,8 @@
 #include <ast/decls/TypeAliasDecl.hpp>
 #include <ast/types/AliasType.hpp>
 #include <ast/decls/NamespaceDecl.hpp>
+#include <ast/decls/EnumDecl.hpp>
+#include <ast/types/EnumType.hpp>
 #include "TypeHelper.hpp"
 
 bool gulc::TypeHelper::resolveType(gulc::Type*& type, ASTFile const* currentFile,
@@ -116,11 +118,11 @@ bool gulc::TypeHelper::resolveType(gulc::Type*& type, ASTFile const* currentFile
                                     if (resolveNamespacePathToDecl(unresolvedType->namespacePath(), 1,
                                                                    checkImport->pointToNamespace->nestedDecls(),
                                                                    &foundContainer)) {
-                                        goto exitNamespacePrototypesLoop;
+                                        goto exitImportAliasesLoop;
                                     }
                                 } else {
                                     foundContainer = checkImport->pointToNamespace;
-                                    goto exitNamespacePrototypesLoop;
+                                    goto exitImportAliasesLoop;
                                 }
                             }
                         }
@@ -308,6 +310,9 @@ bool gulc::TypeHelper::typeIsConstExpr(gulc::Type* resolvedType) {
         case Type::Kind::Dimension:
             // TODO: We cannot know if `[]` is const or not...
             return false;
+        case Type::Kind::Enum:
+            // All enums are `const`
+            return true;
         case Type::Kind::Pointer: {
             auto pointerType = llvm::dyn_cast<PointerType>(resolvedType);
             return typeIsConstExpr(pointerType->nestedType);
@@ -367,6 +372,12 @@ bool gulc::TypeHelper::compareAreSame(const gulc::Type* left, const gulc::Type* 
             // TODO: Account for dimension types?
             std::cerr << "FATAL ERROR: Dimension types not yet supported!" << std::endl;
             std::exit(1);
+        case Type::Kind::Enum: {
+            auto leftEnum = llvm::dyn_cast<EnumType>(left);
+            auto rightEnum = llvm::dyn_cast<EnumType>(right);
+
+            return leftEnum->decl() == rightEnum->decl();
+        }
         case Type::Kind::Pointer: {
             auto leftPointer = llvm::dyn_cast<PointerType>(left);
             auto rightPointer = llvm::dyn_cast<PointerType>(right);
@@ -483,6 +494,28 @@ bool gulc::TypeHelper::resolveTypeToDecl(Type*& type, gulc::Decl* checkDecl,
                     // We only return true if the Decl was resolved
                     return true;
                 }
+            }
+        }
+        case Decl::Kind::Enum: {
+            if (templated || !resolveToCheckDecl) return false;
+
+            auto checkEnum = llvm::dyn_cast<EnumDecl>(checkDecl);
+
+            if (checkEnum->identifier().name() == checkName) {
+                auto result = new EnumType(unresolvedType->qualifier(), checkEnum,
+                                           unresolvedType->startPosition(),
+                                           unresolvedType->endPosition());
+                result->setIsLValue(unresolvedType->isLValue());
+
+                delete type;
+
+                type = result;
+
+                if (outFoundDecl != nullptr) {
+                    *outFoundDecl = checkDecl;
+                }
+
+                return true;
             }
         }
         case Decl::Kind::Struct: {
@@ -722,6 +755,16 @@ bool gulc::TypeHelper::checkImportForAmbiguity(gulc::ImportDecl* importDecl, con
         if (checkDecl == skipDecl) continue;
 
         switch (checkDecl->getDeclKind()) {
+            case Decl::Kind::Enum: {
+                auto enumDecl = llvm::dyn_cast<EnumDecl>(checkDecl);
+
+                if (enumDecl->identifier().name() == checkName) {
+                    // If the identifier is the same then we found an ambiguity.
+                    return true;
+                }
+
+                break;
+            }
             case Decl::Kind::Struct: {
                 auto structDecl = llvm::dyn_cast<StructDecl>(checkDecl);
 

@@ -1,39 +1,11 @@
-import std;
-import std.io as IO;
-
-namespace std {
-    namespace io {
-
-    }
+// Enums are the same as they are in C# BUT can extend ANY `const` type (including `const struct` etc.)
+// We might at some point add an `enum class` or more accurately `enum union` to handle the Rust/Swift style enums.
+enum Example : i32 {
+    Mem1 = 12,
+    Mem2 = 44,
+    Mem4 = 55
 }
 
-namespace example {
-    typealias int = i32;
-
-    trait TestTrait {
-        func test() -> int;
-    }
-
-    union UnionTest {
-        var member1: i32;
-        var member2: i64;
-    }
-
-    struct Example {
-        public init() {
-
-        }
-
-        public init copy(_ other: ref Example) {
-
-        }
-
-        public init move(_ other: ref mut Example) {
-
-        }
-    }
-}
-
-func _start() -> example.Example {
+func _start() -> Example {
 
 }

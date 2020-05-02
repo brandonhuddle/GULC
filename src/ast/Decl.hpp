@@ -48,7 +48,7 @@ namespace gulc {
             Namespace,
 
             Enum,
-            EnumConstant,
+            EnumConst,
 
             Variable,
 

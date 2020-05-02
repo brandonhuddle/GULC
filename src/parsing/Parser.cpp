@@ -518,6 +518,8 @@ Decl* Parser::parseDecl() {
                                    StructDecl::Kind::Union);
         case TokenType::TRAIT:
             return parseTraitDecl(attributes, visibility, isConst, startPosition, declModifiers);
+        case TokenType::ENUM:
+            return parseEnumDecl(attributes, visibility, isConst, declModifiers, startPosition);
 
         case TokenType::LET:
             printError("`let` cannot be used outside of function bodies or related! (use `static var` or `const var` instead)",
@@ -707,6 +709,77 @@ DestructorDecl* Parser::parseDestructorDecl(std::vector<Attr*> attributes, Decl:
 
     return new DestructorDecl(_fileID, std::move(attributes), visibility, isConstExpr, deinitKeyword,
                                declModifiers, contracts, body, startPosition, endPosition);
+}
+
+EnumDecl* Parser::parseEnumDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
+                                DeclModifiers declModifiers, TextPosition startPosition) {
+    if (!_lexer.consumeType(TokenType::ENUM)) {
+        printError("expected `enum`, found `" + _lexer.peekCurrentSymbol() = "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    if (_lexer.peekType() != TokenType::SYMBOL && _lexer.peekType() != TokenType::ATSYMBOL) {
+        printError("expected enum identifier, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    Identifier enumIdentifier = parseIdentifier();
+    // If there isn't a type specified we will default to the identifier end position
+    TextPosition endPosition = enumIdentifier.endPosition();
+
+    if (_lexer.peekType() == TokenType::LESS) {
+        printError("enums cannot be templates!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    Type* constType = nullptr;
+
+    if (_lexer.consumeType(TokenType::COLON)) {
+        constType = parseType();
+        endPosition = constType->endPosition();
+    }
+
+    if (!_lexer.consumeType(TokenType::LCURLY)) {
+        printError("expected opening `{` for enum, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    std::vector<EnumConstDecl*> enumConsts;
+
+    while (_lexer.peekType() != TokenType::RCURLY && _lexer.peekType() != TokenType::ENDOFFILE) {
+        std::vector<Attr*> enumConstAttrs = parseAttrs();
+
+        if (_lexer.peekType() != TokenType::SYMBOL && _lexer.peekType() != TokenType::ATSYMBOL) {
+            printError("expected enum const identifier, found `" + _lexer.peekCurrentSymbol() + "`!",
+                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
+        }
+
+        TextPosition enumConstStartPosition = _lexer.peekStartPosition();
+        Identifier enumConstIdentifier = parseIdentifier();
+        TextPosition enumConstEndPosition = enumConstIdentifier.endPosition();
+        Expr* enumConstValue = nullptr;
+
+        if (_lexer.consumeType(TokenType::EQUALS)) {
+            enumConstValue = parseExpr();
+            enumConstEndPosition = enumConstValue->endPosition();
+        }
+
+        enumConsts.push_back(new EnumConstDecl(_fileID, enumConstAttrs, enumConstIdentifier,
+                                               enumConstStartPosition, enumConstEndPosition,
+                                               enumConstValue));
+
+        if (!_lexer.consumeType(TokenType::COMMA)) {
+            break;
+        }
+    }
+
+    if (!_lexer.consumeType(TokenType::RCURLY)) {
+        printError("expected closing `}` for enum, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    return new EnumDecl(_fileID, std::move(attributes), enumIdentifier, startPosition, endPosition,
+                        constType, enumConsts);
 }
 
 FunctionDecl* Parser::parseFunctionDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,

@@ -6,6 +6,7 @@
 #include <ast/exprs/IdentifierExpr.hpp>
 #include <ast/types/UnresolvedType.hpp>
 #include <ast/types/FlatArrayType.hpp>
+#include <ast/types/BuiltInType.hpp>
 #include "BasicTypeResolver.hpp"
 
 void gulc::BasicTypeResolver::processFiles(std::vector<ASTFile>& files) {
@@ -85,6 +86,9 @@ void gulc::BasicTypeResolver::processDecl(gulc::Decl* decl, bool isGlobal) {
             // We skip imports, they're no longer useful here...
             break;
 
+        case Decl::Kind::Enum:
+            processEnumDecl(llvm::dyn_cast<EnumDecl>(decl));
+            break;
         case Decl::Kind::CallOperator:
         case Decl::Kind::Constructor:
         case Decl::Kind::Destructor:
@@ -139,6 +143,24 @@ void gulc::BasicTypeResolver::processDecl(gulc::Decl* decl, bool isGlobal) {
             printError("INTERNAL ERROR - unhandled Decl type found in `BasicTypeResolver`!",
                        decl->startPosition(), decl->endPosition());
             break;
+    }
+}
+
+void gulc::BasicTypeResolver::processEnumDecl(gulc::EnumDecl* enumDecl) {
+    if (enumDecl->constType != nullptr) {
+        if (!resolveType(enumDecl->constType)) {
+            printError("enum base type `" + enumDecl->constType->toString() + "` was not found!",
+                       enumDecl->startPosition(), enumDecl->endPosition());
+        }
+    } else {
+        enumDecl->constType = gulc::BuiltInType::get(Type::Qualifier::Unassigned, "i32", {}, {});
+    }
+
+    for (EnumConstDecl* enumConst : enumDecl->enumConsts()) {
+        // TODO: If the `constValue` is null we will need to handle setting the default values
+        if (enumConst->constValue != nullptr) {
+            processExpr(enumConst->constValue);
+        }
     }
 }
 

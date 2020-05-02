@@ -7,6 +7,7 @@
 #include <ast/types/TemplatedType.hpp>
 #include <ast/types/TemplateTypenameRefType.hpp>
 #include "TemplateInstHelper.hpp"
+#include <ast/decls/TypeAliasDecl.hpp>
 
 void gulc::TemplateInstHelper::instantiateTemplateStructInstDecl(gulc::TemplateStructDecl* parentTemplateStruct,
                                                                  gulc::TemplateStructInstDecl* templateStructInstDecl,
@@ -164,20 +165,47 @@ void gulc::TemplateInstHelper::instantiateDecl(gulc::Decl* decl) const {
     }
 
     switch (decl->getDeclKind()) {
+        case Decl::Kind::CallOperator:
+            instantiateCallOperatorDecl(llvm::dyn_cast<CallOperatorDecl>(decl));
+            break;
         case Decl::Kind::Constructor:
             instantiateConstructorDecl(llvm::dyn_cast<ConstructorDecl>(decl));
             break;
         case Decl::Kind::Destructor:
             instantiateDestructorDecl(llvm::dyn_cast<DestructorDecl>(decl));
             break;
+        case Decl::Kind::Enum:
+            instantiateEnumDecl(llvm::dyn_cast<EnumDecl>(decl));
+            break;
         case Decl::Kind::Function:
             instantiateFunctionDecl(llvm::dyn_cast<FunctionDecl>(decl));
+            break;
+        case Decl::Kind::Operator:
+            instantiateOperatorDecl(llvm::dyn_cast<OperatorDecl>(decl));
             break;
         case Decl::Kind::Parameter:
             instantiateParameterDecl(llvm::dyn_cast<ParameterDecl>(decl));
             break;
+        case Decl::Kind::Property:
+            instantiatePropertyDecl(llvm::dyn_cast<PropertyDecl>(decl));
+            break;
+        case Decl::Kind::PropertyGet:
+            instantiatePropertyGetDecl(llvm::dyn_cast<PropertyGetDecl>(decl));
+            break;
+        case Decl::Kind::PropertySet:
+            instantiatePropertySetDecl(llvm::dyn_cast<PropertySetDecl>(decl));
+            break;
         case Decl::Kind::Struct:
             instantiateStructDecl(llvm::dyn_cast<StructDecl>(decl));
+            break;
+        case Decl::Kind::SubscriptOperator:
+            instantiateSubscriptOperatorDecl(llvm::dyn_cast<SubscriptOperatorDecl>(decl));
+            break;
+        case Decl::Kind::SubscriptOperatorGet:
+            instantiateSubscriptOperatorGetDecl(llvm::dyn_cast<SubscriptOperatorGetDecl>(decl));
+            break;
+        case Decl::Kind::SubscriptOperatorSet:
+            instantiateSubscriptOperatorSetDecl(llvm::dyn_cast<SubscriptOperatorSetDecl>(decl));
             break;
         case Decl::Kind::TemplateFunction:
             instantiateTemplateFunctionDecl(llvm::dyn_cast<TemplateFunctionDecl>(decl));
@@ -191,10 +219,23 @@ void gulc::TemplateInstHelper::instantiateDecl(gulc::Decl* decl) const {
         case Decl::Kind::TemplateStructInst:
             instantiateTemplateStructInstDecl(llvm::dyn_cast<TemplateStructInstDecl>(decl));
             break;
+        case Decl::Kind::TemplateTrait:
+            instantiateTemplateTraitDecl(llvm::dyn_cast<TemplateTraitDecl>(decl));
+            break;
+        case Decl::Kind::TemplateTraitInst:
+            instantiateTemplateTraitInstDecl(llvm::dyn_cast<TemplateTraitInstDecl>(decl));
+            break;
+        case Decl::Kind::Trait:
+            instantiateTraitDecl(llvm::dyn_cast<TraitDecl>(decl));
+            break;
+        case Decl::Kind::TypeAlias:
+            instantiateTypeAliasDecl(llvm::dyn_cast<TypeAliasDecl>(decl));
+            break;
         case Decl::Kind::Variable:
             instantiateVariableDecl(llvm::dyn_cast<VariableDecl>(decl));
             break;
         default:
+            std::cerr << "[INTERNAL ERROR] unhandled `Decl` found in `TemplateInstHelper`!" << std::endl;
             break;
     }
 }
@@ -300,12 +341,28 @@ void gulc::TemplateInstHelper::instantiateExpr(gulc::Expr* expr) const {
     }
 }
 
+void gulc::TemplateInstHelper::instantiateCallOperatorDecl(gulc::CallOperatorDecl* callOperatorDecl) const {
+    instantiateFunctionDecl(callOperatorDecl);
+}
+
 void gulc::TemplateInstHelper::instantiateConstructorDecl(gulc::ConstructorDecl* constructorDecl) const {
     instantiateFunctionDecl(constructorDecl);
 }
 
 void gulc::TemplateInstHelper::instantiateDestructorDecl(gulc::DestructorDecl* destructorDecl) const {
     instantiateFunctionDecl(destructorDecl);
+}
+
+void gulc::TemplateInstHelper::instantiateEnumDecl(gulc::EnumDecl* enumDecl) const {
+    if (enumDecl->constType != nullptr) {
+        instantiateType(enumDecl->constType);
+    }
+
+    for (EnumConstDecl* enumConst : enumDecl->enumConsts()) {
+        if (enumConst->constValue != nullptr) {
+            instantiateExpr(enumConst->constValue);
+        }
+    }
 }
 
 void gulc::TemplateInstHelper::instantiateFunctionDecl(gulc::FunctionDecl* functionDecl) const {
@@ -327,12 +384,36 @@ void gulc::TemplateInstHelper::instantiateFunctionDecl(gulc::FunctionDecl* funct
     }
 }
 
+void gulc::TemplateInstHelper::instantiateOperatorDecl(gulc::OperatorDecl* operatorDecl) const {
+    instantiateFunctionDecl(operatorDecl);
+}
+
 void gulc::TemplateInstHelper::instantiateParameterDecl(gulc::ParameterDecl* parameterDecl) const {
     instantiateType(parameterDecl->type);
 
     if (parameterDecl->defaultValue != nullptr) {
         instantiateExpr(parameterDecl->defaultValue);
     }
+}
+
+void gulc::TemplateInstHelper::instantiatePropertyDecl(gulc::PropertyDecl* propertyDecl) const {
+    instantiateType(propertyDecl->type);
+
+    for (PropertyGetDecl* getter : propertyDecl->getters()) {
+        instantiateDecl(getter);
+    }
+
+    if (propertyDecl->hasSetter()) {
+        instantiateDecl(propertyDecl->setter());
+    }
+}
+
+void gulc::TemplateInstHelper::instantiatePropertyGetDecl(gulc::PropertyGetDecl* propertyGetDecl) const {
+    instantiateFunctionDecl(propertyGetDecl);
+}
+
+void gulc::TemplateInstHelper::instantiatePropertySetDecl(gulc::PropertySetDecl* propertySetDecl) const {
+    instantiateFunctionDecl(propertySetDecl);
 }
 
 void gulc::TemplateInstHelper::instantiateStructDecl(gulc::StructDecl* structDecl) const {
@@ -355,6 +436,28 @@ void gulc::TemplateInstHelper::instantiateStructDecl(gulc::StructDecl* structDec
     if (structDecl->destructor) {
         instantiateDecl(structDecl->destructor);
     }
+}
+
+void gulc::TemplateInstHelper::instantiateSubscriptOperatorDecl(gulc::SubscriptOperatorDecl* subscriptOperatorDecl) const {
+    for (ParameterDecl* parameter : subscriptOperatorDecl->parameters()) {
+        instantiateParameterDecl(parameter);
+    }
+
+    for (SubscriptOperatorGetDecl* getter : subscriptOperatorDecl->getters()) {
+        instantiateDecl(getter);
+    }
+
+    if (subscriptOperatorDecl->hasSetter()) {
+        instantiateDecl(subscriptOperatorDecl->setter());
+    }
+}
+
+void gulc::TemplateInstHelper::instantiateSubscriptOperatorGetDecl(gulc::SubscriptOperatorGetDecl* subscriptOperatorGetDecl) const {
+    instantiateFunctionDecl(subscriptOperatorGetDecl);
+}
+
+void gulc::TemplateInstHelper::instantiateSubscriptOperatorSetDecl(gulc::SubscriptOperatorSetDecl* subscriptOperatorSetDecl) const {
+    instantiateFunctionDecl(subscriptOperatorSetDecl);
 }
 
 void gulc::TemplateInstHelper::instantiateTemplateFunctionDecl(gulc::TemplateFunctionDecl* templateFunctionDecl) const {
@@ -384,13 +487,50 @@ void gulc::TemplateInstHelper::instantiateTemplateStructDecl(gulc::TemplateStruc
     instantiateStructDecl(templateStructDecl);
 }
 
-void gulc::TemplateInstHelper::instantiateTemplateStructInstDecl(
-        gulc::TemplateStructInstDecl* templateStructInstDecl) const {
+void gulc::TemplateInstHelper::instantiateTemplateStructInstDecl(gulc::TemplateStructInstDecl* templateStructInstDecl) const {
     for (Expr*& templateArgument : templateStructInstDecl->templateArguments()) {
         instantiateExpr(templateArgument);
     }
 
     instantiateStructDecl(templateStructInstDecl);
+}
+
+void gulc::TemplateInstHelper::instantiateTemplateTraitDecl(gulc::TemplateTraitDecl* templateTraitDecl) const {
+    for (TemplateParameterDecl* templateParameter : templateTraitDecl->templateParameters()) {
+        instantiateTemplateParameterDecl(templateParameter);
+    }
+
+    instantiateTraitDecl(templateTraitDecl);
+}
+
+void gulc::TemplateInstHelper::instantiateTemplateTraitInstDecl(gulc::TemplateTraitInstDecl* templateTraitInstDecl) const {
+    for (Expr*& templateArgument : templateTraitInstDecl->templateArguments()) {
+        instantiateExpr(templateArgument);
+    }
+
+    instantiateTraitDecl(templateTraitInstDecl);
+}
+
+void gulc::TemplateInstHelper::instantiateTraitDecl(gulc::TraitDecl* traitDecl) const {
+    for (Cont* contract : traitDecl->contracts()) {
+        instantiateCont(contract);
+    }
+
+    for (Type*& inheritedType : traitDecl->inheritedTypes()) {
+        instantiateType(inheritedType);
+    }
+
+    for (Decl* ownedMember : traitDecl->ownedMembers()) {
+        instantiateDecl(ownedMember);
+    }
+}
+
+void gulc::TemplateInstHelper::instantiateTypeAliasDecl(gulc::TypeAliasDecl* typeAliasDecl) const {
+    for (TemplateParameterDecl* templateParameter : typeAliasDecl->templateParameters()) {
+        instantiateTemplateParameterDecl(templateParameter);
+    }
+
+    instantiateType(typeAliasDecl->typeValue);
 }
 
 void gulc::TemplateInstHelper::instantiateVariableDecl(gulc::VariableDecl* variableDecl) const {

@@ -47,6 +47,10 @@ add_executable(gulc
         src/ast/decls/ConstructorDecl.hpp
         src/ast/decls/DestructorDecl.cpp
         src/ast/decls/DestructorDecl.hpp
+        src/ast/decls/EnumDecl.cpp
+        src/ast/decls/EnumDecl.hpp
+        src/ast/decls/EnumConstDecl.cpp
+        src/ast/decls/EnumConstDecl.hpp
         src/ast/decls/FunctionDecl.cpp
         src/ast/decls/FunctionDecl.hpp
         src/ast/decls/ImportDecl.cpp
@@ -98,6 +102,8 @@ add_executable(gulc
         src/ast/types/BuiltInType.hpp
         src/ast/types/DimensionType.cpp
         src/ast/types/DimensionType.hpp
+        src/ast/types/EnumType.cpp
+        src/ast/types/EnumType.hpp
         src/ast/types/FlatArrayType.cpp
         src/ast/types/FlatArrayType.hpp
         src/ast/types/PointerType.cpp

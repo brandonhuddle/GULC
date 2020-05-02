@@ -197,6 +197,9 @@ void gulc::BasicDeclValidator::validateDecl(gulc::Decl* decl, bool isGlobal) {
         case Decl::Kind::Destructor:
             validateDestructorDecl(llvm::dyn_cast<DestructorDecl>(decl));
             break;
+        case Decl::Kind::Enum:
+            validateEnumDecl(llvm::dyn_cast<EnumDecl>(decl));
+            break;
         case Decl::Kind::Function:
             validateFunctionDecl(llvm::dyn_cast<FunctionDecl>(decl));
             break;
@@ -309,6 +312,57 @@ void gulc::BasicDeclValidator::validateDestructorDecl(gulc::DestructorDecl* dest
     }
 
     validateFunctionDecl(destructorDecl);
+}
+
+void gulc::BasicDeclValidator::validateEnumDecl(gulc::EnumDecl* enumDecl) const {
+    if (enumDecl->isConstExpr()) {
+        printError("`enum` cannot be marked `const`, enums are `const` by default!",
+                   enumDecl->startPosition(), enumDecl->endPosition());
+    }
+
+    if (enumDecl->isStatic()) {
+        printError("enums cannot be marked `static`!",
+                   enumDecl->startPosition(), enumDecl->endPosition());
+    }
+
+    if (enumDecl->isMutable()) {
+        printError("enums cannot be marked `mut`!",
+                   enumDecl->startPosition(), enumDecl->endPosition());
+    }
+
+    if (enumDecl->isAnyVirtual()) {
+        printError("enums cannot be marked `virtual`, `abstract`, or `override`!",
+                   enumDecl->startPosition(), enumDecl->endPosition());
+    }
+
+    if (enumDecl->isVolatile()) {
+        printError("enums cannot be marked `override`!",
+                   enumDecl->startPosition(), enumDecl->endPosition());
+    }
+
+    if (enumDecl->isExtern()) {
+        printError("enums cannot be marked `extern`!",
+                   enumDecl->startPosition(), enumDecl->endPosition());
+    }
+
+    for (EnumConstDecl* enumConst : enumDecl->enumConsts()) {
+        for (EnumConstDecl* checkDuplicate : enumDecl->enumConsts()) {
+            if (checkDuplicate == enumConst) continue;
+
+            if (enumDecl->identifier().name() == checkDuplicate->identifier().name()) {
+                printError("enum `" + enumDecl->identifier().name() + "` contains multiple definitions of "
+                           "const `" + checkDuplicate->identifier().name() + "`!",
+                           checkDuplicate->startPosition(), checkDuplicate->endPosition());
+            }
+        }
+    }
+
+    Decl* redefinition = getRedefinition(enumDecl->identifier().name(), enumDecl);
+
+    if (redefinition != nullptr) {
+        printError("redefinition of symbol `" + enumDecl->identifier().name() + "` detected!",
+                   redefinition->startPosition(), redefinition->endPosition());
+    }
 }
 
 void gulc::BasicDeclValidator::validateFunctionDecl(gulc::FunctionDecl* functionDecl) const {

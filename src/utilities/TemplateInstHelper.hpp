@@ -29,8 +29,16 @@
 #include <ast/exprs/TernaryExpr.hpp>
 #include <ast/exprs/VariableDeclExpr.hpp>
 #include <ast/decls/TemplateTraitDecl.hpp>
+#include <ast/decls/CallOperatorDecl.hpp>
+#include <ast/decls/EnumDecl.hpp>
+#include <ast/decls/OperatorDecl.hpp>
+#include <ast/decls/PropertyDecl.hpp>
+#include <ast/decls/SubscriptOperatorDecl.hpp>
+//#include <ast/decls/TypeAliasDecl.hpp>
 
 namespace gulc {
+    class TypeAliasDecl;
+
     /**
      * The purpose of this class is to handle the instantiation of any template Decl
      *
@@ -71,17 +79,30 @@ namespace gulc {
         void instantiateStmt(Stmt* stmt) const;
         void instantiateExpr(Expr* expr) const;
 
+        void instantiateCallOperatorDecl(CallOperatorDecl* callOperatorDecl) const;
         void instantiateConstructorDecl(ConstructorDecl* constructorDecl) const;
         void instantiateDestructorDecl(DestructorDecl* destructorDecl) const;
+        void instantiateEnumDecl(EnumDecl* enumDecl) const;
         void instantiateFunctionDecl(FunctionDecl* functionDecl) const;
 //        void instantiateImportDecl(ImportDecl* importDecl) const;
 //        void instantiateNamespaceDecl(NamespaceDecl* namespaceDecl) const;
+        void instantiateOperatorDecl(OperatorDecl* operatorDecl) const;
         void instantiateParameterDecl(ParameterDecl* parameterDecl) const;
+        void instantiatePropertyDecl(PropertyDecl* propertyDecl) const;
+        void instantiatePropertyGetDecl(PropertyGetDecl* propertyGetDecl) const;
+        void instantiatePropertySetDecl(PropertySetDecl* propertySetDecl) const;
         void instantiateStructDecl(StructDecl* structDecl) const;
+        void instantiateSubscriptOperatorDecl(SubscriptOperatorDecl* subscriptOperatorDecl) const;
+        void instantiateSubscriptOperatorGetDecl(SubscriptOperatorGetDecl* subscriptOperatorGetDecl) const;
+        void instantiateSubscriptOperatorSetDecl(SubscriptOperatorSetDecl* subscriptOperatorSetDecl) const;
         void instantiateTemplateFunctionDecl(TemplateFunctionDecl* templateFunctionDecl) const;
         void instantiateTemplateParameterDecl(TemplateParameterDecl* templateParameterDecl) const;
         void instantiateTemplateStructDecl(TemplateStructDecl* templateStructDecl) const;
         void instantiateTemplateStructInstDecl(TemplateStructInstDecl* templateStructInstDecl) const;
+        void instantiateTemplateTraitDecl(TemplateTraitDecl* templateTraitDecl) const;
+        void instantiateTemplateTraitInstDecl(TemplateTraitInstDecl* templateTraitInstDecl) const;
+        void instantiateTraitDecl(TraitDecl* traitDecl) const;
+        void instantiateTypeAliasDecl(TypeAliasDecl* typeAliasDecl) const;
         void instantiateVariableDecl(VariableDecl* variableDecl) const;
 
 //        void instantiateBreakStmt(BreakStmt* breakStmt) const;

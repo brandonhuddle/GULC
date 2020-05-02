@@ -307,6 +307,9 @@ void gulc::DeclInstantiator::processDecl(gulc::Decl* decl, bool isGlobal) {
             // We skip imports, they're no longer useful here...
             break;
 
+        case Decl::Kind::Enum:
+            processEnumDecl(llvm::dyn_cast<EnumDecl>(decl));
+            break;
         case Decl::Kind::CallOperator:
         case Decl::Kind::Constructor:
         case Decl::Kind::Destructor:
@@ -362,6 +365,19 @@ void gulc::DeclInstantiator::processDecl(gulc::Decl* decl, bool isGlobal) {
                        decl->startPosition(), decl->endPosition());
             // If we don't know the declaration we just skip it, we don't care in this pass
             break;
+    }
+}
+
+void gulc::DeclInstantiator::processEnumDecl(gulc::EnumDecl* enumDecl) {
+    if (enumDecl->constType != nullptr) {
+        if (!resolveType(enumDecl->constType)) {
+            printError("enum base type `" + enumDecl->constType->toString() + "` was not found!",
+                       enumDecl->startPosition(), enumDecl->endPosition());
+        }
+    }
+
+    for (EnumConstDecl* enumConst : enumDecl->enumConsts()) {
+        processConstExpr(enumConst->constValue);
     }
 }
 
