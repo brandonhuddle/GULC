@@ -149,7 +149,9 @@ gulc::Decl* gulc::BasicDeclValidator::getRedefinition(std::string const& findNam
 }
 
 void gulc::BasicDeclValidator::validateParameters(const std::vector<ParameterDecl*>& parameters) const {
-    // Check for duplicates (we can't validate anything else at this stage in compilation)
+    bool mustBeOptional = false;
+
+    // Check for duplicates and optionals (we can't validate anything else at this stage in compilation)
     for (ParameterDecl* checkParameter : parameters) {
         for (ParameterDecl* checkDuplicate : parameters) {
             if (checkDuplicate == checkParameter) {
@@ -160,6 +162,18 @@ void gulc::BasicDeclValidator::validateParameters(const std::vector<ParameterDec
             if (checkDuplicate->identifier().name() == checkParameter->identifier().name()) {
                 printError("redefinition of parameter `" + checkDuplicate->identifier().name() + "`!",
                            checkDuplicate->identifier().startPosition(), checkDuplicate->identifier().endPosition());
+            }
+        }
+
+        // If there is an optional parameter then all parameters after the optional parameter must also be optional
+        if (mustBeOptional) {
+            if (checkParameter->defaultValue == nullptr) {
+                printError("optional parameters must come after required parameters!",
+                           checkParameter->startPosition(), checkParameter->endPosition());
+            }
+        } else {
+            if (checkParameter->defaultValue != nullptr) {
+                mustBeOptional = true;
             }
         }
     }
