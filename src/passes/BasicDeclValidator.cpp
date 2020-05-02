@@ -214,6 +214,9 @@ void gulc::BasicDeclValidator::validateDecl(gulc::Decl* decl, bool isGlobal) {
         case Decl::Kind::Enum:
             validateEnumDecl(llvm::dyn_cast<EnumDecl>(decl));
             break;
+        case Decl::Kind::Extension:
+            validateExtensionDecl(llvm::dyn_cast<ExtensionDecl>(decl));
+            break;
         case Decl::Kind::Function:
             validateFunctionDecl(llvm::dyn_cast<FunctionDecl>(decl));
             break;
@@ -380,6 +383,66 @@ void gulc::BasicDeclValidator::validateEnumDecl(gulc::EnumDecl* enumDecl) const 
         printError("redefinition of symbol `" + enumDecl->identifier().name() + "` detected!",
                    redefinition->startPosition(), redefinition->endPosition());
     }
+}
+
+void gulc::BasicDeclValidator::validateExtensionDecl(gulc::ExtensionDecl* extensionDecl) {
+    if (extensionDecl->isConstExpr()) {
+        printError("extensions cannot be marked `const`!",
+                   extensionDecl->startPosition(), extensionDecl->endPosition());
+    }
+
+    if (extensionDecl->isStatic()) {
+        printError("extensions cannot be marked `static`!",
+                   extensionDecl->startPosition(), extensionDecl->endPosition());
+    }
+
+    if (extensionDecl->isMutable()) {
+        printError("extensions cannot be marked `mut`!",
+                   extensionDecl->startPosition(), extensionDecl->endPosition());
+    }
+
+    if (extensionDecl->isAnyVirtual()) {
+        printError("extensions cannot be marked `virtual`, `abstract`, or `override`!",
+                   extensionDecl->startPosition(), extensionDecl->endPosition());
+    }
+
+    validateTemplateParameters(extensionDecl->templateParameters());
+
+    _containingDecls.push_back(extensionDecl);
+
+    for (Decl* checkDecl : extensionDecl->ownedMembers()) {
+        if (llvm::isa<NamespaceDecl>(checkDecl)) {
+            printError("`namespace` cannot be contained within extensions!",
+                       checkDecl->startPosition(), checkDecl->endPosition());
+        }
+
+        if (llvm::isa<ImportDecl>(checkDecl)) {
+            printError("`import` cannot be contained within extensions!",
+                       checkDecl->startPosition(), checkDecl->endPosition());
+        }
+
+        if (llvm::isa<VariableDecl>(checkDecl)) {
+            if (!checkDecl->isConstExpr() && !checkDecl->isStatic()) {
+                printError("extensions cannot contain data members unless they are `const` or `static`!",
+                           checkDecl->startPosition(), checkDecl->endPosition());
+            }
+        }
+
+        validateDecl(checkDecl, false);
+
+        // TODO: Can extensions contain `override`? I think they should be able to but I'm not entirely decided.
+        if (checkDecl->isAbstract()) {
+            printError("extensions cannot contain `abstract` members!",
+                       checkDecl->startPosition(), checkDecl->endPosition());
+        }
+
+        if (checkDecl->isVirtual()) {
+            printError("extensions cannot contain `virtual` members!",
+                       checkDecl->startPosition(), checkDecl->endPosition());
+        }
+    }
+
+    _containingDecls.pop_back();
 }
 
 void gulc::BasicDeclValidator::validateFunctionDecl(gulc::FunctionDecl* functionDecl) const {

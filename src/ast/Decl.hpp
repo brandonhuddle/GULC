@@ -41,6 +41,8 @@ namespace gulc {
             TemplateTrait,
             TemplateTraitInst,
 
+            Extension,
+
             Attribute,
 
             TypeAlias,

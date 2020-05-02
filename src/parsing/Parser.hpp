@@ -41,6 +41,7 @@
 #include <ast/decls/TypeAliasDecl.hpp>
 #include <ast/decls/EnumDecl.hpp>
 #include <ast/decls/TypeSuffixDecl.hpp>
+#include <ast/decls/ExtensionDecl.hpp>
 #include "Lexer.hpp"
 #include "ASTFile.hpp"
 
@@ -80,6 +81,8 @@ namespace gulc {
                                             bool isConstExpr, DeclModifiers declModifiers, TextPosition startPosition);
         EnumDecl* parseEnumDecl(std::vector<Attr*> attributes, Decl::Visibility visibility,
                                 bool isConstExpr, DeclModifiers declModifiers, TextPosition startPosition);
+        ExtensionDecl* parseExtensionDecl(std::vector<Attr*> attributes, Decl::Visibility visibility,
+                                          bool isConstExpr, DeclModifiers declModifiers, TextPosition startPosition);
         FunctionDecl* parseFunctionDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
                                         DeclModifiers declModifiers, TextPosition startPosition);
         ImportDecl* parseImportDecl(std::vector<Attr*> attributes, TextPosition startPosition);

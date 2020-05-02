@@ -310,6 +310,9 @@ void gulc::DeclInstantiator::processDecl(gulc::Decl* decl, bool isGlobal) {
         case Decl::Kind::Enum:
             processEnumDecl(llvm::dyn_cast<EnumDecl>(decl));
             break;
+        case Decl::Kind::Extension:
+            processExtensionDecl(llvm::dyn_cast<ExtensionDecl>(decl));
+            break;
         case Decl::Kind::CallOperator:
         case Decl::Kind::Constructor:
         case Decl::Kind::Destructor:
@@ -379,6 +382,42 @@ void gulc::DeclInstantiator::processEnumDecl(gulc::EnumDecl* enumDecl) {
 
     for (EnumConstDecl* enumConst : enumDecl->enumConsts()) {
         processConstExpr(enumConst->constValue);
+    }
+}
+
+void gulc::DeclInstantiator::processExtensionDecl(gulc::ExtensionDecl* extensionDecl) {
+    for (TemplateParameterDecl* templateParameter : extensionDecl->templateParameters()) {
+        processTemplateParameterDecl(templateParameter);
+    }
+
+    // TODO: We need to improve our support for templates. Currently we can't properly finish instantiating any
+    //       templates due to their need to keep their `TemplatedType` and not being able to properly account for
+    //       non-template types nested within a template type.
+    if (!extensionDecl->hasTemplateParameters()) {
+        if (!resolveType(extensionDecl->typeToExtend)) {
+            printError("extension type `" + extensionDecl->typeToExtend->toString() + "` was not found!",
+                       extensionDecl->typeToExtend->startPosition(), extensionDecl->typeToExtend->endPosition());
+        }
+
+        for (Type*& inheritedType : extensionDecl->inheritedTypes()) {
+            if (!resolveType(inheritedType)) {
+                printError("extension inherited type `" + inheritedType->toString() + "` was not found!",
+                           inheritedType->startPosition(), inheritedType->endPosition());
+            }
+
+            if (!llvm::isa<TraitType>(inheritedType)) {
+                printError("extensions can only inherit traits!",
+                           inheritedType->startPosition(), inheritedType->endPosition());
+            }
+        }
+
+        for (Decl* ownedMember : extensionDecl->ownedMembers()) {
+            processDecl(ownedMember, false);
+        }
+
+        for (ConstructorDecl* constructor : extensionDecl->constructors()) {
+            processDecl(constructor);
+        }
     }
 }
 

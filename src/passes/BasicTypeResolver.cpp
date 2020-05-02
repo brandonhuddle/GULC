@@ -7,6 +7,7 @@
 #include <ast/types/UnresolvedType.hpp>
 #include <ast/types/FlatArrayType.hpp>
 #include <ast/types/BuiltInType.hpp>
+#include <ast/types/TraitType.hpp>
 #include "BasicTypeResolver.hpp"
 
 void gulc::BasicTypeResolver::processFiles(std::vector<ASTFile>& files) {
@@ -89,6 +90,9 @@ void gulc::BasicTypeResolver::processDecl(gulc::Decl* decl, bool isGlobal) {
         case Decl::Kind::Enum:
             processEnumDecl(llvm::dyn_cast<EnumDecl>(decl));
             break;
+        case Decl::Kind::Extension:
+            processExtensionDecl(llvm::dyn_cast<ExtensionDecl>(decl));
+            break;
         case Decl::Kind::CallOperator:
         case Decl::Kind::Constructor:
         case Decl::Kind::Destructor:
@@ -163,6 +167,41 @@ void gulc::BasicTypeResolver::processEnumDecl(gulc::EnumDecl* enumDecl) {
             processExpr(enumConst->constValue);
         }
     }
+}
+
+void gulc::BasicTypeResolver::processExtensionDecl(gulc::ExtensionDecl* extensionDecl) {
+    for (TemplateParameterDecl* templateParameter : extensionDecl->templateParameters()) {
+        processTemplateParameterDecl(templateParameter);
+    }
+
+    _templateParameters.push_back(&extensionDecl->templateParameters());
+
+    if (!resolveType(extensionDecl->typeToExtend)) {
+        printError("extension type `" + extensionDecl->typeToExtend->toString() + "` was not found!",
+                   extensionDecl->typeToExtend->startPosition(), extensionDecl->typeToExtend->endPosition());
+    }
+
+    for (Type*& inheritedType : extensionDecl->inheritedTypes()) {
+        if (!resolveType(inheritedType)) {
+            printError("extension inherited type `" + inheritedType->toString() + "` was not found!",
+                       inheritedType->startPosition(), inheritedType->endPosition());
+        }
+    }
+
+    _containingDecls.push_back(extensionDecl);
+
+    for (Decl* member : extensionDecl->ownedMembers()) {
+        processDecl(member, false);
+    }
+
+    // Make sure we process the constructors since they are NOT in the `ownedMembers` list...
+    for (ConstructorDecl* constructor : extensionDecl->constructors()) {
+        processDecl(constructor);
+    }
+
+    _containingDecls.pop_back();
+
+    _templateParameters.pop_back();
 }
 
 void gulc::BasicTypeResolver::processFunctionDecl(gulc::FunctionDecl* functionDecl) {

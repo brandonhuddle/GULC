@@ -72,6 +72,7 @@ namespace gulc {
         SUBSCRIPT, // Indexer
         TYPEALIAS,
         TYPESUFFIX, // User-defined literals
+        EXTENSION, // Existing type modification
 
         // Modifier Tokens
         PUBLIC, // 'public'

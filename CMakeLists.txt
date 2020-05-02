@@ -51,6 +51,8 @@ add_executable(gulc
         src/ast/decls/EnumDecl.hpp
         src/ast/decls/EnumConstDecl.cpp
         src/ast/decls/EnumConstDecl.hpp
+        src/ast/decls/ExtensionDecl.cpp
+        src/ast/decls/ExtensionDecl.hpp
         src/ast/decls/FunctionDecl.cpp
         src/ast/decls/FunctionDecl.hpp
         src/ast/decls/ImportDecl.cpp

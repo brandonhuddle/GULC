@@ -523,6 +523,8 @@ Decl* Parser::parseDecl() {
             return parseTraitDecl(attributes, visibility, isConst, startPosition, declModifiers);
         case TokenType::ENUM:
             return parseEnumDecl(attributes, visibility, isConst, declModifiers, startPosition);
+        case TokenType::EXTENSION:
+            return parseExtensionDecl(attributes, visibility, isConst, declModifiers, startPosition);
 
         case TokenType::LET:
             printError("`let` cannot be used outside of function bodies or related! (use `static var` or `const var` instead)",
@@ -783,6 +785,74 @@ EnumDecl* Parser::parseEnumDecl(std::vector<Attr*> attributes, Decl::Visibility 
 
     return new EnumDecl(_fileID, std::move(attributes), enumIdentifier, startPosition, endPosition,
                         constType, enumConsts);
+}
+
+ExtensionDecl* Parser::parseExtensionDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
+                                          DeclModifiers declModifiers, TextPosition startPosition) {
+    if (!_lexer.consumeType(TokenType::EXTENSION)) {
+        printError("expected `extension`, found `" + _lexer.peekCurrentSymbol() = "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    std::vector<TemplateParameterDecl*> templateParameters;
+
+    if (_lexer.peekType() == TokenType::LESS) {
+        templateParameters = parseTemplateParameters();
+    }
+
+    Type* typeToExtend = parseType();
+    TextPosition endPosition = typeToExtend->endPosition();
+    std::vector<Type*> inheritedTypes;
+
+    if (_lexer.consumeType(TokenType::COLON)) {
+        while (true) {
+            inheritedTypes.push_back(parseType());
+
+            if (!_lexer.consumeType(TokenType::COMMA)) {
+                break;
+            }
+        }
+    }
+
+    // NOTE: Only template structs can have contracts, non-templates don't have anything that could be contractual
+    std::vector<Cont*> contracts(parseConts());
+
+    if (!_lexer.consumeType(TokenType::LCURLY)) {
+        printError("expected beginning `{` for `extension`, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    std::vector<ConstructorDecl*> constructors;
+//    DestructorDecl* destructor = nullptr;
+    std::vector<Decl*> members;
+
+    while (_lexer.peekType() != TokenType::RCURLY && _lexer.peekType() != TokenType::ENDOFFILE) {
+        Decl* parsedMember = parseDecl();
+
+        if (parsedMember->getDeclKind() == Decl::Kind::Constructor) {
+            constructors.push_back(llvm::dyn_cast<ConstructorDecl>(parsedMember));
+        } else if (parsedMember->getDeclKind() == Decl::Kind::Destructor) {
+            printError("extensions cannot define destructors!",
+                       parsedMember->startPosition(), parsedMember->endPosition());
+//            if (destructor != nullptr) {
+//                printError("there cannot be more than one `deinit` at per extension!",
+//                           _lexer.peekStartPosition(), _lexer.peekEndPosition());
+//            }
+//
+//            destructor = llvm::dyn_cast<DestructorDecl>(parsedMember);
+        } else {
+            members.push_back(parsedMember);
+        }
+    }
+
+    if (!_lexer.consumeType(TokenType::RCURLY)) {
+        printError("expected ending `}` for `extension`, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    return new ExtensionDecl(_fileID, std::move(attributes), visibility, isConstExpr, declModifiers,
+                             templateParameters, typeToExtend, startPosition, endPosition, inheritedTypes,
+                             contracts, members, constructors);
 }
 
 FunctionDecl* Parser::parseFunctionDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,

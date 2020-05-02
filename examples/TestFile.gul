@@ -1,15 +1,27 @@
-// Enums are the same as they are in C# BUT can extend ANY `const` type (including `const struct` etc.)
-// We might at some point add an `enum class` or more accurately `enum union` to handle the Rust/Swift style enums.
-enum Example : i32 {
-    Mem1 = 12,
-    Mem2 = 44,
-    Mem4 = 55
+struct Example {
+
 }
 
-typesuffix miles(literal: i32) -> i32 {
-    return literal;
+// Basic extension...
+extension Example {
+
 }
 
-func _start() -> Example {
-    let test = 12miles;
+// Template extension to apply to everything...
+extension<T> T {
+
+}
+
+// Extension that applies to a type named `Example` with it's own template arguments
+//extension<T> Example<T> {
+//
+//}
+
+// Extension that applies to any pointers to the type `Example`
+extension *Example {
+
+}
+
+func _start() {
+
 }
