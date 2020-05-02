@@ -6,6 +6,10 @@ enum Example : i32 {
     Mem4 = 55
 }
 
-func _start() -> Example {
+typesuffix miles(literal: i32) -> i32 {
+    return literal;
+}
 
+func _start() -> Example {
+    let test = 12miles;
 }

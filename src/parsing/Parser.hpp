@@ -40,6 +40,7 @@
 #include <ast/decls/TraitDecl.hpp>
 #include <ast/decls/TypeAliasDecl.hpp>
 #include <ast/decls/EnumDecl.hpp>
+#include <ast/decls/TypeSuffixDecl.hpp>
 #include "Lexer.hpp"
 #include "ASTFile.hpp"
 
@@ -99,6 +100,8 @@ namespace gulc {
                                   TextPosition startPosition, DeclModifiers declModifiers);
         TypeAliasDecl* parseTypeAliasDecl(std::vector<Attr*> attributes, Decl::Visibility visibility,
                                           TextPosition startPosition);
+        TypeSuffixDecl* parseTypeSuffixDecl(std::vector<Attr*> attributes, Decl::Visibility visibility,
+                                            bool isConstExpr, DeclModifiers declModifiers, TextPosition startPosition);
         VariableDecl* parseVariableDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
                                         TextPosition startPosition, DeclModifiers declModifiers);
 

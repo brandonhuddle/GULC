@@ -44,6 +44,7 @@ namespace gulc {
             Attribute,
 
             TypeAlias,
+            TypeSuffix,
 
             Namespace,
 

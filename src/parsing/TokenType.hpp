@@ -71,6 +71,7 @@ namespace gulc {
         CALL, // Functor/functionoid
         SUBSCRIPT, // Indexer
         TYPEALIAS,
+        TYPESUFFIX, // User-defined literals
 
         // Modifier Tokens
         PUBLIC, // 'public'

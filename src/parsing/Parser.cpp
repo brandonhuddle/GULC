@@ -490,6 +490,9 @@ Decl* Parser::parseDecl() {
 
             return parseTypeAliasDecl(attributes, visibility, startPosition);
 
+        case TokenType::TYPESUFFIX:
+            return parseTypeSuffixDecl(attributes, visibility, isConst, declModifiers, startPosition);
+
         case TokenType::FUNC:
             return parseFunctionDecl(attributes, visibility, isConst, declModifiers, startPosition);
         case TokenType::INIT:
@@ -1610,6 +1613,56 @@ TypeAliasDecl* Parser::parseTypeAliasDecl(std::vector<Attr*> attributes, Decl::V
 
     return new TypeAliasDecl(_fileID, std::move(attributes), visibility, typeAliasType, aliasIdentifier,
                              templateParameters, typeValue, startPosition, endPosition);
+}
+
+TypeSuffixDecl* Parser::parseTypeSuffixDecl(std::vector<Attr*> attributes, Decl::Visibility visibility,
+                                            bool isConstExpr, DeclModifiers declModifiers,
+                                            TextPosition startPosition) {
+    if (!_lexer.consumeType(TokenType::TYPESUFFIX)) {
+        printError("expected `typesuffix`, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    if (_lexer.peekType() != TokenType::SYMBOL) {
+        printError("expected `typesuffix` identifier, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    Identifier suffixIdentifier = parseIdentifier();
+
+    if (_lexer.peekType() != TokenType::LPAREN) {
+        printError("expected `(` for `typesuffix` parameters, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    TextPosition endPosition;
+    std::vector<ParameterDecl*> parameters = parseParameters(&endPosition);
+
+    if (!_lexer.consumeType(TokenType::ARROW)) {
+        printError("expected `->` for `typesuffix` type, found `" + _lexer.peekCurrentSymbol() + "`! "
+                   "(NOTE: `typesuffix` MUST have a return type)",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    Type* resultType = parseType();
+    std::vector<Cont*> contracts = parseConts();
+    CompoundStmt* body = nullptr;
+
+    if (_lexer.consumeType(TokenType::SEMICOLON)) {
+        // If there is a semicolon then the function is marked as a `prototype`, mainly used for `trait` parsing
+        body = new CompoundStmt({}, {}, {});
+        declModifiers |= DeclModifiers::Prototype;
+    } else {
+        if (_lexer.peekType() != TokenType::LCURLY) {
+            printError("expected beginning `{` for `typesuffix` declaration, found `" + _lexer.peekCurrentSymbol() + "`!",
+                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
+        }
+
+        body = parseCompoundStmt();
+    }
+
+    return new TypeSuffixDecl(_fileID, std::move(attributes), visibility, isConstExpr, suffixIdentifier, declModifiers,
+                              parameters, resultType, contracts, body, startPosition, endPosition);
 }
 
 VariableDecl* Parser::parseVariableDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
@@ -2940,9 +2993,60 @@ ValueLiteralExpr* Parser::parseNumberLiteralExpr() {
         }
     }
 
-    // TODO: Parse suffix, do NOT allow leading whitespace
+    std::string resultNumber;
+    std::string resultSuffix;
+    bool fillSuffix = false;
+    int base = 10;
 
-    return new ValueLiteralExpr(literalType, numberValue, "", startPosition, endPosition);
+    for (std::size_t i = 0; i < numberValue.size(); ++i) {
+        char c = numberValue[i];
+
+        if (fillSuffix) {
+            resultSuffix += c;
+        } else {
+            if (base == 10 && std::isdigit(c)) {
+                resultNumber += c;
+            } else if (base == 16 && std::isdigit(c) ||
+                       (c == 'a' || c == 'A' || c == 'b' || c == 'B' || c == 'c' || c == 'C' || c == 'd' || c == 'D' ||
+                        c == 'e' || c == 'E' || c == 'f' || c == 'F')) {
+                resultNumber += c;
+            } else if (base == 2 && (c == '0' || c == '1')) {
+                resultNumber += c;
+            } else if (base == 8 &&
+                       (c == '0' || c == '1' || c == '2' || c == '3' || c == '4' || c == '5' || c == '6' || c == '7')) {
+                resultNumber += c;
+            } else if (i == 1 && numberValue[0] == '0') {
+                // Handle `0x...`, `0b...`, `0o...`
+                switch (c) {
+                    case 'x':
+                        // Hex
+                        base = 16;
+                        resultNumber += c;
+                        break;
+                    case 'b':
+                        // Binary
+                        base = 2;
+                        resultNumber += c;
+                        break;
+                    case 'o':
+                        // Octal
+                        base = 8;
+                        resultNumber += c;
+                        break;
+                    default:
+                        // Suffix
+                        fillSuffix = true;
+                        resultSuffix += c;
+                        break;
+                }
+            } else {
+                fillSuffix = true;
+                resultSuffix += c;
+            }
+        }
+    }
+
+    return new ValueLiteralExpr(literalType, resultNumber, resultSuffix, startPosition, endPosition);
 }
 
 ValueLiteralExpr* Parser::parseStringLiteralExpr() {
@@ -2980,7 +3084,7 @@ ValueLiteralExpr* Parser::parseCharacterLiteralExpr() {
 Expr* Parser::parseArrayLiteralOrDimensionType() {
     TextPosition startPosition = _lexer.peekStartPosition();
 
-    if (!_lexer.consumeType(TokenType::LCURLY)) {
+    if (!_lexer.consumeType(TokenType::LSQUARE)) {
         printError("expected `[`, found `" + _lexer.peekCurrentSymbol() + "`!",
                    _lexer.peekStartPosition(), _lexer.peekEndPosition());
     }
@@ -2994,7 +3098,7 @@ Expr* Parser::parseArrayLiteralOrDimensionType() {
             dimensions += 1;
         }
 
-        if (!_lexer.consumeType(TokenType::RCURLY)) {
+        if (!_lexer.consumeType(TokenType::RSQUARE)) {
             printError("expected ending `]` for dimension type, found `" + _lexer.peekCurrentSymbol() + "`!",
                        _lexer.peekStartPosition(), _lexer.peekEndPosition());
         }
@@ -3003,10 +3107,10 @@ Expr* Parser::parseArrayLiteralOrDimensionType() {
         Type* resultType = new DimensionType(Type::Qualifier::Unassigned, nestedType, 1);
 
         return new TypeExpr(resultType);
-    } else if (_lexer.peekType() == TokenType::RCURLY) {
+    } else if (_lexer.peekType() == TokenType::RSQUARE) {
         TextPosition endPosition = _lexer.peekEndPosition();
 
-        _lexer.consumeType(TokenType::RCURLY);
+        _lexer.consumeType(TokenType::RSQUARE);
 
         // If the syntax is `[]` then we have to check what the next token after the `]` is.
         if (_lexer.peekType() == TokenType::SYMBOL) {
@@ -3023,7 +3127,7 @@ Expr* Parser::parseArrayLiteralOrDimensionType() {
     } else {
         std::vector<Expr*> indexes;
 
-        while (_lexer.peekType() != TokenType::RCURLY && _lexer.peekType() != TokenType::ENDOFFILE) {
+        while (_lexer.peekType() != TokenType::RSQUARE && _lexer.peekType() != TokenType::ENDOFFILE) {
             indexes.push_back(parseExpr());
 
             if (!_lexer.consumeType(TokenType::COMMA)) {
@@ -3033,7 +3137,7 @@ Expr* Parser::parseArrayLiteralOrDimensionType() {
 
         TextPosition endPosition = _lexer.peekEndPosition();
 
-        if (!_lexer.consumeType(TokenType::RCURLY)) {
+        if (!_lexer.consumeType(TokenType::RSQUARE)) {
             printError("expected ending `]` for array literal, found `" + _lexer.peekCurrentSymbol() + "`!",
                        _lexer.peekStartPosition(), _lexer.peekEndPosition());
         }

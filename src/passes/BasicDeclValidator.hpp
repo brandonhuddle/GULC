@@ -17,6 +17,7 @@
 #include <ast/decls/OperatorDecl.hpp>
 #include <ast/decls/CallOperatorDecl.hpp>
 #include <ast/decls/EnumDecl.hpp>
+#include <ast/decls/TypeSuffixDecl.hpp>
 
 namespace gulc {
     class BasicDeclValidator {
@@ -72,6 +73,7 @@ namespace gulc {
         void validateTemplateTraitDecl(TemplateTraitDecl* templateTraitDecl);
         void validateTraitDecl(TraitDecl* traitDecl, bool checkForRedefinition);
         void validateTypeAliasDecl(TypeAliasDecl* typeAliasDecl);
+        void validateTypeSuffixDecl(TypeSuffixDecl* typeSuffixDecl, bool isGlobal);
         void validateVariableDecl(VariableDecl* variableDecl, bool isGlobal) const;
 
     };

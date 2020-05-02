@@ -18,7 +18,8 @@ namespace gulc {
             Decl::Kind kind = decl->getDeclKind();
 
             return kind == Decl::Kind::CallOperator || kind == Decl::Kind::Constructor ||
-                   kind == Decl::Kind::Destructor || kind == Decl::Kind::Function || kind == Decl::Kind::Operator;
+                   kind == Decl::Kind::Destructor || kind == Decl::Kind::Function || kind == Decl::Kind::Operator ||
+                   kind == Decl::Kind::TypeSuffix;
         }
 
         Type* returnType;

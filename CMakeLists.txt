@@ -91,6 +91,8 @@ add_executable(gulc
         src/ast/decls/TraitDecl.hpp
         src/ast/decls/TypeAliasDecl.cpp
         src/ast/decls/TypeAliasDecl.hpp
+        src/ast/decls/TypeSuffixDecl.cpp
+        src/ast/decls/TypeSuffixDecl.hpp
         src/ast/decls/VariableDecl.cpp
         src/ast/decls/VariableDecl.hpp
 

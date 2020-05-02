@@ -274,6 +274,9 @@ void gulc::BasicDeclValidator::validateDecl(gulc::Decl* decl, bool isGlobal) {
         case Decl::Kind::TypeAlias:
             validateTypeAliasDecl(llvm::dyn_cast<TypeAliasDecl>(decl));
             break;
+        case Decl::Kind::TypeSuffix:
+            validateTypeSuffixDecl(llvm::dyn_cast<TypeSuffixDecl>(decl), isGlobal);
+            break;
         case Decl::Kind::Variable:
             validateVariableDecl(llvm::dyn_cast<VariableDecl>(decl), isGlobal);
             break;
@@ -808,6 +811,48 @@ void gulc::BasicDeclValidator::validateTypeAliasDecl(gulc::TypeAliasDecl* typeAl
             printError("redefinition of symbol `" + typeAliasDecl->identifier().name() + "` detected!",
                        redefinition->startPosition(), redefinition->endPosition());
         }
+    }
+}
+
+void gulc::BasicDeclValidator::validateTypeSuffixDecl(gulc::TypeSuffixDecl* typeSuffixDecl, bool isGlobal) {
+    if (!isGlobal) {
+        printError("`typesuffix` can only be declared in a global context! (they cannot appear within structs, traits, etc.)",
+                   typeSuffixDecl->startPosition(), typeSuffixDecl->endPosition());
+    }
+
+    if (typeSuffixDecl->isAnyVirtual()) {
+        printError("`typesuffix` cannot be marked `virtual`, `abstract`, or `override`!",
+                   typeSuffixDecl->startPosition(), typeSuffixDecl->endPosition());
+    }
+
+    if (typeSuffixDecl->isMutable()) {
+        printError("`typesuffix` cannot be marked `mut`!",
+                   typeSuffixDecl->startPosition(), typeSuffixDecl->endPosition());
+    }
+
+    if (typeSuffixDecl->isStatic()) {
+        printError("`typesuffix` cannot be marked `static`!",
+                   typeSuffixDecl->startPosition(), typeSuffixDecl->endPosition());
+    }
+
+    validateFunctionDecl(typeSuffixDecl);
+
+    switch (typeSuffixDecl->identifier().name()[0]) {
+        case 'x':
+            printWarning("typesuffixes starting with 'x' may cause issues with some numbers! "
+                         "(e.g. `0xfce` will be interpreted as the hex value `FCE` instead of xfce)",
+                         typeSuffixDecl->startPosition(), typeSuffixDecl->endPosition());
+            break;
+        case 'b':
+            printWarning("typesuffixes starting with 'b' may cause issues with some numbers!",
+                         typeSuffixDecl->startPosition(), typeSuffixDecl->endPosition());
+            break;
+        case 'o':
+            printWarning("typesuffixes starting with 'o' may cause issues with some numbers!",
+                         typeSuffixDecl->startPosition(), typeSuffixDecl->endPosition());
+            break;
+        default:
+            break;
     }
 }
 

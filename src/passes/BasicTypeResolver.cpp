@@ -94,6 +94,7 @@ void gulc::BasicTypeResolver::processDecl(gulc::Decl* decl, bool isGlobal) {
         case Decl::Kind::Destructor:
         case Decl::Kind::Function:
         case Decl::Kind::Operator:
+        case Decl::Kind::TypeSuffix:
             processFunctionDecl(llvm::dyn_cast<FunctionDecl>(decl));
             break;
         case Decl::Kind::Namespace:
