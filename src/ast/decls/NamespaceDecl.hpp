@@ -14,20 +14,28 @@ namespace gulc {
                 : Decl(Kind::Namespace, sourceFileID, std::move(attributes),
                        Decl::Visibility::Unassigned, false, std::move(identifier),
                        DeclModifiers::None),
-                  _startPosition(startPosition), _endPosition(endPosition), _nestedDecls(), _isPrototype(false) {}
+                  prototype(nullptr), _startPosition(startPosition), _endPosition(endPosition), _nestedDecls(),
+                  _isPrototype(false) {}
         NamespaceDecl(unsigned int sourceFileID, std::vector<Attr*> attributes, Identifier identifier,
                       TextPosition startPosition, TextPosition endPosition, bool isPrototype,
                       std::vector<Decl*> nestedDecls)
                 : Decl(Kind::Namespace, sourceFileID, std::move(attributes),
                        Decl::Visibility::Unassigned, false, std::move(identifier),
                        DeclModifiers::None),
-                  _startPosition(startPosition), _endPosition(endPosition), _nestedDecls(std::move(nestedDecls)),
-                  _isPrototype(isPrototype) {}
+                  prototype(nullptr), _startPosition(startPosition), _endPosition(endPosition),
+                  _nestedDecls(std::move(nestedDecls)), _isPrototype(isPrototype) {
+            for (Decl* nestedDecl : _nestedDecls) {
+                nestedDecl->container = this;
+            }
+        }
 
         std::vector<Decl*>& nestedDecls() { return _nestedDecls; }
         const std::vector<Decl*>& nestedDecls() const { return _nestedDecls; }
 
-        void addNestedDecl(Decl* nestedDecl) { _nestedDecls.push_back(nestedDecl); }
+        void addNestedDecl(Decl* nestedDecl) {
+            _nestedDecls.push_back(nestedDecl);
+            nestedDecl->container = this;
+        }
 
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }
@@ -46,9 +54,12 @@ namespace gulc {
                 copiedNestedDecls.push_back(nestedDecl->deepCopy());
             }
 
-            return new NamespaceDecl(_sourceFileID, copiedAttributes, _identifier,
-                                     _startPosition, _endPosition, _isPrototype,
-                                     copiedNestedDecls);
+            auto result = new NamespaceDecl(_sourceFileID, copiedAttributes, _identifier,
+                                            _startPosition, _endPosition, _isPrototype,
+                                            copiedNestedDecls);
+            result->container = container;
+            result->containedInTemplate = containedInTemplate;
+            return result;
         }
 
         ~NamespaceDecl() override {

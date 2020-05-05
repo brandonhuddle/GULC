@@ -1,3 +1,9 @@
+#include <ast/types/NestedType.hpp>
+#include <ast/types/TemplateStructType.hpp>
+#include <ast/types/TemplateTypenameRefType.hpp>
+#include <ast/exprs/TemplateConstRefExpr.hpp>
+#include <ast/types/TemplateTraitType.hpp>
+#include <ast/types/StructType.hpp>
 #include "BasicDeclValidator.hpp"
 
 void gulc::BasicDeclValidator::processFiles(std::vector<ASTFile>& files) {
@@ -106,22 +112,24 @@ gulc::Decl* gulc::BasicDeclValidator::getRedefinition(std::string const& findNam
 
     std::vector<Decl*>* searchDecls = nullptr;
 
-    if (_containingDecls.empty()) {
+    if (_currentContainerDecl == nullptr) {
         searchDecls = &_currentFile->declarations;
     } else {
-        Decl* containingDecl = _containingDecls.back();
-
-        if (llvm::isa<NamespaceDecl>(containingDecl)) {
+        if (llvm::isa<NamespaceDecl>(_currentContainerDecl)) {
             // Namespaces are a special case where we have to grab their prototype for them to work properly
             // NOTE: We don't check if `prototype` is null because the prototype will be set by this point
-            searchDecls = &llvm::dyn_cast<NamespaceDecl>(containingDecl)->prototype->nestedDecls();
-        } else if (llvm::isa<StructDecl>(containingDecl)) {
-            searchDecls = &llvm::dyn_cast<StructDecl>(containingDecl)->ownedMembers();
-        } else if (llvm::isa<TraitDecl>(containingDecl)) {
-            searchDecls = &llvm::dyn_cast<TraitDecl>(containingDecl)->ownedMembers();
+            searchDecls = &llvm::dyn_cast<NamespaceDecl>(_currentContainerDecl)->prototype->nestedDecls();
+        } else if (llvm::isa<StructDecl>(_currentContainerDecl)) {
+            searchDecls = &llvm::dyn_cast<StructDecl>(_currentContainerDecl)->ownedMembers();
+        } else if (llvm::isa<TraitDecl>(_currentContainerDecl)) {
+            searchDecls = &llvm::dyn_cast<TraitDecl>(_currentContainerDecl)->ownedMembers();
+        } else if (llvm::isa<TemplateStructDecl>(_currentContainerDecl)) {
+            searchDecls = &llvm::dyn_cast<TemplateStructDecl>(_currentContainerDecl)->ownedMembers();
+        } else if (llvm::isa<TemplateTraitDecl>(_currentContainerDecl)) {
+            searchDecls = &llvm::dyn_cast<TemplateTraitDecl>(_currentContainerDecl)->ownedMembers();
         } else {
             printError("[INTERNAL] unknown containing decl found in `BasicDeclValidator::getRedefinition`!",
-                       containingDecl->startPosition(), containingDecl->endPosition());
+                       _currentContainerDecl->startPosition(), _currentContainerDecl->endPosition());
         }
     }
 
@@ -181,9 +189,6 @@ void gulc::BasicDeclValidator::validateParameters(const std::vector<ParameterDec
 
 void gulc::BasicDeclValidator::validateTemplateParameters(const std::vector<TemplateParameterDecl*>& templateParameters) const {
     // Check for duplicates (we can't validate anything else at this stage in compilation)
-    // TODO: Should we check to see if the template parameters shadow other template parameters?
-    //       For example, we might want to disallow a nested template struct from using the same template parameter
-    //       names as the template struct it is nested in?
     for (TemplateParameterDecl* checkTemplateParameter : templateParameters) {
         for (TemplateParameterDecl* checkTemplateDuplicate : templateParameters) {
             if (checkTemplateDuplicate == checkTemplateParameter) {
@@ -197,10 +202,25 @@ void gulc::BasicDeclValidator::validateTemplateParameters(const std::vector<Temp
                            checkTemplateDuplicate->identifier().endPosition());
             }
         }
+
+        // Check to make sure the template parameter doesn't shadow a container template parameter
+        // (we don't allow template parameter shadowing)
+        for (std::vector<TemplateParameterDecl*>* checkContainerTemplateParameters : _templateParameters) {
+            for (TemplateParameterDecl* checkTemplateShadow : *checkContainerTemplateParameters) {
+                if (checkTemplateShadow->identifier().name() == checkTemplateParameter->identifier().name()) {
+                    printError("template parameter `" + checkTemplateParameter->identifier().name() + "` shadows a "
+                               "container template parameter!",
+                               checkTemplateParameter->startPosition(), checkTemplateParameter->endPosition());
+                }
+            }
+        }
     }
 }
 
 void gulc::BasicDeclValidator::validateDecl(gulc::Decl* decl, bool isGlobal) {
+    decl->container = _currentContainerDecl;
+    decl->containedInTemplate = !_templateParameters.empty();
+
     switch (decl->getDeclKind()) {
         case Decl::Kind::CallOperator:
             validateCallOperatorDecl(llvm::dyn_cast<CallOperatorDecl>(decl));
@@ -242,7 +262,7 @@ void gulc::BasicDeclValidator::validateDecl(gulc::Decl* decl, bool isGlobal) {
             validatePropertySetDecl(llvm::dyn_cast<PropertySetDecl>(decl));
             break;
         case Decl::Kind::Struct:
-            validateStructDecl(llvm::dyn_cast<StructDecl>(decl), true);
+            validateStructDecl(llvm::dyn_cast<StructDecl>(decl), true, true);
             break;
         case Decl::Kind::SubscriptOperator:
             validateSubscriptOperatorDecl(llvm::dyn_cast<SubscriptOperatorDecl>(decl), isGlobal);
@@ -272,7 +292,7 @@ void gulc::BasicDeclValidator::validateDecl(gulc::Decl* decl, bool isGlobal) {
             // Template trait instantiations shouldn't exist yet here.
             break;
         case Decl::Kind::Trait:
-            validateTraitDecl(llvm::dyn_cast<TraitDecl>(decl), true);
+            validateTraitDecl(llvm::dyn_cast<TraitDecl>(decl), true, true);
             break;
         case Decl::Kind::TypeAlias:
             validateTypeAliasDecl(llvm::dyn_cast<TypeAliasDecl>(decl));
@@ -365,7 +385,13 @@ void gulc::BasicDeclValidator::validateEnumDecl(gulc::EnumDecl* enumDecl) const 
                    enumDecl->startPosition(), enumDecl->endPosition());
     }
 
+    enumDecl->containerTemplateType = _currentContainerTemplateType != nullptr ?
+                                      _currentContainerTemplateType->deepCopy() : nullptr;
+
     for (EnumConstDecl* enumConst : enumDecl->enumConsts()) {
+        enumConst->container = enumDecl;
+        enumConst->containedInTemplate = enumDecl->containedInTemplate;
+
         for (EnumConstDecl* checkDuplicate : enumDecl->enumConsts()) {
             if (checkDuplicate == enumConst) continue;
 
@@ -408,7 +434,13 @@ void gulc::BasicDeclValidator::validateExtensionDecl(gulc::ExtensionDecl* extens
 
     validateTemplateParameters(extensionDecl->templateParameters());
 
-    _containingDecls.push_back(extensionDecl);
+    extensionDecl->containerTemplateType = _currentContainerTemplateType != nullptr ?
+                                           _currentContainerTemplateType->deepCopy() : nullptr;
+
+    Decl* oldContainer = _currentContainerDecl;
+    _currentContainerDecl = extensionDecl;
+
+    _templateParameters.push_back(&extensionDecl->templateParameters());
 
     for (Decl* checkDecl : extensionDecl->ownedMembers()) {
         if (llvm::isa<NamespaceDecl>(checkDecl)) {
@@ -442,7 +474,9 @@ void gulc::BasicDeclValidator::validateExtensionDecl(gulc::ExtensionDecl* extens
         }
     }
 
-    _containingDecls.pop_back();
+    _templateParameters.pop_back();
+
+    _currentContainerDecl = oldContainer;
 }
 
 void gulc::BasicDeclValidator::validateFunctionDecl(gulc::FunctionDecl* functionDecl) const {
@@ -465,7 +499,8 @@ void gulc::BasicDeclValidator::validateFunctionDecl(gulc::FunctionDecl* function
 }
 
 void gulc::BasicDeclValidator::validateNamespaceDecl(gulc::NamespaceDecl* namespaceDecl) {
-    _containingDecls.push_back(namespaceDecl);
+    Decl* oldContainer = _currentContainerDecl;
+    _currentContainerDecl = namespaceDecl;
 
     for (Decl* nestedDecl : namespaceDecl->nestedDecls()) {
         if (llvm::isa<ImportDecl>(nestedDecl)) {
@@ -476,7 +511,7 @@ void gulc::BasicDeclValidator::validateNamespaceDecl(gulc::NamespaceDecl* namesp
         validateDecl(nestedDecl, true);
     }
 
-    _containingDecls.pop_back();
+    _currentContainerDecl = oldContainer;
 }
 
 void gulc::BasicDeclValidator::validateOperatorDecl(gulc::OperatorDecl* operatorDecl) const {
@@ -495,6 +530,9 @@ void gulc::BasicDeclValidator::validatePropertyDecl(gulc::PropertyDecl* property
     }
 
     for (PropertyGetDecl* getter : propertyDecl->getters()) {
+        getter->container = propertyDecl;
+        getter->containedInTemplate = propertyDecl->containedInTemplate;
+
         validatePropertyGetDecl(getter);
 
         if (propertyDecl->isAbstract() && !getter->isPrototype()) {
@@ -509,6 +547,9 @@ void gulc::BasicDeclValidator::validatePropertyDecl(gulc::PropertyDecl* property
     }
 
     if (propertyDecl->hasSetter()) {
+        propertyDecl->setter()->container = propertyDecl;
+        propertyDecl->setter()->containedInTemplate = propertyDecl->containedInTemplate;
+
         validatePropertySetDecl(propertyDecl->setter());
 
         if (propertyDecl->isAbstract() && !propertyDecl->setter()->isPrototype()) {
@@ -574,7 +615,8 @@ void gulc::BasicDeclValidator::validatePropertySetDecl(gulc::PropertySetDecl* pr
     }
 }
 
-void gulc::BasicDeclValidator::validateStructDecl(gulc::StructDecl* structDecl, bool checkForRedefinition) {
+void gulc::BasicDeclValidator::validateStructDecl(gulc::StructDecl* structDecl, bool checkForRedefinition,
+                                                  bool setTemplateContainer) {
     if (structDecl->isMutable()) {
         printError("`" + structDecl->structKindName() + " " + structDecl->identifier().name() + "` cannot be marked `mut`!",
                    structDecl->startPosition(), structDecl->endPosition());
@@ -631,7 +673,19 @@ void gulc::BasicDeclValidator::validateStructDecl(gulc::StructDecl* structDecl, 
                    structDecl->startPosition(), structDecl->endPosition());
     }
 
-    _containingDecls.push_back(structDecl);
+    structDecl->containerTemplateType = _currentContainerTemplateType != nullptr ?
+                                        _currentContainerTemplateType->deepCopy() : nullptr;
+
+    Type* oldContainerTemplateType = _currentContainerTemplateType;
+
+    if (setTemplateContainer && _currentContainerTemplateType != nullptr) {
+        _currentContainerTemplateType = new NestedType(Type::Qualifier::Unassigned,
+                                                       _currentContainerTemplateType, structDecl->identifier(),
+                                                       {}, {}, {});
+    }
+
+    Decl* oldContainer = _currentContainerDecl;
+    _currentContainerDecl = structDecl;
 
     for (Decl* checkDecl : structDecl->ownedMembers()) {
         if (llvm::isa<NamespaceDecl>(checkDecl)) {
@@ -660,7 +714,8 @@ void gulc::BasicDeclValidator::validateStructDecl(gulc::StructDecl* structDecl, 
         }
     }
 
-    _containingDecls.pop_back();
+    _currentContainerDecl = oldContainer;
+    _currentContainerTemplateType = oldContainerTemplateType;
 
     if (checkForRedefinition) {
         Decl* redefinition = getRedefinition(structDecl->identifier().name(), structDecl);
@@ -682,6 +737,9 @@ void gulc::BasicDeclValidator::validateSubscriptOperatorDecl(gulc::SubscriptOper
     validateParameters(subscriptOperatorDecl->parameters());
 
     for (SubscriptOperatorGetDecl* getter : subscriptOperatorDecl->getters()) {
+        getter->container = subscriptOperatorDecl;
+        getter->containedInTemplate = subscriptOperatorDecl->containedInTemplate;
+
         validateSubscriptOperatorGetDecl(getter);
 
         if (subscriptOperatorDecl->isAbstract() && !getter->isPrototype()) {
@@ -696,6 +754,9 @@ void gulc::BasicDeclValidator::validateSubscriptOperatorDecl(gulc::SubscriptOper
     }
 
     if (subscriptOperatorDecl->hasSetter()) {
+        subscriptOperatorDecl->setter()->container = subscriptOperatorDecl;
+        subscriptOperatorDecl->setter()->containedInTemplate = subscriptOperatorDecl->containedInTemplate;
+
         validateSubscriptOperatorSetDecl(subscriptOperatorDecl->setter());
 
         if (subscriptOperatorDecl->isAbstract() && !subscriptOperatorDecl->setter()->isPrototype()) {
@@ -764,22 +825,99 @@ void gulc::BasicDeclValidator::validateSubscriptOperatorSetDecl(gulc::SubscriptO
 void gulc::BasicDeclValidator::validateTemplateFunctionDecl(gulc::TemplateFunctionDecl* templateFunctionDecl) {
     validateTemplateParameters(templateFunctionDecl->templateParameters());
 
+    _templateParameters.push_back(&templateFunctionDecl->templateParameters());
+
     validateFunctionDecl(templateFunctionDecl);
+
+    _templateParameters.pop_back();
 }
 
 void gulc::BasicDeclValidator::validateTemplateStructDecl(gulc::TemplateStructDecl* templateStructDecl) {
     validateTemplateParameters(templateStructDecl->templateParameters());
 
-    validateStructDecl(templateStructDecl, false);
+    Type* oldContainerTemplateType = _currentContainerTemplateType;
+
+    // Create the list of template arguments from the template parameters
+    std::vector<Expr*> containerTemplateArguments;
+    containerTemplateArguments.reserve(templateStructDecl->templateParameters().size());
+
+    for (TemplateParameterDecl* templateParameter : templateStructDecl->templateParameters()) {
+        if (templateParameter->templateParameterKind() == TemplateParameterDecl::TemplateParameterKind::Typename) {
+            containerTemplateArguments.push_back(new TypeExpr(new TemplateTypenameRefType(Type::Qualifier::Unassigned,
+                                                                                          templateParameter, {}, {})));
+        } else {
+            containerTemplateArguments.push_back(new TemplateConstRefExpr(templateParameter));
+        }
+    }
+
+    if (_currentContainerTemplateType != nullptr) {
+        _currentContainerTemplateType = new NestedType(Type::Qualifier::Unassigned,
+                                                       _currentContainerTemplateType, templateStructDecl->identifier(),
+                                                       containerTemplateArguments, {}, {});
+    } else {
+        _currentContainerTemplateType = new TemplateStructType(Type::Qualifier::Unassigned,
+                                                               containerTemplateArguments,
+                                                               templateStructDecl, {}, {});
+    }
+
+    _templateParameters.push_back(&templateStructDecl->templateParameters());
+
+    validateStructDecl(templateStructDecl, false, false);
+
+    // We set `containerTemplateType` AFTER `validateStructDecl` since `validateStructDecl` will set it to
+    // `_currentContainerTemplateType` which we do NOT want.
+    templateStructDecl->containerTemplateType = oldContainerTemplateType != nullptr ?
+                                                oldContainerTemplateType->deepCopy() : nullptr;
+
+    _templateParameters.pop_back();
+
+    _currentContainerTemplateType = oldContainerTemplateType;
 }
 
 void gulc::BasicDeclValidator::validateTemplateTraitDecl(gulc::TemplateTraitDecl* templateTraitDecl) {
     validateTemplateParameters(templateTraitDecl->templateParameters());
 
-    validateTraitDecl(templateTraitDecl, false);
+    Type* oldContainerTemplateType = _currentContainerTemplateType;
+
+    // Create the list of template arguments from the template parameters
+    std::vector<Expr*> containerTemplateArguments;
+    containerTemplateArguments.reserve(templateTraitDecl->templateParameters().size());
+
+    for (TemplateParameterDecl* templateParameter : templateTraitDecl->templateParameters()) {
+        if (templateParameter->templateParameterKind() == TemplateParameterDecl::TemplateParameterKind::Typename) {
+            containerTemplateArguments.push_back(new TypeExpr(new TemplateTypenameRefType(Type::Qualifier::Unassigned,
+                                                                                          templateParameter, {}, {})));
+        } else {
+            containerTemplateArguments.push_back(new TemplateConstRefExpr(templateParameter));
+        }
+    }
+
+    if (_currentContainerTemplateType != nullptr) {
+        _currentContainerTemplateType = new NestedType(Type::Qualifier::Unassigned,
+                                                       _currentContainerTemplateType, templateTraitDecl->identifier(),
+                                                       containerTemplateArguments, {}, {});
+    } else {
+        _currentContainerTemplateType = new TemplateTraitType(Type::Qualifier::Unassigned,
+                                                               containerTemplateArguments,
+                                                               templateTraitDecl, {}, {});
+    }
+
+    _templateParameters.push_back(&templateTraitDecl->templateParameters());
+
+    validateTraitDecl(templateTraitDecl, false, false);
+
+    // We set `containerTemplateType` AFTER `validateTraitDecl` since `validateTraitDecl` will set it to
+    // `_currentContainerTemplateType` which we do NOT want.
+    templateTraitDecl->containerTemplateType = oldContainerTemplateType != nullptr ?
+                                               oldContainerTemplateType->deepCopy() : nullptr;
+
+    _templateParameters.pop_back();
+
+    _currentContainerTemplateType = oldContainerTemplateType;
 }
 
-void gulc::BasicDeclValidator::validateTraitDecl(gulc::TraitDecl* traitDecl, bool checkForRedefinition) {
+void gulc::BasicDeclValidator::validateTraitDecl(gulc::TraitDecl* traitDecl, bool checkForRedefinition,
+                                                 bool setTemplateContainer) {
     if (traitDecl->isAbstract()) {
         printError("traits cannot be marked `abstract`!",
                    traitDecl->startPosition(), traitDecl->endPosition());
@@ -820,7 +958,19 @@ void gulc::BasicDeclValidator::validateTraitDecl(gulc::TraitDecl* traitDecl, boo
                    traitDecl->startPosition(), traitDecl->endPosition());
     }
 
-    _containingDecls.push_back(traitDecl);
+    traitDecl->containerTemplateType = _currentContainerTemplateType != nullptr ?
+                                       _currentContainerTemplateType->deepCopy() : nullptr;
+
+    Type* oldContainerTemplateType = _currentContainerTemplateType;
+
+    if (setTemplateContainer && _currentContainerTemplateType != nullptr) {
+        _currentContainerTemplateType = new NestedType(Type::Qualifier::Unassigned,
+                                                       _currentContainerTemplateType, traitDecl->identifier(),
+                                                       {}, {}, {});
+    }
+
+    Decl* oldContainer = _currentContainerDecl;
+    _currentContainerDecl = traitDecl;
 
     for (Decl* checkDecl : traitDecl->ownedMembers()) {
         if (llvm::isa<NamespaceDecl>(checkDecl)) {
@@ -851,7 +1001,8 @@ void gulc::BasicDeclValidator::validateTraitDecl(gulc::TraitDecl* traitDecl, boo
         validateDecl(checkDecl, false);
     }
 
-    _containingDecls.pop_back();
+    _currentContainerDecl = oldContainer;
+    _currentContainerTemplateType = oldContainerTemplateType;
 
     if (checkForRedefinition) {
         Decl* redefinition = getRedefinition(traitDecl->identifier().name(), traitDecl);
@@ -864,6 +1015,9 @@ void gulc::BasicDeclValidator::validateTraitDecl(gulc::TraitDecl* traitDecl, boo
 }
 
 void gulc::BasicDeclValidator::validateTypeAliasDecl(gulc::TypeAliasDecl* typeAliasDecl) {
+    typeAliasDecl->containerTemplateType = _currentContainerTemplateType != nullptr ?
+                                           _currentContainerTemplateType->deepCopy() : nullptr;
+
     // The only thing we can validate here is if the type alias is redefined OR the template parameters are duplicates
     if (typeAliasDecl->hasTemplateParameters()) {
         validateTemplateParameters(typeAliasDecl->templateParameters());

@@ -40,9 +40,12 @@ namespace gulc {
                 copiedInitialValue = initialValue->deepCopy();
             }
 
-            return new VariableDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr, _identifier,
-                                    _declModifiers, type->deepCopy(), copiedInitialValue,
-                                    _startPosition, _endPosition);
+            auto result = new VariableDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr,
+                                           _identifier, _declModifiers, type->deepCopy(),
+                                           copiedInitialValue, _startPosition, _endPosition);
+            result->container = container;
+            result->containedInTemplate = containedInTemplate;
+            return result;
         }
 
         ~VariableDecl() override {

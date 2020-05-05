@@ -24,7 +24,8 @@ namespace gulc {
     class BasicDeclValidator {
     public:
         BasicDeclValidator(std::vector<std::string> const& filePaths, std::vector<NamespaceDecl*>& namespacePrototypes)
-                : _filePaths(filePaths), _namespacePrototypes(namespacePrototypes), _currentFile() {}
+                : _filePaths(filePaths), _namespacePrototypes(namespacePrototypes), _currentFile(),
+                  _currentContainerDecl(), _currentContainerTemplateType() {}
 
         void processFiles(std::vector<ASTFile>& files);
 
@@ -37,10 +38,9 @@ namespace gulc {
         // The above would result in three separate lists.
         std::vector<std::vector<TemplateParameterDecl*>*> _templateParameters;
         // The container of the currently processing Decl.
-        // Example:
-        //     namespace example { func ex() {} }
-        // For the above `func ex` the _containingDecls would just have `namespace example`
-        std::vector<gulc::Decl*> _containingDecls;
+        gulc::Decl* _currentContainerDecl;
+        // This is null unless we're processing decls within a template.
+        Type* _currentContainerTemplateType;
 
         void printError(std::string const& message, TextPosition startPosition, TextPosition endPosition) const;
         void printWarning(std::string const& message, TextPosition startPosition, TextPosition endPosition) const;
@@ -66,14 +66,14 @@ namespace gulc {
         void validatePropertyDecl(PropertyDecl* propertyDecl, bool isGlobal);
         void validatePropertyGetDecl(PropertyGetDecl* propertyGetDecl);
         void validatePropertySetDecl(PropertySetDecl* propertySetDecl);
-        void validateStructDecl(StructDecl* structDecl, bool checkForRedefinition);
+        void validateStructDecl(StructDecl* structDecl, bool checkForRedefinition, bool setTemplateContainer);
         void validateSubscriptOperatorDecl(SubscriptOperatorDecl* subscriptOperatorDecl, bool isGlobal);
         void validateSubscriptOperatorGetDecl(SubscriptOperatorGetDecl* subscriptOperatorGetDecl);
         void validateSubscriptOperatorSetDecl(SubscriptOperatorSetDecl* subscriptOperatorSetDecl);
         void validateTemplateFunctionDecl(TemplateFunctionDecl* templateFunctionDecl);
         void validateTemplateStructDecl(TemplateStructDecl* templateStructDecl);
         void validateTemplateTraitDecl(TemplateTraitDecl* templateTraitDecl);
-        void validateTraitDecl(TraitDecl* traitDecl, bool checkForRedefinition);
+        void validateTraitDecl(TraitDecl* traitDecl, bool checkForRedefinition, bool setTemplateContainer);
         void validateTypeAliasDecl(TypeAliasDecl* typeAliasDecl);
         void validateTypeSuffixDecl(TypeSuffixDecl* typeSuffixDecl, bool isGlobal);
         void validateVariableDecl(VariableDecl* variableDecl, bool isGlobal) const;

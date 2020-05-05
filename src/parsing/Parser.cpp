@@ -24,6 +24,7 @@
 #include <ast/exprs/TypeExpr.hpp>
 #include <ast/decls/TemplateStructDecl.hpp>
 #include <ast/decls/TemplateTraitDecl.hpp>
+#include <ast/types/NestedType.hpp>
 #include "Parser.hpp"
 
 using namespace gulc;
@@ -305,41 +306,77 @@ Type* Parser::parseType() {
                 typeIdentifier = parseIdentifier();
             }
 
-            std::vector<Expr*> templateArguments;
-
             if (_lexer.peekType() == TokenType::LESS) {
-                _lexer.consumeType(TokenType::LESS);
+                TextPosition templateArgumentsEndPosition;
+                std::vector<Expr*> templateArguments = parseTypeTemplateArguments(&templateArgumentsEndPosition);
+                Type* result = new UnresolvedType(Type::Qualifier::Unassigned, namespacePath, typeIdentifier,
+                                                  templateArguments);
 
-                // We tell the lexer to NOT combine two `>` operators into a single `>>` token.
-                // this also tells the lexer to return `TEMPLATEEND` instead of `GREATER` for `>`
-                // We back up the old state so we can return to it later. Allowing nested states for whether this is on or off
-                bool oldRightShiftEnabledValue = _lexer.getRightShiftState();
-                _lexer.setRightShiftState(false);
+                if (_lexer.peekType() == TokenType::PERIOD) {
+                    // If there is a period we need to go through and create `NestedType` containers, this is the
+                    // easiest way I can think of to implement this feature into the current compiler.
+                    while (_lexer.consumeType(TokenType::PERIOD)) {
+                        if (_lexer.peekType() != TokenType::SYMBOL) {
+                            printError("expected type identifier after `.`!",
+                                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
+                        }
 
-                // Parse until we find the closing `>` or until we hit the end of the file
-                while (_lexer.peekType() != TokenType::TEMPLATEEND && _lexer.peekType() != TokenType::ENDOFFILE) {
-                    templateArguments.push_back(parseExpr());
+                        Identifier nestedIdentifier = parseIdentifier();
+                        TextPosition nestedEndPosition = nestedIdentifier.endPosition();
+                        std::vector<Expr*> nestedTemplateArguments;
 
-                    // If consuming a comma failed then break, this is a quick an easy operation.
-                    if (!_lexer.consumeType(TokenType::COMMA)) break;
+                        if (_lexer.peekType() == TokenType::LESS) {
+                            nestedTemplateArguments = parseTypeTemplateArguments(&nestedEndPosition);
+                        }
+
+                        result = new NestedType(Type::Qualifier::Unassigned, result, nestedIdentifier,
+                                                nestedTemplateArguments, startPosition, nestedEndPosition);
+                    }
                 }
 
-                if (!_lexer.consumeType(TokenType::TEMPLATEEND)) {
-                    printError("expected closing '>' for template type reference! (found: '" + _lexer.peekToken().currentSymbol + "')",
-                               _lexer.peekToken().startPosition, _lexer.peekToken().endPosition);
-                }
-
-                // Return to the old state for whether the lexer should combine two `>` into a `>>` Token
-                _lexer.setRightShiftState(oldRightShiftEnabledValue);
+                return result;
+            } else {
+                return new UnresolvedType(Type::Qualifier::Unassigned, namespacePath, typeIdentifier,
+                                          {});
             }
-
-            return new UnresolvedType(Type::Qualifier::Unassigned, namespacePath, typeIdentifier, templateArguments);
         }
         default:
             printError("expected `const`, `mut`, `ref`, or a type name, found `" + _lexer.peekCurrentSymbol() + "`!",
                        _lexer.peekStartPosition(), _lexer.peekEndPosition());
             return nullptr;
     }
+}
+
+std::vector<Expr*> Parser::parseTypeTemplateArguments(TextPosition* outEndPosition) {
+    _lexer.consumeType(TokenType::LESS);
+
+    std::vector<Expr*> templateArguments;
+
+    // We tell the lexer to NOT combine two `>` operators into a single `>>` token.
+    // this also tells the lexer to return `TEMPLATEEND` instead of `GREATER` for `>`
+    // We back up the old state so we can return to it later. Allowing nested states for whether this is on or off
+    bool oldRightShiftEnabledValue = _lexer.getRightShiftState();
+    _lexer.setRightShiftState(false);
+
+    // Parse until we find the closing `>` or until we hit the end of the file
+    while (_lexer.peekType() != TokenType::TEMPLATEEND && _lexer.peekType() != TokenType::ENDOFFILE) {
+        templateArguments.push_back(parseExpr());
+
+        // If consuming a comma failed then break, this is a quick an easy operation.
+        if (!_lexer.consumeType(TokenType::COMMA)) break;
+    }
+
+    *outEndPosition = _lexer.peekEndPosition();
+
+    if (!_lexer.consumeType(TokenType::TEMPLATEEND)) {
+        printError("expected closing '>' for template type reference! (found: '" + _lexer.peekToken().currentSymbol + "')",
+                   _lexer.peekToken().startPosition, _lexer.peekToken().endPosition);
+    }
+
+    // Return to the old state for whether the lexer should combine two `>` into a `>>` Token
+    _lexer.setRightShiftState(oldRightShiftEnabledValue);
+
+    return templateArguments;
 }
 
 Decl::Visibility Parser::parseDeclVisibility() {

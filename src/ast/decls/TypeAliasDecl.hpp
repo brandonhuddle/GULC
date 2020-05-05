@@ -35,7 +35,8 @@ namespace gulc {
                       TextPosition startPosition, TextPosition endPosition)
                 : Decl(Decl::Kind::TypeAlias, sourceFileID, std::move(attributes), visibility, true,
                        std::move(identifier), DeclModifiers::None),
-                  typeValue(typeValue), _startPosition(startPosition), _endPosition(endPosition),
+                  typeValue(typeValue), containerTemplateType(),
+                  _startPosition(startPosition), _endPosition(endPosition),
                   _typeAliasType(typeAliasType), _templateParameters(std::move(templateParameters)) {}
 
         TextPosition startPosition() const override { return _startPosition; }
@@ -87,9 +88,13 @@ namespace gulc {
                 copiedTemplateParameters.push_back(llvm::dyn_cast<TemplateParameterDecl>(templateParameter->deepCopy()));
             }
 
-            return new TypeAliasDecl(_sourceFileID, copiedAttributes, _declVisibility, _typeAliasType,
-                                     _identifier, copiedTemplateParameters, typeValue->deepCopy(),
-                                    _startPosition, _endPosition);
+            auto result = new TypeAliasDecl(_sourceFileID, copiedAttributes, _declVisibility, _typeAliasType,
+                                            _identifier, copiedTemplateParameters, typeValue->deepCopy(),
+                                            _startPosition, _endPosition);
+            result->container = container;
+            result->containedInTemplate = containedInTemplate;
+            result->containerTemplateType = (containerTemplateType == nullptr ? nullptr : containerTemplateType->deepCopy());
+            return result;
         }
 
         ~TypeAliasDecl() override {
@@ -99,6 +104,12 @@ namespace gulc {
                 delete templateParameter;
             }
         }
+
+        // If the type is contained within a template this is a `Type` that will resolve to the container
+        // The reason we need this is to make it easier properly resolve types to `Decl`s when they are contained
+        // within templates. Without this we would need to manually search the `container` backwards looking for any
+        // templates for every single type that resolves to a Decl
+        Type* containerTemplateType;
 
     protected:
         TextPosition _startPosition;

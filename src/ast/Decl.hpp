@@ -8,6 +8,7 @@
 #include "Identifier.hpp"
 #include "Attr.hpp"
 #include "DeclModifiers.hpp"
+#include "Type.hpp"
 
 namespace gulc {
     class Decl : public Node {
@@ -97,6 +98,13 @@ namespace gulc {
         // Makes checking if it is virtual at all easier
         bool isAnyVirtual() const { return isVirtual() || isAbstract() || isOverride(); }
 
+        // The namespace, struct, trait, etc. that the Decl is contained within. Null when contained in a file.
+        Decl const* container;
+        // True if the container or the container of the container (ad infinitum) is a template
+        // The reason we need this is because a `StructDecl` (or any other Decl type) contained in any way within a
+        // template will always be unique to the template instantiation. (`Example<i32>::Type` != `Example<i8>::Type`)
+        bool containedInTemplate;
+
     protected:
         Kind _declKind;
         unsigned int _sourceFileID;
@@ -112,7 +120,8 @@ namespace gulc {
                        isConstExpr, std::move(identifier), declModifiers) {}
         Decl(Node::Kind nodeKind, Kind declKind, unsigned int sourceFileID, std::vector<Attr*> attributes,
              Visibility declVisibility, bool isConstExpr, Identifier identifier, DeclModifiers declModifiers)
-                : Node(nodeKind), _declKind(declKind), _declVisibility(declVisibility), _sourceFileID(sourceFileID),
+                : Node(nodeKind), container(nullptr), containedInTemplate(false),
+                  _declKind(declKind), _declVisibility(declVisibility), _sourceFileID(sourceFileID),
                   _attributes(std::move(attributes)), _isConstExpr(isConstExpr), _identifier(std::move(identifier)),
                   _declModifiers(declModifiers) {}
 

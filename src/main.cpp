@@ -7,14 +7,10 @@
 
 using namespace gulc;
 
-// TODO: There are currently issues with how we handle templates
-//        1. We can't run them through the `DeclInstantiator` because we need to keep `TemplatedTypes`
-//        2. Validation is handled on their instantiated forms rather than the templated form (causing confusing errors like C++ has, all errors should be triggered on the template NOT the instantiation)
-//        3. There are issues with referencing types nested within templated declarations (a struct nested within a template struct is NOT being properly referenced, there should be unique structs per each template instantiation. This isn't being done)
-//       To fix these issues I believe we should do the following:
-//        1. Create a `PartialType` to denote a `TemplatedType` that has been validated and resolved but NOT instantiated
-//        2. Either extend `PartialType` to support it OR create a new `TemplatedNestedType` to handle types nested within templated types
-//        3. Within `DeclInstantiator`, use the `where` contracts on templates to construct a `ContractualType` which will be used for validating a template
+// TODO: Should we add a `toString()` function to `Expr`?
+//         1. It would be useful for error messages AND only used for error messages
+//         2. AFAIK everything within an `Expr` is easily 1:1 translatable to a string representation?
+//         3. It is really needed for error messages. `Example<...>` looks awful.
 
 int main() {
     Target target = Target::getHostTarget();
@@ -33,7 +29,7 @@ int main() {
     NamespacePrototyper namespacePrototyper;
     std::vector<NamespaceDecl*> prototypes = namespacePrototyper.generatePrototypes(parsedFiles);
 
-    // Validate imports, check for obvious redefinitions, etc.
+    // Validate imports, check for obvious redefinitions, set the `Decl::container` member, etc.
     BasicDeclValidator basicDeclValidator(filePaths, prototypes);
     basicDeclValidator.processFiles(parsedFiles);
 

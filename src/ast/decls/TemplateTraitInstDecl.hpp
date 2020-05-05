@@ -49,11 +49,15 @@ namespace gulc {
                 copiedTemplateArguments.push_back(templateArgument->deepCopy());
             }
 
-            return new TemplateTraitInstDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr,
-                                              _identifier, _declModifiers,
-                                              _startPosition, _endPosition,
-                                              copiedInheritedTypes, copiedContracts, copiedOwnedMembers,
-                                              _parentTemplateTrait, copiedTemplateArguments);
+            auto result = new TemplateTraitInstDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr,
+                                                    _identifier, _declModifiers,
+                                                    _startPosition, _endPosition,
+                                                    copiedInheritedTypes, copiedContracts, copiedOwnedMembers,
+                                                    _parentTemplateTrait, copiedTemplateArguments);
+            result->container = container;
+            result->containedInTemplate = containedInTemplate;
+            result->containerTemplateType = (containerTemplateType == nullptr ? nullptr : containerTemplateType->deepCopy());
+            return result;
         }
 
         ~TemplateTraitInstDecl() override {

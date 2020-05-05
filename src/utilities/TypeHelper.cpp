@@ -18,6 +18,8 @@
 #include <ast/decls/NamespaceDecl.hpp>
 #include <ast/decls/EnumDecl.hpp>
 #include <ast/types/EnumType.hpp>
+#include <ast/types/NestedType.hpp>
+#include <ast/types/FlatArrayType.hpp>
 #include "TypeHelper.hpp"
 
 bool gulc::TypeHelper::resolveType(gulc::Type*& type, ASTFile const* currentFile,
@@ -27,12 +29,86 @@ bool gulc::TypeHelper::resolveType(gulc::Type*& type, ASTFile const* currentFile
     *outIsAmbiguous = false;
 
     switch (type->getTypeKind()) {
+        case Type::Kind::Alias:
+            return true;
         case Type::Kind::BuiltIn:
             return true;
         case Type::Kind::Dimension: {
             auto dimensionType = llvm::dyn_cast<DimensionType>(type);
             return resolveType(dimensionType->nestedType, currentFile, namespacePrototypes,
                                templateParameters, containingDecls, outIsAmbiguous);
+        }
+        case Type::Kind::Enum:
+            return true;
+        case Type::Kind::FlatArray: {
+            auto flatArrayType = llvm::dyn_cast<FlatArrayType>(type);
+            return resolveType(flatArrayType->indexType, currentFile, namespacePrototypes,
+                               templateParameters, containingDecls, outIsAmbiguous);
+        }
+        case Type::Kind::Nested: {
+            auto nestedType = llvm::dyn_cast<NestedType>(type);
+
+            if (resolveType(nestedType->container, currentFile, namespacePrototypes, templateParameters,
+                            containingDecls, outIsAmbiguous)) {
+                std::vector<Decl*> ignore;
+
+                // If we've resolved the inner type then we've been resolved. No matter what. Further resolution past
+                // what we can do here MUST happen outside of this function.
+                switch (nestedType->container->getTypeKind()) {
+                    case Type::Kind::Struct: {
+                        auto structType = llvm::dyn_cast<StructType>(nestedType->container);
+
+                        Type* fakeUnresolvedType = new UnresolvedType(nestedType->qualifier(), {},
+                                                                      nestedType->identifier(),
+                                                                      nestedType->templateArguments());
+
+                        if (resolveTypeToDecl(fakeUnresolvedType, structType->decl(), nestedType->identifier().name(),
+                                              !nestedType->templateArguments().empty(), ignore,
+                                              true, false)) {
+                            // If the type was resolved we delete the old type, set it to our fake unresolved type,
+                            // and immediately return true to prevent anyone from accessing `type` in the wrong way.
+                            delete type;
+                            type = fakeUnresolvedType;
+                            return true;
+                        } else {
+                            // Clear the template arguments list (since it is owned by `nestedType`)
+                            llvm::dyn_cast<UnresolvedType>(fakeUnresolvedType)->templateArguments.clear();
+                            delete fakeUnresolvedType;
+                        }
+
+                        break;
+                    }
+                    case Type::Kind::Trait: {
+                        auto traitType = llvm::dyn_cast<TraitType>(nestedType->container);
+
+                        Type* fakeUnresolvedType = new UnresolvedType(nestedType->qualifier(), {},
+                                                                      nestedType->identifier(),
+                                                                      nestedType->templateArguments());
+
+                        if (resolveTypeToDecl(fakeUnresolvedType, traitType->decl(), nestedType->identifier().name(),
+                                              !nestedType->templateArguments().empty(), ignore,
+                                              true, false)) {
+                            // If the type was resolved we delete the old type, set it to our fake unresolved type,
+                            // and immediately return true to prevent anyone from accessing `type` in the wrong way.
+                            delete type;
+                            type = fakeUnresolvedType;
+                            return true;
+                        } else {
+                            // Clear the template arguments list (since it is owned by `nestedType`)
+                            llvm::dyn_cast<UnresolvedType>(fakeUnresolvedType)->templateArguments.clear();
+                            delete fakeUnresolvedType;
+                        }
+
+                        break;
+                    }
+                    default:
+                        break;
+                }
+
+                return true;
+            } else {
+                return false;
+            }
         }
         case Type::Kind::Pointer: {
             auto pointerType = llvm::dyn_cast<PointerType>(type);
@@ -428,12 +504,39 @@ bool gulc::TypeHelper::compareAreSame(const gulc::Type* left, const gulc::Type* 
     return false;
 }
 
+bool gulc::TypeHelper::resolveTypeWithinDecl(gulc::Type*& type, gulc::Decl* container) {
+    auto unresolvedType = llvm::dyn_cast<UnresolvedType>(type);
+    std::string const& checkName = unresolvedType->identifier().name();
+    bool templated = unresolvedType->hasTemplateArguments();
+    std::vector<Decl*> potentialTemplates;
+
+    if (resolveTypeToDecl(type, container, checkName, templated, potentialTemplates,
+                          true, false, nullptr)) {
+        return true;
+    }
+
+    if (!potentialTemplates.empty()) {
+        auto newType = new TemplatedType(type->qualifier(), potentialTemplates, unresolvedType->templateArguments,
+                                         type->startPosition(), type->endPosition());
+        // Delete the old type without deleting the template arguments (since we've given them to the `TemplatedType`)
+        unresolvedType->templateArguments.clear();
+        delete type;
+        type = newType;
+
+        return true;
+    }
+
+    return false;
+}
+
 bool gulc::TypeHelper::resolveTypeToDecl(Type*& type, gulc::Decl* checkDecl,
                                          std::string const& checkName, bool templated,
                                          std::vector<Decl*>& potentialTemplates,
                                          bool searchMembers, bool resolveToCheckDecl, Decl** outFoundDecl) {
     auto unresolvedType = llvm::dyn_cast<UnresolvedType>(type);
 
+    // TODO: I think we might have a bug where `outFoundDecl` is nested within another `Decl` it will be overwritten
+    //       with the container rather than the actual found declaration. This needs double checked and fixed.
     switch (checkDecl->getDeclKind()) {
         case Decl::Kind::Namespace: {
             if (!searchMembers) return false;
@@ -453,12 +556,12 @@ bool gulc::TypeHelper::resolveTypeToDecl(Type*& type, gulc::Decl* checkDecl,
                     return true;
                 }
             }
+
+            break;
         }
         case Decl::Kind::TemplateStructInst: {
             if (!searchMembers) return false;
 
-            // NOTE: To prevent any issues with template types we DON'T do a member search on templates, ONLY
-            //       template instantiations
             auto templateStructInstDecl = llvm::dyn_cast<TemplateStructInstDecl>(checkDecl);
 
             for (Decl* checkNestedDecl : templateStructInstDecl->ownedMembers()) {
@@ -474,12 +577,12 @@ bool gulc::TypeHelper::resolveTypeToDecl(Type*& type, gulc::Decl* checkDecl,
                     return true;
                 }
             }
+
+            break;
         }
         case Decl::Kind::TemplateTraitInst: {
             if (!searchMembers) return false;
 
-            // NOTE: To prevent any issues with template types we DON'T do a member search on templates, ONLY
-            //       template instantiations
             auto templateStructInstDecl = llvm::dyn_cast<TemplateStructInstDecl>(checkDecl);
 
             for (Decl* checkNestedDecl : templateStructInstDecl->ownedMembers()) {
@@ -495,6 +598,8 @@ bool gulc::TypeHelper::resolveTypeToDecl(Type*& type, gulc::Decl* checkDecl,
                     return true;
                 }
             }
+
+            break;
         }
         case Decl::Kind::Enum: {
             if (templated || !resolveToCheckDecl) return false;
@@ -502,42 +607,78 @@ bool gulc::TypeHelper::resolveTypeToDecl(Type*& type, gulc::Decl* checkDecl,
             auto checkEnum = llvm::dyn_cast<EnumDecl>(checkDecl);
 
             if (checkEnum->identifier().name() == checkName) {
-                auto result = new EnumType(unresolvedType->qualifier(), checkEnum,
-                                           unresolvedType->startPosition(),
-                                           unresolvedType->endPosition());
-                result->setIsLValue(unresolvedType->isLValue());
+                if (checkEnum->containedInTemplate) {
+                    auto containerTemplate = checkEnum->containerTemplateType->deepCopy();
+                    auto result = new NestedType(unresolvedType->qualifier(), containerTemplate,
+                                                 unresolvedType->identifier(), {},
+                                                 unresolvedType->startPosition(), unresolvedType->endPosition());
+                    result->setIsLValue(unresolvedType->isLValue());
 
-                delete type;
+                    delete type;
 
-                type = result;
+                    type = result;
 
-                if (outFoundDecl != nullptr) {
-                    *outFoundDecl = checkDecl;
+                    if (outFoundDecl != nullptr) {
+                        *outFoundDecl = checkDecl;
+                    }
+
+                    return true;
+                } else {
+                    auto result = new EnumType(unresolvedType->qualifier(), checkEnum,
+                                               unresolvedType->startPosition(),
+                                               unresolvedType->endPosition());
+                    result->setIsLValue(unresolvedType->isLValue());
+
+                    delete type;
+
+                    type = result;
+
+                    if (outFoundDecl != nullptr) {
+                        *outFoundDecl = checkDecl;
+                    }
+
+                    return true;
                 }
-
-                return true;
             }
+
+            break;
         }
         case Decl::Kind::Struct: {
-            if (templated) return false;
-
             auto checkStruct = llvm::dyn_cast<StructDecl>(checkDecl);
 
-            if (resolveToCheckDecl && checkStruct->identifier().name() == checkName) {
-                auto result = new StructType(unresolvedType->qualifier(), checkStruct,
-                                             unresolvedType->startPosition(),
-                                             unresolvedType->endPosition());
-                result->setIsLValue(unresolvedType->isLValue());
+            if (resolveToCheckDecl && !templated && checkStruct->identifier().name() == checkName) {
+                if (checkStruct->containedInTemplate) {
+                    auto containerTemplate = checkStruct->containerTemplateType->deepCopy();
+                    auto result = new NestedType(unresolvedType->qualifier(), containerTemplate,
+                                                 unresolvedType->identifier(), {},
+                                                 unresolvedType->startPosition(), unresolvedType->endPosition());
+                    result->setIsLValue(unresolvedType->isLValue());
 
-                delete type;
+                    delete type;
 
-                type = result;
+                    type = result;
 
-                if (outFoundDecl != nullptr) {
-                    *outFoundDecl = checkDecl;
+                    if (outFoundDecl != nullptr) {
+                        *outFoundDecl = checkDecl;
+                    }
+
+                    return true;
+                } else {
+                    auto result = new StructType(unresolvedType->qualifier(), checkStruct,
+                                                 unresolvedType->startPosition(),
+                                                 unresolvedType->endPosition());
+                    result->setIsLValue(unresolvedType->isLValue());
+
+                    delete type;
+
+                    type = result;
+
+                    if (outFoundDecl != nullptr) {
+                        *outFoundDecl = checkDecl;
+                    }
+
+                    return true;
                 }
-
-                return true;
             } else if (searchMembers) {
                 for (Decl* checkNestedDecl : checkStruct->ownedMembers()) {
                     // Nested Decl will always have `searchMembers` set to false to avoid following branches.
@@ -557,25 +698,41 @@ bool gulc::TypeHelper::resolveTypeToDecl(Type*& type, gulc::Decl* checkDecl,
             break;
         }
         case Decl::Kind::Trait: {
-            if (templated) return false;
-
             auto checkTrait = llvm::dyn_cast<TraitDecl>(checkDecl);
 
-            if (resolveToCheckDecl && checkTrait->identifier().name() == checkName) {
-                auto result = new TraitType(unresolvedType->qualifier(), checkTrait,
-                                            unresolvedType->startPosition(),
-                                            unresolvedType->endPosition());
-                result->setIsLValue(unresolvedType->isLValue());
+            if (resolveToCheckDecl && !templated && checkTrait->identifier().name() == checkName) {
+                if (checkTrait->containedInTemplate) {
+                    auto containerTemplate = checkTrait->containerTemplateType->deepCopy();
+                    auto result = new NestedType(unresolvedType->qualifier(), containerTemplate,
+                                                 unresolvedType->identifier(), {},
+                                                 unresolvedType->startPosition(), unresolvedType->endPosition());
+                    result->setIsLValue(unresolvedType->isLValue());
 
-                delete type;
+                    delete type;
 
-                type = result;
+                    type = result;
 
-                if (outFoundDecl != nullptr) {
-                    *outFoundDecl = checkDecl;
+                    if (outFoundDecl != nullptr) {
+                        *outFoundDecl = checkDecl;
+                    }
+
+                    return true;
+                } else {
+                    auto result = new TraitType(unresolvedType->qualifier(), checkTrait,
+                                                unresolvedType->startPosition(),
+                                                unresolvedType->endPosition());
+                    result->setIsLValue(unresolvedType->isLValue());
+
+                    delete type;
+
+                    type = result;
+
+                    if (outFoundDecl != nullptr) {
+                        *outFoundDecl = checkDecl;
+                    }
+
+                    return true;
                 }
-
-                return true;
             } else if (searchMembers) {
                 for (Decl* checkNestedDecl : checkTrait->ownedMembers()) {
                     // Nested Decl will always have `searchMembers` set to false to avoid following branches.
@@ -595,30 +752,54 @@ bool gulc::TypeHelper::resolveTypeToDecl(Type*& type, gulc::Decl* checkDecl,
             break;
         }
         case Decl::Kind::TemplateStruct: {
-            if (!templated) return false;
-
             auto checkTemplateStruct = llvm::dyn_cast<TemplateStructDecl>(checkDecl);
 
-            if (resolveToCheckDecl && checkTemplateStruct->identifier().name() == checkName) {
+            if (resolveToCheckDecl && templated && checkTemplateStruct->identifier().name() == checkName) {
                 // TODO: Support optional template parameters
                 if (checkTemplateStruct->templateParameters().size() == unresolvedType->templateArguments.size()) {
                     potentialTemplates.push_back(checkTemplateStruct);
                     // We keep searching as this might be the wrong type...
+                }
+            } else if (searchMembers) {
+                for (Decl* checkNestedDecl : checkTemplateStruct->ownedMembers()) {
+                    // Nested Decl will always have `searchMembers` set to false to avoid following branches.
+                    // We only want to check the owned members, not the members of the namespace members.
+                    if (resolveTypeToDecl(type, checkNestedDecl, checkName, templated, potentialTemplates,
+                                          false, true, outFoundDecl)) {
+                        if (outFoundDecl != nullptr) {
+                            *outFoundDecl = checkNestedDecl;
+                        }
+
+                        // We only return true if the Decl was resolved
+                        return true;
+                    }
                 }
             }
 
             break;
         }
         case Decl::Kind::TemplateTrait: {
-            if (!templated) return false;
-
             auto checkTemplateTrait = llvm::dyn_cast<TemplateTraitDecl>(checkDecl);
 
-            if (resolveToCheckDecl && checkTemplateTrait->identifier().name() == checkName) {
+            if (resolveToCheckDecl && templated && checkTemplateTrait->identifier().name() == checkName) {
                 // TODO: Support optional template parameters
                 if (checkTemplateTrait->templateParameters().size() == unresolvedType->templateArguments.size()) {
                     potentialTemplates.push_back(checkTemplateTrait);
                     // We keep searching as this might be the wrong type...
+                }
+            } else if (searchMembers) {
+                for (Decl* checkNestedDecl : checkTemplateTrait->ownedMembers()) {
+                    // Nested Decl will always have `searchMembers` set to false to avoid following branches.
+                    // We only want to check the owned members, not the members of the namespace members.
+                    if (resolveTypeToDecl(type, checkNestedDecl, checkName, templated, potentialTemplates,
+                                          false, true, outFoundDecl)) {
+                        if (outFoundDecl != nullptr) {
+                            *outFoundDecl = checkNestedDecl;
+                        }
+
+                        // We only return true if the Decl was resolved
+                        return true;
+                    }
                 }
             }
 
@@ -645,25 +826,44 @@ bool gulc::TypeHelper::resolveTypeToDecl(Type*& type, gulc::Decl* checkDecl,
                         return false;
                     }
 
-                    // Rather than access `checkAlias->typeValue` we return an `AliasType`
-                    // this is due to the fact that if `checkAlias->typeValue` isn't resolve yet we will
-                    // give an error in the wrong spot OR potentially resolve it to the wrong area.
-                    auto result = new AliasType(unresolvedType->qualifier(), checkAlias,
-                                                unresolvedType->startPosition(),
-                                                unresolvedType->endPosition());
-                    result->setIsLValue(unresolvedType->isLValue());
+                    if (checkAlias->containedInTemplate) {
+                        auto containerTemplate = checkAlias->containerTemplateType->deepCopy();
+                        auto result = new NestedType(unresolvedType->qualifier(), containerTemplate,
+                                                     unresolvedType->identifier(), {},
+                                                     unresolvedType->startPosition(), unresolvedType->endPosition());
+                        result->setIsLValue(unresolvedType->isLValue());
 
-                    delete unresolvedType;
+                        delete type;
 
-                    type = result;
+                        type = result;
 
-                    if (outFoundDecl != nullptr) {
-                        *outFoundDecl = checkDecl;
+                        if (outFoundDecl != nullptr) {
+                            *outFoundDecl = checkDecl;
+                        }
+
+                        return true;
+                    } else {
+                        // Rather than access `checkAlias->typeValue` we return an `AliasType`
+                        // this is due to the fact that if `checkAlias->typeValue` isn't resolve yet we will
+                        // give an error in the wrong spot OR potentially resolve it to the wrong area.
+                        auto result = new AliasType(unresolvedType->qualifier(), checkAlias,
+                                                    unresolvedType->startPosition(),
+                                                    unresolvedType->endPosition());
+                        result->setIsLValue(unresolvedType->isLValue());
+
+                        delete unresolvedType;
+
+                        type = result;
+
+                        if (outFoundDecl != nullptr) {
+                            *outFoundDecl = checkDecl;
+                        }
+
+                        return true;
                     }
-
-                    return true;
                 }
             }
+
             break;
         }
         default:

@@ -8,19 +8,42 @@
 #include <ast/types/TemplateTypenameRefType.hpp>
 #include "TemplateInstHelper.hpp"
 #include <ast/decls/TypeAliasDecl.hpp>
+#include <ast/types/FlatArrayType.hpp>
+#include <ast/types/NestedType.hpp>
+#include <ast/types/TemplateStructType.hpp>
+#include <ast/types/TemplateTraitType.hpp>
+#include <ast/exprs/TemplateConstRefExpr.hpp>
 
 void gulc::TemplateInstHelper::instantiateTemplateStructInstDecl(gulc::TemplateStructDecl* parentTemplateStruct,
                                                                  gulc::TemplateStructInstDecl* templateStructInstDecl,
                                                                  bool processBodyStmts) {
-    this->processBodyStmts = processBodyStmts;
+    _processBodyStmts = processBodyStmts;
 
-    templateParameters = &parentTemplateStruct->templateParameters();
-    templateArguments = &templateStructInstDecl->templateArguments();
+    _templateParameters = &parentTemplateStruct->templateParameters();
+    _templateArguments = &templateStructInstDecl->templateArguments();
 
     // We instantiate the arguments here just in case any of them are default values that reference other template
     // parameters
     for (Expr* templateArgument : templateStructInstDecl->templateArguments()) {
         instantiateExpr(templateArgument);
+    }
+
+    // We need to account for whether the new instantiation is contained within a template or not
+    if (templateStructInstDecl->containerTemplateType == nullptr) {
+        _currentContainerTemplateType = nullptr;
+        templateStructInstDecl->containedInTemplate = false;
+    } else {
+        std::vector<Expr*> copiedTemplateArguments;
+        copiedTemplateArguments.reserve(templateStructInstDecl->templateArguments().size());
+
+        for (Expr* templateArgument : templateStructInstDecl->templateArguments()) {
+            copiedTemplateArguments.push_back(templateArgument->deepCopy());
+        }
+
+        _currentContainerTemplateType = new NestedType(Type::Qualifier::Unassigned,
+                                                       templateStructInstDecl->containerTemplateType,
+                                                       templateStructInstDecl->identifier(),
+                                                       copiedTemplateArguments, {}, {});
     }
 
     for (Attr* attribute : templateStructInstDecl->attributes()) {
@@ -51,15 +74,33 @@ void gulc::TemplateInstHelper::instantiateTemplateStructInstDecl(gulc::TemplateS
 void gulc::TemplateInstHelper::instantiateTemplateTraitInstDecl(gulc::TemplateTraitDecl* parentTemplateTrait,
                                                                 gulc::TemplateTraitInstDecl* templateTraitInstDecl,
                                                                 bool processBodyStmts) {
-    this->processBodyStmts = processBodyStmts;
+    _processBodyStmts = processBodyStmts;
 
-    templateParameters = &parentTemplateTrait->templateParameters();
-    templateArguments = &templateTraitInstDecl->templateArguments();
+    _templateParameters = &parentTemplateTrait->templateParameters();
+    _templateArguments = &templateTraitInstDecl->templateArguments();
 
     // We instantiate the arguments here just in case any of them are default values that reference other template
     // parameters
     for (Expr* templateArgument : templateTraitInstDecl->templateArguments()) {
         instantiateExpr(templateArgument);
+    }
+
+    // We need to account for whether the new instantiation is contained within a template or not
+    if (templateTraitInstDecl->containerTemplateType == nullptr) {
+        _currentContainerTemplateType = nullptr;
+        templateTraitInstDecl->containedInTemplate = false;
+    } else {
+        std::vector<Expr*> copiedTemplateArguments;
+        copiedTemplateArguments.reserve(templateTraitInstDecl->templateArguments().size());
+
+        for (Expr* templateArgument : templateTraitInstDecl->templateArguments()) {
+            copiedTemplateArguments.push_back(templateArgument->deepCopy());
+        }
+
+        _currentContainerTemplateType = new NestedType(Type::Qualifier::Unassigned,
+                                                       templateTraitInstDecl->containerTemplateType,
+                                                       templateTraitInstDecl->identifier(),
+                                                       copiedTemplateArguments, {}, {});
     }
 
     for (Attr* attribute : templateTraitInstDecl->attributes()) {
@@ -82,8 +123,8 @@ void gulc::TemplateInstHelper::instantiateTemplateTraitInstDecl(gulc::TemplateTr
 void gulc::TemplateInstHelper::instantiateType(gulc::Type*& type,
                                                std::vector<TemplateParameterDecl*>* templateParameters,
                                                std::vector<Expr*>* templateArguments) {
-    this->templateParameters = templateParameters;
-    this->templateArguments = templateArguments;
+    _templateParameters = templateParameters;
+    _templateArguments = templateArguments;
 
     // We instantiate the arguments here just in case any of them are default values that reference other template
     // parameters
@@ -121,6 +162,19 @@ void gulc::TemplateInstHelper::instantiateType(gulc::Type*& type) const {
         auto dimensionType = llvm::dyn_cast<DimensionType>(type);
 
         instantiateType(dimensionType->nestedType);
+    } else if (llvm::isa<FlatArrayType>(type)) {
+        auto flatArrayType = llvm::dyn_cast<FlatArrayType>(type);
+
+        instantiateType(flatArrayType->indexType);
+        instantiateExpr(flatArrayType->length);
+    } else if (llvm::isa<NestedType>(type)) {
+        auto nestedType = llvm::dyn_cast<NestedType>(type);
+
+        instantiateType(nestedType->container);
+
+        for (Expr*& templateArgument : nestedType->templateArguments()) {
+            instantiateExpr(templateArgument);
+        }
     } else if (llvm::isa<PointerType>(type)) {
         auto pointerType = llvm::dyn_cast<PointerType>(type);
 
@@ -135,22 +189,35 @@ void gulc::TemplateInstHelper::instantiateType(gulc::Type*& type) const {
         for (Expr*& templateArgument : templatedType->templateArguments()) {
             instantiateExpr(templateArgument);
         }
+    } else if (llvm::isa<TemplateStructType>(type)) {
+        auto templateStructType = llvm::dyn_cast<TemplateStructType>(type);
+
+        for (Expr*& templateArgument : templateStructType->templateArguments()) {
+            instantiateExpr(templateArgument);
+        }
+    } else if (llvm::isa<TemplateTraitType>(type)) {
+        auto templateTraitType = llvm::dyn_cast<TemplateTraitType>(type);
+
+        for (Expr*& templateArgument : templateTraitType->templateArguments()) {
+            instantiateExpr(templateArgument);
+        }
     } else if (llvm::isa<TemplateTypenameRefType>(type)) {
         auto templateTypenameRefType = llvm::dyn_cast<TemplateTypenameRefType>(type);
 
-        for (std::size_t i = 0; i < templateParameters->size(); ++i) {
-            if (templateTypenameRefType->refTemplateParameter() == (*templateParameters)[i]) {
-                if (!llvm::isa<TypeExpr>((*templateArguments)[i])) {
+        for (std::size_t i = 0; i < _templateParameters->size(); ++i) {
+            if (templateTypenameRefType->refTemplateParameter() == (*_templateParameters)[i]) {
+                if (!llvm::isa<TypeExpr>((*_templateArguments)[i])) {
                     std::cerr << "INTERNAL ERROR: Expected `TypeExpr` in `TemplateInstHelper::instantiateType`!" << std::endl;
                     std::exit(1);
                 }
 
                 // When we find the matching parameter we replace it with a deep copy of the type argument for that
                 // index
-                auto typeExpr = llvm::dyn_cast<TypeExpr>((*templateArguments)[i]);
+                auto typeExpr = llvm::dyn_cast<TypeExpr>((*_templateArguments)[i]);
                 Type* newType = typeExpr->type->deepCopy();
                 delete type;
                 type = newType;
+                break;
             }
         }
 
@@ -159,7 +226,9 @@ void gulc::TemplateInstHelper::instantiateType(gulc::Type*& type) const {
     }
 }
 
-void gulc::TemplateInstHelper::instantiateDecl(gulc::Decl* decl) const {
+void gulc::TemplateInstHelper::instantiateDecl(gulc::Decl* decl) {
+    decl->containedInTemplate = _currentContainerTemplateType != nullptr;
+
     for (Attr* attribute : decl->attributes()) {
         instantiateAttr(attribute);
     }
@@ -196,7 +265,7 @@ void gulc::TemplateInstHelper::instantiateDecl(gulc::Decl* decl) const {
             instantiatePropertySetDecl(llvm::dyn_cast<PropertySetDecl>(decl));
             break;
         case Decl::Kind::Struct:
-            instantiateStructDecl(llvm::dyn_cast<StructDecl>(decl));
+            instantiateStructDecl(llvm::dyn_cast<StructDecl>(decl), true);
             break;
         case Decl::Kind::SubscriptOperator:
             instantiateSubscriptOperatorDecl(llvm::dyn_cast<SubscriptOperatorDecl>(decl));
@@ -226,7 +295,7 @@ void gulc::TemplateInstHelper::instantiateDecl(gulc::Decl* decl) const {
             instantiateTemplateTraitInstDecl(llvm::dyn_cast<TemplateTraitInstDecl>(decl));
             break;
         case Decl::Kind::Trait:
-            instantiateTraitDecl(llvm::dyn_cast<TraitDecl>(decl));
+            instantiateTraitDecl(llvm::dyn_cast<TraitDecl>(decl), true);
             break;
         case Decl::Kind::TypeAlias:
             instantiateTypeAliasDecl(llvm::dyn_cast<TypeAliasDecl>(decl));
@@ -279,6 +348,7 @@ void gulc::TemplateInstHelper::instantiateStmt(gulc::Stmt* stmt) const {
             instantiateExpr(llvm::dyn_cast<Expr>(stmt));
             break;
         default:
+            std::cerr << "[INTERNAL ERROR] unhandled `Stmt` found in `TemplateInstHelper`!" << std::endl;
             break;
     }
 }
@@ -337,19 +407,20 @@ void gulc::TemplateInstHelper::instantiateExpr(gulc::Expr* expr) const {
             instantiateVariableDeclExpr(llvm::dyn_cast<VariableDeclExpr>(expr));
             break;
         default:
+            std::cerr << "[INTERNAL ERROR] unhandled `Expr` found in `TemplateInstHelper`!" << std::endl;
             break;
     }
 }
 
-void gulc::TemplateInstHelper::instantiateCallOperatorDecl(gulc::CallOperatorDecl* callOperatorDecl) const {
+void gulc::TemplateInstHelper::instantiateCallOperatorDecl(gulc::CallOperatorDecl* callOperatorDecl) {
     instantiateFunctionDecl(callOperatorDecl);
 }
 
-void gulc::TemplateInstHelper::instantiateConstructorDecl(gulc::ConstructorDecl* constructorDecl) const {
+void gulc::TemplateInstHelper::instantiateConstructorDecl(gulc::ConstructorDecl* constructorDecl) {
     instantiateFunctionDecl(constructorDecl);
 }
 
-void gulc::TemplateInstHelper::instantiateDestructorDecl(gulc::DestructorDecl* destructorDecl) const {
+void gulc::TemplateInstHelper::instantiateDestructorDecl(gulc::DestructorDecl* destructorDecl) {
     instantiateFunctionDecl(destructorDecl);
 }
 
@@ -358,6 +429,9 @@ void gulc::TemplateInstHelper::instantiateEnumDecl(gulc::EnumDecl* enumDecl) con
         instantiateType(enumDecl->constType);
     }
 
+    enumDecl->containerTemplateType = _currentContainerTemplateType != nullptr ?
+                                      _currentContainerTemplateType->deepCopy() : nullptr;
+
     for (EnumConstDecl* enumConst : enumDecl->enumConsts()) {
         if (enumConst->constValue != nullptr) {
             instantiateExpr(enumConst->constValue);
@@ -365,7 +439,7 @@ void gulc::TemplateInstHelper::instantiateEnumDecl(gulc::EnumDecl* enumDecl) con
     }
 }
 
-void gulc::TemplateInstHelper::instantiateFunctionDecl(gulc::FunctionDecl* functionDecl) const {
+void gulc::TemplateInstHelper::instantiateFunctionDecl(gulc::FunctionDecl* functionDecl) {
     for (ParameterDecl* parameter : functionDecl->parameters()) {
         // We call `instantiateDecl` so the attributes are processed
         instantiateDecl(parameter);
@@ -379,12 +453,12 @@ void gulc::TemplateInstHelper::instantiateFunctionDecl(gulc::FunctionDecl* funct
         instantiateCont(contract);
     }
 
-    if (processBodyStmts) {
+    if (_processBodyStmts) {
         instantiateStmt(functionDecl->body());
     }
 }
 
-void gulc::TemplateInstHelper::instantiateOperatorDecl(gulc::OperatorDecl* operatorDecl) const {
+void gulc::TemplateInstHelper::instantiateOperatorDecl(gulc::OperatorDecl* operatorDecl) {
     instantiateFunctionDecl(operatorDecl);
 }
 
@@ -396,7 +470,7 @@ void gulc::TemplateInstHelper::instantiateParameterDecl(gulc::ParameterDecl* par
     }
 }
 
-void gulc::TemplateInstHelper::instantiatePropertyDecl(gulc::PropertyDecl* propertyDecl) const {
+void gulc::TemplateInstHelper::instantiatePropertyDecl(gulc::PropertyDecl* propertyDecl) {
     instantiateType(propertyDecl->type);
 
     for (PropertyGetDecl* getter : propertyDecl->getters()) {
@@ -408,15 +482,26 @@ void gulc::TemplateInstHelper::instantiatePropertyDecl(gulc::PropertyDecl* prope
     }
 }
 
-void gulc::TemplateInstHelper::instantiatePropertyGetDecl(gulc::PropertyGetDecl* propertyGetDecl) const {
+void gulc::TemplateInstHelper::instantiatePropertyGetDecl(gulc::PropertyGetDecl* propertyGetDecl) {
     instantiateFunctionDecl(propertyGetDecl);
 }
 
-void gulc::TemplateInstHelper::instantiatePropertySetDecl(gulc::PropertySetDecl* propertySetDecl) const {
+void gulc::TemplateInstHelper::instantiatePropertySetDecl(gulc::PropertySetDecl* propertySetDecl) {
     instantiateFunctionDecl(propertySetDecl);
 }
 
-void gulc::TemplateInstHelper::instantiateStructDecl(gulc::StructDecl* structDecl) const {
+void gulc::TemplateInstHelper::instantiateStructDecl(gulc::StructDecl* structDecl, bool setTemplateContainer) {
+    structDecl->containerTemplateType = _currentContainerTemplateType != nullptr ?
+                                        _currentContainerTemplateType->deepCopy() : nullptr;
+
+    Type* oldContainerTemplateType = _currentContainerTemplateType;
+
+    if (setTemplateContainer && _currentContainerTemplateType != nullptr) {
+        _currentContainerTemplateType = new NestedType(Type::Qualifier::Unassigned,
+                                                       _currentContainerTemplateType, structDecl->identifier(),
+                                                       {}, {}, {});
+    }
+
     for (Cont* contract : structDecl->contracts()) {
         instantiateCont(contract);
     }
@@ -436,9 +521,11 @@ void gulc::TemplateInstHelper::instantiateStructDecl(gulc::StructDecl* structDec
     if (structDecl->destructor) {
         instantiateDecl(structDecl->destructor);
     }
+
+    _currentContainerTemplateType = oldContainerTemplateType;
 }
 
-void gulc::TemplateInstHelper::instantiateSubscriptOperatorDecl(gulc::SubscriptOperatorDecl* subscriptOperatorDecl) const {
+void gulc::TemplateInstHelper::instantiateSubscriptOperatorDecl(gulc::SubscriptOperatorDecl* subscriptOperatorDecl) {
     for (ParameterDecl* parameter : subscriptOperatorDecl->parameters()) {
         instantiateParameterDecl(parameter);
     }
@@ -452,15 +539,15 @@ void gulc::TemplateInstHelper::instantiateSubscriptOperatorDecl(gulc::SubscriptO
     }
 }
 
-void gulc::TemplateInstHelper::instantiateSubscriptOperatorGetDecl(gulc::SubscriptOperatorGetDecl* subscriptOperatorGetDecl) const {
+void gulc::TemplateInstHelper::instantiateSubscriptOperatorGetDecl(gulc::SubscriptOperatorGetDecl* subscriptOperatorGetDecl) {
     instantiateFunctionDecl(subscriptOperatorGetDecl);
 }
 
-void gulc::TemplateInstHelper::instantiateSubscriptOperatorSetDecl(gulc::SubscriptOperatorSetDecl* subscriptOperatorSetDecl) const {
+void gulc::TemplateInstHelper::instantiateSubscriptOperatorSetDecl(gulc::SubscriptOperatorSetDecl* subscriptOperatorSetDecl) {
     instantiateFunctionDecl(subscriptOperatorSetDecl);
 }
 
-void gulc::TemplateInstHelper::instantiateTemplateFunctionDecl(gulc::TemplateFunctionDecl* templateFunctionDecl) const {
+void gulc::TemplateInstHelper::instantiateTemplateFunctionDecl(gulc::TemplateFunctionDecl* templateFunctionDecl) {
     for (TemplateParameterDecl* templateParameter : templateFunctionDecl->templateParameters()) {
         instantiateTemplateParameterDecl(templateParameter);
     }
@@ -479,39 +566,166 @@ void gulc::TemplateInstHelper::instantiateTemplateParameterDecl(
     }
 }
 
-void gulc::TemplateInstHelper::instantiateTemplateStructDecl(gulc::TemplateStructDecl* templateStructDecl) const {
+void gulc::TemplateInstHelper::instantiateTemplateStructDecl(gulc::TemplateStructDecl* templateStructDecl) {
     for (TemplateParameterDecl* templateParameter : templateStructDecl->templateParameters()) {
         instantiateTemplateParameterDecl(templateParameter);
     }
 
-    instantiateStructDecl(templateStructDecl);
+    Type* oldContainerTemplateType = _currentContainerTemplateType;
+
+    // Create the list of template arguments from the template parameters
+    std::vector<Expr*> containerTemplateArguments;
+    containerTemplateArguments.reserve(templateStructDecl->templateParameters().size());
+
+    for (TemplateParameterDecl* templateParameter : templateStructDecl->templateParameters()) {
+        if (templateParameter->templateParameterKind() == TemplateParameterDecl::TemplateParameterKind::Typename) {
+            containerTemplateArguments.push_back(new TypeExpr(new TemplateTypenameRefType(Type::Qualifier::Unassigned,
+                                                                                          templateParameter, {}, {})));
+        } else {
+            containerTemplateArguments.push_back(new TemplateConstRefExpr(templateParameter));
+        }
+    }
+
+    if (_currentContainerTemplateType != nullptr) {
+        _currentContainerTemplateType = new NestedType(Type::Qualifier::Unassigned,
+                                                       _currentContainerTemplateType, templateStructDecl->identifier(),
+                                                       containerTemplateArguments, {}, {});
+    } else {
+        _currentContainerTemplateType = new TemplateStructType(Type::Qualifier::Unassigned,
+                                                               containerTemplateArguments,
+                                                               templateStructDecl, {}, {});
+    }
+
+    instantiateStructDecl(templateStructDecl, false);
+
+    // We set `containerTemplateType` AFTER `instantiateStructDecl` since `instantiateStructDecl` will set it to
+    // `_currentContainerTemplateType` which we do NOT want.
+    templateStructDecl->containerTemplateType = oldContainerTemplateType != nullptr ?
+                                                oldContainerTemplateType->deepCopy() : nullptr;
+
+    _currentContainerTemplateType = oldContainerTemplateType;
 }
 
-void gulc::TemplateInstHelper::instantiateTemplateStructInstDecl(gulc::TemplateStructInstDecl* templateStructInstDecl) const {
+void gulc::TemplateInstHelper::instantiateTemplateStructInstDecl(gulc::TemplateStructInstDecl* templateStructInstDecl) {
     for (Expr*& templateArgument : templateStructInstDecl->templateArguments()) {
         instantiateExpr(templateArgument);
     }
 
-    instantiateStructDecl(templateStructInstDecl);
+    Type* oldContainerTemplateType = _currentContainerTemplateType;
+
+    // For template instantiations we only set `_currentContainerTemplateType` if it isn't null
+    // The reason for this is since this is an instantiation it is no longer needed to keep track of the container
+    // template type
+    if (_currentContainerTemplateType != nullptr) {
+        std::vector<Expr*> copiedTemplateArguments;
+        copiedTemplateArguments.reserve(templateStructInstDecl->templateArguments().size());
+
+        for (Expr* templateArgument : templateStructInstDecl->templateArguments()) {
+            copiedTemplateArguments.push_back(templateArgument->deepCopy());
+        }
+
+        _currentContainerTemplateType = new NestedType(Type::Qualifier::Unassigned,
+                                                       _currentContainerTemplateType,
+                                                       templateStructInstDecl->identifier(),
+                                                       copiedTemplateArguments, {}, {});
+    }
+
+    instantiateStructDecl(templateStructInstDecl, false);
+
+    // We set `containerTemplateType` AFTER `instantiateStructDecl` since `instantiateStructDecl` will set it to
+    // `_currentContainerTemplateType` which we do NOT want.
+    templateStructInstDecl->containerTemplateType = oldContainerTemplateType != nullptr ?
+                                                    oldContainerTemplateType->deepCopy() : nullptr;
+
+    _currentContainerTemplateType = oldContainerTemplateType;
 }
 
-void gulc::TemplateInstHelper::instantiateTemplateTraitDecl(gulc::TemplateTraitDecl* templateTraitDecl) const {
+void gulc::TemplateInstHelper::instantiateTemplateTraitDecl(gulc::TemplateTraitDecl* templateTraitDecl) {
     for (TemplateParameterDecl* templateParameter : templateTraitDecl->templateParameters()) {
         instantiateTemplateParameterDecl(templateParameter);
     }
 
-    instantiateTraitDecl(templateTraitDecl);
+    Type* oldContainerTemplateType = _currentContainerTemplateType;
+
+    // Create the list of template arguments from the template parameters
+    std::vector<Expr*> containerTemplateArguments;
+    containerTemplateArguments.reserve(templateTraitDecl->templateParameters().size());
+
+    for (TemplateParameterDecl* templateParameter : templateTraitDecl->templateParameters()) {
+        if (templateParameter->templateParameterKind() == TemplateParameterDecl::TemplateParameterKind::Typename) {
+            containerTemplateArguments.push_back(new TypeExpr(new TemplateTypenameRefType(Type::Qualifier::Unassigned,
+                                                                                          templateParameter, {}, {})));
+        } else {
+            containerTemplateArguments.push_back(new TemplateConstRefExpr(templateParameter));
+        }
+    }
+
+    if (_currentContainerTemplateType != nullptr) {
+        _currentContainerTemplateType = new NestedType(Type::Qualifier::Unassigned,
+                                                       _currentContainerTemplateType, templateTraitDecl->identifier(),
+                                                       containerTemplateArguments, {}, {});
+    } else {
+        _currentContainerTemplateType = new TemplateTraitType(Type::Qualifier::Unassigned,
+                                                              containerTemplateArguments,
+                                                              templateTraitDecl, {}, {});
+    }
+
+    instantiateTraitDecl(templateTraitDecl, false);
+
+    // We set `containerTemplateType` AFTER `instantiateTraitDecl` since `instantiateTraitDecl` will set it to
+    // `_currentContainerTemplateType` which we do NOT want.
+    templateTraitDecl->containerTemplateType = oldContainerTemplateType != nullptr ?
+                                               oldContainerTemplateType->deepCopy() : nullptr;
+
+    _currentContainerTemplateType = oldContainerTemplateType;
 }
 
-void gulc::TemplateInstHelper::instantiateTemplateTraitInstDecl(gulc::TemplateTraitInstDecl* templateTraitInstDecl) const {
+void gulc::TemplateInstHelper::instantiateTemplateTraitInstDecl(gulc::TemplateTraitInstDecl* templateTraitInstDecl) {
     for (Expr*& templateArgument : templateTraitInstDecl->templateArguments()) {
         instantiateExpr(templateArgument);
     }
 
-    instantiateTraitDecl(templateTraitInstDecl);
+    Type* oldContainerTemplateType = _currentContainerTemplateType;
+
+    // For template instantiations we only set `_currentContainerTemplateType` if it isn't null
+    // The reason for this is since this is an instantiation it is no longer needed to keep track of the container
+    // template type
+    if (_currentContainerTemplateType != nullptr) {
+        std::vector<Expr*> copiedTemplateArguments;
+        copiedTemplateArguments.reserve(templateTraitInstDecl->templateArguments().size());
+
+        for (Expr* templateArgument : templateTraitInstDecl->templateArguments()) {
+            copiedTemplateArguments.push_back(templateArgument->deepCopy());
+        }
+
+        _currentContainerTemplateType = new NestedType(Type::Qualifier::Unassigned,
+                                                       _currentContainerTemplateType,
+                                                       templateTraitInstDecl->identifier(),
+                                                       copiedTemplateArguments, {}, {});
+    }
+
+    instantiateTraitDecl(templateTraitInstDecl, false);
+
+    // We set `containerTemplateType` AFTER `instantiateTraitDecl` since `instantiateTraitDecl` will set it to
+    // `_currentContainerTemplateType` which we do NOT want.
+    templateTraitInstDecl->containerTemplateType = oldContainerTemplateType != nullptr ?
+                                                   oldContainerTemplateType->deepCopy() : nullptr;
+
+    _currentContainerTemplateType = oldContainerTemplateType;
 }
 
-void gulc::TemplateInstHelper::instantiateTraitDecl(gulc::TraitDecl* traitDecl) const {
+void gulc::TemplateInstHelper::instantiateTraitDecl(gulc::TraitDecl* traitDecl, bool setTemplateContainer) {
+    traitDecl->containerTemplateType = _currentContainerTemplateType != nullptr ?
+                                       _currentContainerTemplateType->deepCopy() : nullptr;
+
+    Type* oldContainerTemplateType = _currentContainerTemplateType;
+
+    if (setTemplateContainer && _currentContainerTemplateType != nullptr) {
+        _currentContainerTemplateType = new NestedType(Type::Qualifier::Unassigned,
+                                                       _currentContainerTemplateType, traitDecl->identifier(),
+                                                       {}, {}, {});
+    }
+
     for (Cont* contract : traitDecl->contracts()) {
         instantiateCont(contract);
     }
@@ -523,9 +737,14 @@ void gulc::TemplateInstHelper::instantiateTraitDecl(gulc::TraitDecl* traitDecl) 
     for (Decl* ownedMember : traitDecl->ownedMembers()) {
         instantiateDecl(ownedMember);
     }
+
+    _currentContainerTemplateType = oldContainerTemplateType;
 }
 
 void gulc::TemplateInstHelper::instantiateTypeAliasDecl(gulc::TypeAliasDecl* typeAliasDecl) const {
+    typeAliasDecl->containerTemplateType = _currentContainerTemplateType != nullptr ?
+                                           _currentContainerTemplateType->deepCopy() : nullptr;
+
     for (TemplateParameterDecl* templateParameter : typeAliasDecl->templateParameters()) {
         instantiateTemplateParameterDecl(templateParameter);
     }

@@ -38,8 +38,13 @@ namespace gulc {
                 : Decl(Kind::Enum, sourceFileID, std::move(attributes),
                        Decl::Visibility::Unassigned, false, std::move(identifier),
                        DeclModifiers::None),
+                  containerTemplateType(),
                   _startPosition(startPosition), _endPosition(endPosition), constType(constType),
-                  _enumConsts(std::move(enumConsts)) {}
+                  _enumConsts(std::move(enumConsts)) {
+            for (EnumConstDecl* enumConst : _enumConsts) {
+                enumConst->container = this;
+            }
+        }
 
         std::vector<EnumConstDecl*>& enumConsts() { return _enumConsts; }
         std::vector<EnumConstDecl*> const& enumConsts() const { return _enumConsts; }
@@ -66,8 +71,13 @@ namespace gulc {
                 copiedConstType = constType->deepCopy();
             }
 
-            return new EnumDecl(_sourceFileID, copiedAttributes, _identifier,
-                                _startPosition, _endPosition, copiedConstType, copiedEnumConsts);
+            auto result = new EnumDecl(_sourceFileID, copiedAttributes, _identifier,
+                                       _startPosition, _endPosition, copiedConstType,
+                                       copiedEnumConsts);
+            result->container = container;
+            result->containedInTemplate = containedInTemplate;
+            result->containerTemplateType = (containerTemplateType == nullptr ? nullptr : containerTemplateType->deepCopy());
+            return result;
         }
 
         ~EnumDecl() override {
@@ -77,6 +87,12 @@ namespace gulc {
                 delete enumConst;
             }
         }
+
+        // If the type is contained within a template this is a `Type` that will resolve to the container
+        // The reason we need this is to make it easier properly resolve types to `Decl`s when they are contained
+        // within templates. Without this we would need to manually search the `container` backwards looking for any
+        // templates for every single type that resolves to a Decl
+        Type* containerTemplateType;
 
     protected:
         TextPosition _startPosition;

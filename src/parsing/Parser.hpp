@@ -66,6 +66,7 @@ namespace gulc {
         Identifier parseIdentifier();
 
         Type* parseType();
+        std::vector<Expr*> parseTypeTemplateArguments(TextPosition* outEndPosition);
 
         Decl::Visibility parseDeclVisibility();
         DeclModifiers parseDeclModifiers(bool* isConstExpr);

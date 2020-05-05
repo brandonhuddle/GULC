@@ -36,12 +36,17 @@ namespace gulc {
 
         std::string toString() const override {
             std::string result;
+            std::string templateArgsString;
 
             for (Identifier const& namespaceIdentifier : _namespacePath) {
                 result += namespaceIdentifier.name() + ".";
             }
 
-            return result + _identifier.name();
+            if (!templateArguments.empty()) {
+                templateArgsString = "<...>";
+            }
+
+            return result + _identifier.name() + templateArgsString;
         }
 
         Type* deepCopy() const override {

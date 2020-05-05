@@ -49,11 +49,14 @@ namespace gulc {
                 copiedTemplateParameters.push_back(llvm::dyn_cast<TemplateParameterDecl>(templateParameter->deepCopy()));
             }
 
-            return new TemplateFunctionDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr,
-                                    _identifier, _declModifiers, copiedParameters,
-                                    returnType->deepCopy(), copiedContracts,
-                                    llvm::dyn_cast<CompoundStmt>(_body->deepCopy()),
-                                    _startPosition, _endPosition, copiedTemplateParameters);
+            auto result = new TemplateFunctionDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr,
+                                                   _identifier, _declModifiers, copiedParameters,
+                                                   returnType->deepCopy(), copiedContracts,
+                                                   llvm::dyn_cast<CompoundStmt>(_body->deepCopy()),
+                                                   _startPosition, _endPosition, copiedTemplateParameters);
+            result->container = container;
+            result->containedInTemplate = containedInTemplate;
+            return result;
         }
 
         ~TemplateFunctionDecl() override {

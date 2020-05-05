@@ -61,11 +61,14 @@ namespace gulc {
                 copiedReturnType = returnType->deepCopy();
             }
 
-            return new OperatorDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr,
-                                    _operatorType, _operatorIdentifier, _declModifiers, copiedParameters,
-                                    copiedReturnType, copiedContracts,
-                                    llvm::dyn_cast<CompoundStmt>(_body->deepCopy()),
-                                    _startPosition, _endPosition);
+            auto result = new OperatorDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr,
+                                           _operatorType, _operatorIdentifier, _declModifiers,
+                                           copiedParameters, copiedReturnType, copiedContracts,
+                                           llvm::dyn_cast<CompoundStmt>(_body->deepCopy()),
+                                           _startPosition, _endPosition);
+            result->container = container;
+            result->containedInTemplate = containedInTemplate;
+            return result;
         }
 
     protected:

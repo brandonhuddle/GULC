@@ -15,6 +15,7 @@
 #include <ast/types/VTableType.hpp>
 #include <ast/types/TraitType.hpp>
 #include <ast/types/AliasType.hpp>
+#include <ast/types/NestedType.hpp>
 
 void gulc::DeclInstantiator::processFiles(std::vector<ASTFile>& files) {
     for (ASTFile& file : files) {
@@ -63,6 +64,71 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type) {
         auto dimensionType = llvm::dyn_cast<DimensionType>(type);
 
         return resolveType(dimensionType->nestedType);
+    } else if (llvm::dyn_cast<NestedType>(type)) {
+        auto nestedType = llvm::dyn_cast<NestedType>(type);
+
+        // Process the template arguments and try to resolve any potential types in the list...
+        for (Expr*& templateArgument : nestedType->templateArguments()) {
+            processConstExpr(templateArgument);
+        }
+
+        if (resolveType(nestedType->container)) {
+            Type* fakeUnresolvedType = new UnresolvedType(nestedType->qualifier(), {},
+                                                          nestedType->identifier(),
+                                                          nestedType->templateArguments());
+
+            // TODO: Are there any other kinds we should handle?
+            switch (nestedType->container->getTypeKind()) {
+                case Type::Kind::Struct: {
+                    auto structType = llvm::dyn_cast<StructType>(nestedType->container);
+
+                    if (TypeHelper::resolveTypeWithinDecl(fakeUnresolvedType, structType->decl())) {
+                        // Clear the template arguments from `nestedType` and delete it, it was resolved.
+                        nestedType->templateArguments().clear();
+                        delete type;
+                        type = fakeUnresolvedType;
+
+                        // If we've resolved the nested type then we pass it back into our `resolveType` function
+                        // again to try and further resolve down (if we don't do this then long, "super-nested" types
+                        // won't get fully resolved)
+                        return resolveType(type);
+                    } else {
+                        // Clear the template arguments from `fakeUnresolvedType` and delete it, it wasn't resolved
+                        llvm::dyn_cast<UnresolvedType>(fakeUnresolvedType)->templateArguments.clear();
+                        delete fakeUnresolvedType;
+                    }
+
+                    break;
+                }
+                case Type::Kind::Trait: {
+                    auto traitType = llvm::dyn_cast<TraitType>(nestedType->container);
+
+                    if (TypeHelper::resolveTypeWithinDecl(fakeUnresolvedType, traitType->decl())) {
+                        // Clear the template arguments from `nestedType` and delete it, it was resolved.
+                        nestedType->templateArguments().clear();
+                        delete type;
+                        type = fakeUnresolvedType;
+
+                        // If we've resolved the nested type then we pass it back into our `resolveType` function
+                        // again to try and further resolve down (if we don't do this then long, "super-nested" types
+                        // won't get fully resolved)
+                        return resolveType(type);
+                    } else {
+                        // Clear the template arguments from `fakeUnresolvedType` and delete it, it wasn't resolved
+                        llvm::dyn_cast<UnresolvedType>(fakeUnresolvedType)->templateArguments.clear();
+                        delete fakeUnresolvedType;
+                    }
+
+                    break;
+                }
+                default:
+                    break;
+            }
+
+            return true;
+        } else {
+            return false;
+        }
     } else if (llvm::isa<PointerType>(type)) {
         auto pointerType = llvm::dyn_cast<PointerType>(type);
 

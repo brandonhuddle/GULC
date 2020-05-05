@@ -47,7 +47,8 @@ namespace gulc {
     class TemplateInstHelper {
     public:
         TemplateInstHelper()
-                : templateParameters(), templateArguments(), processBodyStmts(false) {}
+                : _templateParameters(), _templateArguments(), _processBodyStmts(false),
+                  _currentContainerTemplateType() {}
 
         /**
          * Instantiate the `TemplateStructInstDecl` using the parent `TemplateStructDecl`
@@ -68,40 +69,42 @@ namespace gulc {
                              std::vector<Expr*>* templateArguments);
 
     protected:
-        std::vector<TemplateParameterDecl*>* templateParameters;
-        std::vector<Expr*>* templateArguments;
-        bool processBodyStmts;
+        std::vector<TemplateParameterDecl*>* _templateParameters;
+        std::vector<Expr*>* _templateArguments;
+        bool _processBodyStmts;
+        // This is null unless we're processing decls within a template.
+        Type* _currentContainerTemplateType;
 
         void instantiateAttr(Attr* attr) const;
         void instantiateCont(Cont* cont) const;
         void instantiateType(Type*& type) const;
-        void instantiateDecl(Decl* decl) const;
+        void instantiateDecl(Decl* decl);
         void instantiateStmt(Stmt* stmt) const;
         void instantiateExpr(Expr* expr) const;
 
-        void instantiateCallOperatorDecl(CallOperatorDecl* callOperatorDecl) const;
-        void instantiateConstructorDecl(ConstructorDecl* constructorDecl) const;
-        void instantiateDestructorDecl(DestructorDecl* destructorDecl) const;
+        void instantiateCallOperatorDecl(CallOperatorDecl* callOperatorDecl);
+        void instantiateConstructorDecl(ConstructorDecl* constructorDecl);
+        void instantiateDestructorDecl(DestructorDecl* destructorDecl);
         void instantiateEnumDecl(EnumDecl* enumDecl) const;
-        void instantiateFunctionDecl(FunctionDecl* functionDecl) const;
+        void instantiateFunctionDecl(FunctionDecl* functionDecl);
 //        void instantiateImportDecl(ImportDecl* importDecl) const;
 //        void instantiateNamespaceDecl(NamespaceDecl* namespaceDecl) const;
-        void instantiateOperatorDecl(OperatorDecl* operatorDecl) const;
+        void instantiateOperatorDecl(OperatorDecl* operatorDecl);
         void instantiateParameterDecl(ParameterDecl* parameterDecl) const;
-        void instantiatePropertyDecl(PropertyDecl* propertyDecl) const;
-        void instantiatePropertyGetDecl(PropertyGetDecl* propertyGetDecl) const;
-        void instantiatePropertySetDecl(PropertySetDecl* propertySetDecl) const;
-        void instantiateStructDecl(StructDecl* structDecl) const;
-        void instantiateSubscriptOperatorDecl(SubscriptOperatorDecl* subscriptOperatorDecl) const;
-        void instantiateSubscriptOperatorGetDecl(SubscriptOperatorGetDecl* subscriptOperatorGetDecl) const;
-        void instantiateSubscriptOperatorSetDecl(SubscriptOperatorSetDecl* subscriptOperatorSetDecl) const;
-        void instantiateTemplateFunctionDecl(TemplateFunctionDecl* templateFunctionDecl) const;
+        void instantiatePropertyDecl(PropertyDecl* propertyDecl);
+        void instantiatePropertyGetDecl(PropertyGetDecl* propertyGetDecl);
+        void instantiatePropertySetDecl(PropertySetDecl* propertySetDecl);
+        void instantiateStructDecl(StructDecl* structDecl, bool setTemplateContainer);
+        void instantiateSubscriptOperatorDecl(SubscriptOperatorDecl* subscriptOperatorDecl);
+        void instantiateSubscriptOperatorGetDecl(SubscriptOperatorGetDecl* subscriptOperatorGetDecl);
+        void instantiateSubscriptOperatorSetDecl(SubscriptOperatorSetDecl* subscriptOperatorSetDecl);
+        void instantiateTemplateFunctionDecl(TemplateFunctionDecl* templateFunctionDecl);
         void instantiateTemplateParameterDecl(TemplateParameterDecl* templateParameterDecl) const;
-        void instantiateTemplateStructDecl(TemplateStructDecl* templateStructDecl) const;
-        void instantiateTemplateStructInstDecl(TemplateStructInstDecl* templateStructInstDecl) const;
-        void instantiateTemplateTraitDecl(TemplateTraitDecl* templateTraitDecl) const;
-        void instantiateTemplateTraitInstDecl(TemplateTraitInstDecl* templateTraitInstDecl) const;
-        void instantiateTraitDecl(TraitDecl* traitDecl) const;
+        void instantiateTemplateStructDecl(TemplateStructDecl* templateStructDecl);
+        void instantiateTemplateStructInstDecl(TemplateStructInstDecl* templateStructInstDecl);
+        void instantiateTemplateTraitDecl(TemplateTraitDecl* templateTraitDecl);
+        void instantiateTemplateTraitInstDecl(TemplateTraitInstDecl* templateTraitInstDecl);
+        void instantiateTraitDecl(TraitDecl* traitDecl, bool setTemplateContainer);
         void instantiateTypeAliasDecl(TypeAliasDecl* typeAliasDecl) const;
         void instantiateVariableDecl(VariableDecl* variableDecl) const;
 

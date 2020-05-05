@@ -51,9 +51,12 @@ namespace gulc {
                 copiedDefaultValue = defaultValue->deepCopy();
             }
 
-            return new ParameterDecl(_sourceFileID, copiedAttributes, _argumentLabel, _identifier,
-                                     type->deepCopy(), copiedDefaultValue, _parameterKind,
-                                     _startPosition, _endPosition);
+            auto result = new ParameterDecl(_sourceFileID, copiedAttributes, _argumentLabel,
+                                            _identifier, type->deepCopy(), copiedDefaultValue,
+                                            _parameterKind, _startPosition, _endPosition);
+            result->container = container;
+            result->containedInTemplate = containedInTemplate;
+            return result;
         }
 
         ~ParameterDecl() override {

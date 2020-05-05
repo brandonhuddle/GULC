@@ -33,6 +33,7 @@ namespace gulc {
 
         ~FlatArrayType() override {
             delete indexType;
+            delete length;
         }
 
     };

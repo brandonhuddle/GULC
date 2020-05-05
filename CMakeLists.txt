@@ -110,6 +110,8 @@ add_executable(gulc
         src/ast/types/EnumType.hpp
         src/ast/types/FlatArrayType.cpp
         src/ast/types/FlatArrayType.hpp
+        src/ast/types/NestedType.cpp
+        src/ast/types/NestedType.hpp
         src/ast/types/PointerType.cpp
         src/ast/types/PointerType.hpp
         src/ast/types/ReferenceType.cpp
@@ -118,6 +120,10 @@ add_executable(gulc
         src/ast/types/StructType.hpp
         src/ast/types/TemplatedType.cpp
         src/ast/types/TemplatedType.hpp
+        src/ast/types/TemplateStructType.cpp
+        src/ast/types/TemplateStructType.hpp
+        src/ast/types/TemplateTraitType.cpp
+        src/ast/types/TemplateTraitType.hpp
         src/ast/types/TemplateTypenameRefType.cpp
         src/ast/types/TemplateTypenameRefType.hpp
         src/ast/types/TraitType.cpp
@@ -157,6 +163,8 @@ add_executable(gulc
         src/ast/exprs/PostfixOperatorExpr.hpp
         src/ast/exprs/PrefixOperatorExpr.cpp
         src/ast/exprs/PrefixOperatorExpr.hpp
+        src/ast/exprs/TemplateConstRefExpr.cpp
+        src/ast/exprs/TemplateConstRefExpr.hpp
         src/ast/exprs/TernaryExpr.cpp
         src/ast/exprs/TernaryExpr.hpp
         src/ast/exprs/TypeExpr.cpp
@@ -232,6 +240,8 @@ add_executable(gulc
         src/utilities/SignatureComparer.hpp
         src/utilities/SizeofUtil.cpp
         src/utilities/SizeofUtil.hpp
+        src/utilities/TemplateCopyUtil.cpp
+        src/utilities/TemplateCopyUtil.hpp
         src/utilities/TemplateInstHelper.cpp
         src/utilities/TemplateInstHelper.hpp
         src/utilities/TypeHelper.cpp

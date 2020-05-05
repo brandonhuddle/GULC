@@ -23,10 +23,19 @@ namespace gulc {
                       std::vector<ConstructorDecl*> constructors)
                 : Decl(Decl::Kind::Extension, sourceFileID, std::move(attributes), visibility, isConstExpr,
                        Identifier({}, {}, "_"), declModifiers),
-                  typeToExtend(typeToExtend), _startPosition(startPosition), _endPosition(endPosition),
+                  typeToExtend(typeToExtend), containerTemplateType(),
+                  _startPosition(startPosition), _endPosition(endPosition),
                   _templateParameters(std::move(templateParameters)), _inheritedTypes(std::move(inheritedTypes)),
                   _contracts(std::move(contracts)), _ownedMembers(std::move(ownedMembers)),
-                  _constructors(std::move(constructors)) {}
+                  _constructors(std::move(constructors)) {
+            for (Decl* ownedMember : _ownedMembers) {
+                ownedMember->container = this;
+            }
+
+            for (ConstructorDecl* constructor : _constructors) {
+                constructor->container = this;
+            }
+        }
 
         std::vector<TemplateParameterDecl*>& templateParameters() { return _templateParameters; }
         std::vector<TemplateParameterDecl*> const& templateParameters() const { return _templateParameters; }
@@ -82,10 +91,14 @@ namespace gulc {
                 copiedConstructors.push_back(llvm::dyn_cast<ConstructorDecl>(constructor->deepCopy()));
             }
 
-            return new ExtensionDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr, _declModifiers,
-                                     copiedTemplateParameters, typeToExtend->deepCopy(),
-                                     _startPosition, _endPosition,
-                                     copiedInheritedTypes, copiedContracts, copiedOwnedMembers, copiedConstructors);
+            auto result = new ExtensionDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr, _declModifiers,
+                                            copiedTemplateParameters, typeToExtend->deepCopy(),
+                                            _startPosition, _endPosition,
+                                            copiedInheritedTypes, copiedContracts, copiedOwnedMembers, copiedConstructors);
+            result->container = container;
+            result->containedInTemplate = containedInTemplate;
+            result->containerTemplateType = (containerTemplateType == nullptr ? nullptr : containerTemplateType->deepCopy());
+            return result;
         }
 
         ~ExtensionDecl() override {
@@ -111,6 +124,12 @@ namespace gulc {
                 delete constructor;
             }
         }
+
+        // If the type is contained within a template this is a `Type` that will resolve to the container
+        // The reason we need this is to make it easier properly resolve types to `Decl`s when they are contained
+        // within templates. Without this we would need to manually search the `container` backwards looking for any
+        // templates for every single type that resolves to a Decl
+        Type* containerTemplateType;
 
     protected:
         TextPosition _startPosition;

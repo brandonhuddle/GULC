@@ -38,6 +38,7 @@ namespace gulc {
             Paren,
             PostfixOperator,
             PrefixOperator,
+            TemplateConstRefExpr,
             Ternary,
             Type,
             ValueLiteral,

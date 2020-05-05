@@ -143,62 +143,7 @@ namespace gulc {
             return true;
         }
 
-        Decl* deepCopy() const override {
-            std::vector<Attr*> copiedAttributes;
-            copiedAttributes.reserve(_attributes.size());
-            std::vector<Type*> copiedInheritedTypes;
-            copiedInheritedTypes.reserve(_inheritedTypes.size());
-            std::vector<Cont*> copiedContracts;
-            copiedContracts.reserve(_contracts.size());
-            std::vector<Decl*> copiedOwnedMembers;
-            copiedOwnedMembers.reserve(_ownedMembers.size());
-            std::vector<ConstructorDecl*> copiedConstructors;
-            copiedConstructors.reserve(_constructors.size());
-            DestructorDecl* copiedDestructorDecl = nullptr;
-            std::vector<TemplateParameterDecl*> copiedTemplateParameters;
-            copiedTemplateParameters.reserve(_templateParameters.size());
-            std::vector<TemplateStructInstDecl*> copiedTemplateInstantiations;
-            copiedTemplateInstantiations.reserve(_templateInstantiations.size());
-
-            for (Attr* attribute : _attributes) {
-                copiedAttributes.push_back(attribute->deepCopy());
-            }
-
-            for (Type* inheritedType : _inheritedTypes) {
-                copiedInheritedTypes.push_back(inheritedType->deepCopy());
-            }
-
-            for (Cont* contract : _contracts) {
-                copiedContracts.push_back(contract->deepCopy());
-            }
-
-            for (Decl* ownedMember : _ownedMembers) {
-                copiedOwnedMembers.push_back(ownedMember->deepCopy());
-            }
-
-            for (ConstructorDecl* constructor : _constructors) {
-                copiedConstructors.push_back(llvm::dyn_cast<ConstructorDecl>(constructor->deepCopy()));
-            }
-
-            for (TemplateParameterDecl* templateParameter : _templateParameters) {
-                copiedTemplateParameters.push_back(llvm::dyn_cast<TemplateParameterDecl>(templateParameter->deepCopy()));
-            }
-
-            for (TemplateStructInstDecl* templateStructInst : _templateInstantiations) {
-                copiedTemplateInstantiations.push_back(llvm::dyn_cast<TemplateStructInstDecl>(templateStructInst->deepCopy()));
-            }
-
-            if (destructor != nullptr) {
-                copiedDestructorDecl = llvm::dyn_cast<DestructorDecl>(destructor->deepCopy());
-            }
-
-            return new TemplateStructDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr,
-                                          _identifier, _declModifiers,
-                                          _startPosition, _endPosition,
-                                          _structKind, copiedInheritedTypes, copiedContracts, copiedOwnedMembers,
-                                          copiedConstructors, copiedDestructorDecl, copiedTemplateParameters,
-                                          copiedTemplateInstantiations);
-        }
+        Decl* deepCopy() const override;
 
         ~TemplateStructDecl() override {
             for (TemplateParameterDecl* templateParameter : _templateParameters) {

@@ -8,6 +8,7 @@
 #include <ast/types/FlatArrayType.hpp>
 #include <ast/types/BuiltInType.hpp>
 #include <ast/types/TraitType.hpp>
+#include <ast/types/NestedType.hpp>
 #include "BasicTypeResolver.hpp"
 
 void gulc::BasicTypeResolver::processFiles(std::vector<ASTFile>& files) {
@@ -64,6 +65,14 @@ void gulc::BasicTypeResolver::processType(gulc::Type* type) const {
 
         processExpr(flatArrayType->length);
         processType(flatArrayType->indexType);
+    } else if (llvm::isa<NestedType>(type)) {
+        auto nestedType = llvm::dyn_cast<NestedType>(type);
+
+        processType(nestedType->container);
+
+        for (Expr*& argument : nestedType->templateArguments()) {
+            processTemplateArgumentExpr(argument);
+        }
     } else if (llvm::isa<PointerType>(type)) {
         auto pointerType = llvm::dyn_cast<PointerType>(type);
 
@@ -200,7 +209,6 @@ void gulc::BasicTypeResolver::processExtensionDecl(gulc::ExtensionDecl* extensio
     }
 
     _containingDecls.pop_back();
-
     _templateParameters.pop_back();
 }
 

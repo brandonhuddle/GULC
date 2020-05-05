@@ -39,11 +39,14 @@ namespace gulc {
                 copiedContracts.push_back(contract->deepCopy());
             }
 
-            return new SubscriptOperatorGetDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr,
-                                                _identifier, _declModifiers,
-                                                returnType->deepCopy(), copiedContracts,
-                                                llvm::dyn_cast<CompoundStmt>(_body->deepCopy()),
-                                                _startPosition, _endPosition, _getResult);
+            auto result = new SubscriptOperatorGetDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr,
+                                                       _identifier, _declModifiers,
+                                                       returnType->deepCopy(), copiedContracts,
+                                                       llvm::dyn_cast<CompoundStmt>(_body->deepCopy()),
+                                                       _startPosition, _endPosition, _getResult);
+            result->container = container;
+            result->containedInTemplate = containedInTemplate;
+            return result;
         }
 
     protected:

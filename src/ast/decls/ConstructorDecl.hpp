@@ -48,10 +48,13 @@ namespace gulc {
                 copiedContracts.push_back(contract->deepCopy());
             }
 
-            return new ConstructorDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr,
-                                       _identifier, _declModifiers, copiedParameters,
-                                       copiedContracts, llvm::dyn_cast<CompoundStmt>(_body->deepCopy()),
-                                       _startPosition, _endPosition, _constructorType);
+            auto result = new ConstructorDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr,
+                                              _identifier, _declModifiers, copiedParameters,
+                                              copiedContracts, llvm::dyn_cast<CompoundStmt>(_body->deepCopy()),
+                                              _startPosition, _endPosition, _constructorType);
+            result->container = container;
+            result->containedInTemplate = containedInTemplate;
+            return result;
         }
 
     protected:

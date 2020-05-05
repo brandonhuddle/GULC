@@ -22,7 +22,15 @@ namespace gulc {
                 : Decl(Decl::Kind::Property, sourceFileID, std::move(attributes), visibility, isConstExpr,
                        std::move(identifier), declModifiers),
                   type(type), _startPosition(startPosition), _endPosition(endPosition),
-                  _getters(std::move(getters)), _setter(setter) {}
+                  _getters(std::move(getters)), _setter(setter) {
+            for (PropertyGetDecl* getter : _getters) {
+                getter->container = this;
+            }
+
+            if (_setter != nullptr) {
+                _setter->container = this;
+            }
+        }
 
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }
@@ -37,6 +45,7 @@ namespace gulc {
             copiedAttributes.reserve(_attributes.size());
             std::vector<PropertyGetDecl*> copiedGetters;
             copiedGetters.reserve(_getters.size());
+            PropertySetDecl* copiedSetter = nullptr;
 
             for (Attr* attribute : _attributes) {
                 copiedAttributes.push_back(attribute->deepCopy());
@@ -46,10 +55,17 @@ namespace gulc {
                 copiedGetters.push_back(llvm::dyn_cast<PropertyGetDecl>(getter->deepCopy()));
             }
 
-            return new PropertyDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr, _identifier,
-                                    type->deepCopy(), _startPosition, _endPosition,
-                                    _declModifiers, copiedGetters,
-                                    llvm::dyn_cast<PropertySetDecl>(_setter->deepCopy()));
+            if (_setter != nullptr) {
+                copiedSetter = llvm::dyn_cast<PropertySetDecl>(_setter->deepCopy());
+            }
+
+            auto result = new PropertyDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr,
+                                           _identifier, type->deepCopy(),
+                                           _startPosition, _endPosition,
+                                           _declModifiers, copiedGetters, copiedSetter);
+            result->container = container;
+            result->containedInTemplate = containedInTemplate;
+            return result;
         }
 
         ~PropertyDecl() override {

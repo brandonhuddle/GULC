@@ -35,8 +35,11 @@ namespace gulc {
                 copiedConstValue = constValue->deepCopy();
             }
 
-            return new EnumConstDecl(_sourceFileID, copiedAttributes, _identifier,
-                                     _startPosition, _endPosition, copiedConstValue);
+            auto result = new EnumConstDecl(_sourceFileID, copiedAttributes, _identifier,
+                                            _startPosition, _endPosition, copiedConstValue);
+            result->container = container;
+            result->containedInTemplate = containedInTemplate;
+            return result;
         }
 
         ~EnumConstDecl() override {

@@ -48,13 +48,19 @@ namespace gulc {
                 copiedAttributes.push_back(attribute->deepCopy());
             }
 
+            Decl* result = nullptr;
+
             if (_templateParameterKind == TemplateParameterKind::Const) {
-                return new TemplateParameterDecl(_sourceFileID, copiedAttributes, _identifier,
-                                                 constType->deepCopy(), _startPosition, _endPosition);
+                result = new TemplateParameterDecl(_sourceFileID, copiedAttributes, _identifier,
+                                                   constType->deepCopy(), _startPosition, _endPosition);
             } else {
-                return new TemplateParameterDecl(_sourceFileID, copiedAttributes, _identifier,
-                                                 _startPosition, _endPosition);
+                result = new TemplateParameterDecl(_sourceFileID, copiedAttributes, _identifier,
+                                                   _startPosition, _endPosition);
             }
+
+            result->container = container;
+            result->containedInTemplate = containedInTemplate;
+            return result;
         }
 
         ~TemplateParameterDecl() override {

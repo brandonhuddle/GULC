@@ -16,6 +16,9 @@ namespace gulc {
         static bool typeIsConstExpr(Type* resolvedType);
         static bool compareAreSame(Type const* left, Type const* right);
 
+        // TODO: Note that `type` must be `UnresolvedType`
+        static bool resolveTypeWithinDecl(Type*& type, Decl* container);
+
     protected:
         static bool resolveTypeToDecl(Type*& type, Decl* checkDecl, std::string const& checkName,
                                       bool templated, std::vector<Decl*>& potentialTemplates,

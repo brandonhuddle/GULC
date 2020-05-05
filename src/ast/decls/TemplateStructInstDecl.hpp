@@ -64,12 +64,16 @@ namespace gulc {
                 copiedDestructorDecl = llvm::dyn_cast<DestructorDecl>(destructor->deepCopy());
             }
 
-            return new TemplateStructInstDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr,
-                                              _identifier, _declModifiers,
-                                              _startPosition, _endPosition,
-                                              _structKind, copiedInheritedTypes, copiedContracts, copiedOwnedMembers,
-                                              copiedConstructors, copiedDestructorDecl, _parentTemplateStruct,
-                                              copiedTemplateArguments);
+            auto result = new TemplateStructInstDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr,
+                                                     _identifier, _declModifiers,
+                                                     _startPosition, _endPosition,
+                                                     _structKind, copiedInheritedTypes, copiedContracts, copiedOwnedMembers,
+                                                     copiedConstructors, copiedDestructorDecl, _parentTemplateStruct,
+                                                     copiedTemplateArguments);
+            result->container = container;
+            result->containedInTemplate = containedInTemplate;
+            result->containerTemplateType = (containerTemplateType == nullptr ? nullptr : containerTemplateType->deepCopy());
+            return result;
         }
 
         ~TemplateStructInstDecl() override {

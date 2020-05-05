@@ -10,7 +10,11 @@
 namespace gulc {
     class StructDecl : public Decl {
     public:
-        static bool classof(const Decl* decl) { return decl->getDeclKind() == Decl::Kind::Struct; }
+        static bool classof(const Decl* decl) {
+            Decl::Kind checkKind = decl->getDeclKind();
+
+            return checkKind == Decl::Kind::Struct || checkKind == Decl::Kind::TemplateStructInst;
+        }
 
         enum class Kind {
             Struct,
@@ -94,10 +98,15 @@ namespace gulc {
                 copiedDestructorDecl = llvm::dyn_cast<DestructorDecl>(destructor->deepCopy());
             }
 
-            return new StructDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr, _identifier,
-                                  _declModifiers, _startPosition, _endPosition, _structKind,
-                                  copiedInheritedTypes, copiedContracts, copiedOwnedMembers, copiedConstructors,
-                                  copiedDestructorDecl);
+            auto result = new StructDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr,
+                                         _identifier, _declModifiers,
+                                         _startPosition, _endPosition, _structKind,
+                                         copiedInheritedTypes, copiedContracts, copiedOwnedMembers, copiedConstructors,
+                                         copiedDestructorDecl);
+            result->container = container;
+            result->containedInTemplate = containedInTemplate;
+            result->containerTemplateType = (containerTemplateType == nullptr ? nullptr : containerTemplateType->deepCopy());
+            return result;
         }
 
         ~StructDecl() override {
@@ -123,6 +132,12 @@ namespace gulc {
 
             delete destructor;
         }
+
+        // If the type is contained within a template this is a `Type` that will resolve to the container
+        // The reason we need this is to make it easier properly resolve types to `Decl`s when they are contained
+        // within templates. Without this we would need to manually search the `container` backwards looking for any
+        // templates for every single type that resolves to a Decl
+        Type* containerTemplateType;
 
         // This is the base struct found in the `inheritedTypes` list (if a base struct was found)
         // We don't own this so we don't free it
@@ -161,12 +176,24 @@ namespace gulc {
                    std::vector<ConstructorDecl*> constructors, DestructorDecl* destructor)
                 : Decl(declKind, sourceFileID, std::move(attributes), visibility, isConstExpr, std::move(identifier),
                        declModifiers),
-                  baseStruct(nullptr), memoryLayout(), dataSizeWithoutPadding(0), dataSizeWithPadding(0),
-                  vtableOwner(nullptr),
+                  containerTemplateType(), baseStruct(nullptr), memoryLayout(), dataSizeWithoutPadding(0),
+                  dataSizeWithPadding(0), vtableOwner(nullptr),
                   _startPosition(startPosition), _endPosition(endPosition),
                   _structKind(structKind), _inheritedTypes(std::move(inheritedTypes)),
                   _contracts(std::move(contracts)), _ownedMembers(std::move(ownedMembers)),
-                  _constructors(std::move(constructors)), destructor(destructor) {}
+                  _constructors(std::move(constructors)), destructor(destructor) {
+            for (Decl* ownedMember : _ownedMembers) {
+                ownedMember->container = this;
+            }
+
+            for (ConstructorDecl* constructor : _constructors) {
+                constructor->container = this;
+            }
+
+            if (this->destructor != nullptr) {
+                this->destructor->container = this;
+            }
+        }
 
         TextPosition _startPosition;
         TextPosition _endPosition;
