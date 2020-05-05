@@ -25,6 +25,10 @@ struct Example<T> {
 
             }
         }
+
+        func templateTypeResolveTest() -> DeepNestedTemplate<i32> {
+
+        }
     }
 }
 
@@ -48,6 +52,7 @@ extension *Example {
 
 }
 
+// i64 isn't instantiating
 func worstTest() -> Example<i32>.TestStruct.DeepNestedTemplate<i64>.SuperDeepNestedType {
 
 }

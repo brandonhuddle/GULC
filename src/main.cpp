@@ -12,6 +12,12 @@ using namespace gulc;
 //         2. AFAIK everything within an `Expr` is easily 1:1 translatable to a string representation?
 //         3. It is really needed for error messages. `Example<...>` looks awful.
 
+// TODO: We need to finish `DeclInstantiator` for templates. We should now be able to properly handle the instantiator
+//       using the new `NestedType`, `TemplateStructType`, and `TemplateTraitType`
+//        1. Create a way to create type information about template typenames through contract `where`
+//        2. Use this new information to resolve templates to `Template*Type`
+//        3. ???
+
 int main() {
     Target target = Target::getHostTarget();
 

@@ -20,6 +20,8 @@
 #include <ast/decls/TypeAliasDecl.hpp>
 #include <ast/decls/EnumDecl.hpp>
 #include <ast/decls/ExtensionDecl.hpp>
+#include <queue>
+#include <set>
 
 namespace gulc {
     /**
@@ -53,11 +55,16 @@ namespace gulc {
         std::vector<gulc::Decl*> _workingDecls;
         // Used to detect circular references with `structUsesStructTypeAsValue` when `checkBaseStruct == true`
         std::vector<gulc::StructDecl*> _baseCheckStructDecls;
+        // List of `Decl`s that have had their instantiation delayed for any reason
+        std::set<gulc::Decl*> _delayInstantiationDeclsSet;
+        std::queue<gulc::Decl*> _delayInstantiationDecls;
 
         void printError(std::string const& message, TextPosition startPosition, TextPosition endPosition) const;
         void printWarning(std::string const& message, TextPosition startPosition, TextPosition endPosition) const;
 
-        bool resolveType(Type*& type);
+        // `delayInstantiation` will make it so the instantiation of uninstantiated `Decl`s will be be delayed until
+        // the end of the `ASTFile` processing at the latest.
+        bool resolveType(Type*& type, bool delayInstantiation = false);
 
         void compareDeclTemplateArgsToParams(std::vector<Expr*> const& args,
                                              std::vector<TemplateParameterDecl*> const& params,
