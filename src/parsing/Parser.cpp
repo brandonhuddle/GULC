@@ -25,6 +25,7 @@
 #include <ast/decls/TemplateStructDecl.hpp>
 #include <ast/decls/TemplateTraitDecl.hpp>
 #include <ast/types/NestedType.hpp>
+#include <ast/exprs/CheckExtendsTypeExpr.hpp>
 #include "Parser.hpp"
 
 using namespace gulc;
@@ -1879,6 +1880,33 @@ WhereCont* Parser::parseWhereCont() {
     }
 
     Expr* condition = parseExpr();
+
+    // `where` is the only special cause where `A : B` is allowed syntax to see if `A` implements `B`
+    // NOTE: `A: B` is also used within function calls for argument labels...
+    if (_lexer.peekType() == TokenType::COLON) {
+        TextPosition extendsStartPosition = _lexer.peekStartPosition();
+        TextPosition extendsEndPosition = _lexer.peekEndPosition();
+
+        // TODO: We need to support more than just `IdentifierExpr` (maybe `MemberAccessCallExpr`?)
+        if (!llvm::isa<IdentifierExpr>(condition)) {
+            printError("unexpected `:` after `where` condition!"
+                       "(NOTE: `:` can only be used to check if a type name extends another type in this context)",
+                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
+        }
+
+        _lexer.consumeType(TokenType::COLON);
+
+        Type* extendsType = parseType();
+
+        IdentifierExpr* checkTypeExpr = llvm::dyn_cast<IdentifierExpr>(condition);
+        Type* checkType = new UnresolvedType(Type::Qualifier::Unassigned, {}, checkTypeExpr->identifier(),
+                                             checkTypeExpr->templateArguments());
+        // We're stealing the template arguments so we have to clear the list to make sure they don't get freed.
+        checkTypeExpr->templateArguments().clear();
+        delete checkTypeExpr;
+
+        condition = new CheckExtendsTypeExpr(checkType, extendsType, extendsStartPosition, extendsEndPosition);
+    }
 
     return new WhereCont(condition, startPosition, condition->endPosition());
 }

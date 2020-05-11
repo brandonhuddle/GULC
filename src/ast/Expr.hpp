@@ -27,6 +27,7 @@ namespace gulc {
             ArrayLiteral,
             As,
             AssignmentOperator,
+            CheckExtendsType,
             FunctionCall,
             Has,
             Identifier,

@@ -9,6 +9,7 @@
 #include <ast/types/BuiltInType.hpp>
 #include <ast/types/TraitType.hpp>
 #include <ast/types/NestedType.hpp>
+#include <ast/conts/WhereCont.hpp>
 #include "BasicTypeResolver.hpp"
 
 void gulc::BasicTypeResolver::processFiles(std::vector<ASTFile>& files) {
@@ -86,6 +87,35 @@ void gulc::BasicTypeResolver::processType(gulc::Type* type) const {
 
         for (Expr*& argument : templatedType->templateArguments()) {
             processTemplateArgumentExpr(argument);
+        }
+    }
+}
+
+void gulc::BasicTypeResolver::processContracts(std::vector<Cont*>& contracts) const {
+    for (Cont* contract : contracts) {
+        switch (contract->getContKind()) {
+            case Cont::Kind::Where: {
+                auto whereCont = llvm::dyn_cast<WhereCont>(contract);
+
+                processExpr(whereCont->condition);
+                break;
+            }
+            case Cont::Kind::Requires:
+                printError("`requires` not yet supported!",
+                           contract->startPosition(), contract->endPosition());
+                break;
+            case Cont::Kind::Ensures:
+                printError("`ensures` not yet supported!",
+                           contract->startPosition(), contract->endPosition());
+                break;
+            case Cont::Kind::Throws:
+                printError("`throws` not yet supported!",
+                           contract->startPosition(), contract->endPosition());
+                break;
+            default:
+                printError("unknown contract!",
+                           contract->startPosition(), contract->endPosition());
+                break;
         }
     }
 }
@@ -185,6 +215,8 @@ void gulc::BasicTypeResolver::processExtensionDecl(gulc::ExtensionDecl* extensio
 
     _templateParameters.push_back(&extensionDecl->templateParameters());
 
+    processContracts(extensionDecl->contracts());
+
     if (!resolveType(extensionDecl->typeToExtend)) {
         printError("extension type `" + extensionDecl->typeToExtend->toString() + "` was not found!",
                    extensionDecl->typeToExtend->startPosition(), extensionDecl->typeToExtend->endPosition());
@@ -213,6 +245,8 @@ void gulc::BasicTypeResolver::processExtensionDecl(gulc::ExtensionDecl* extensio
 }
 
 void gulc::BasicTypeResolver::processFunctionDecl(gulc::FunctionDecl* functionDecl) {
+    processContracts(functionDecl->contracts());
+
     for (ParameterDecl* parameter : functionDecl->parameters()) {
         processParameterDecl(parameter);
     }
@@ -274,6 +308,8 @@ void gulc::BasicTypeResolver::processPropertySetDecl(gulc::PropertySetDecl* prop
 }
 
 void gulc::BasicTypeResolver::processStructDecl(gulc::StructDecl* structDecl) {
+    processContracts(structDecl->contracts());
+
     for (Type*& inheritedType : structDecl->inheritedTypes()) {
         if (!resolveType(inheritedType)) {
             printError("struct inherited type `" + inheritedType->toString() + "` was not found!",
@@ -379,6 +415,8 @@ void gulc::BasicTypeResolver::processTemplateTraitDecl(gulc::TemplateTraitDecl* 
 }
 
 void gulc::BasicTypeResolver::processTraitDecl(gulc::TraitDecl* traitDecl) {
+    processContracts(traitDecl->contracts());
+
     for (Type*& inheritedType : traitDecl->inheritedTypes()) {
         resolveType(inheritedType);
     }
@@ -616,6 +654,9 @@ void gulc::BasicTypeResolver::processExpr(gulc::Expr* expr) const {
         case Expr::Kind::AssignmentOperator:
             processAssignmentOperatorExpr(llvm::dyn_cast<AssignmentOperatorExpr>(expr));
             break;
+        case Expr::Kind::CheckExtendsType:
+            processCheckExtendsTypeExpr(llvm::dyn_cast<CheckExtendsTypeExpr>(expr));
+            break;
         case Expr::Kind::FunctionCall:
             processFunctionCallExpr(llvm::dyn_cast<FunctionCallExpr>(expr));
             break;
@@ -683,6 +724,20 @@ void gulc::BasicTypeResolver::processAsExpr(gulc::AsExpr* asExpr) const {
 void gulc::BasicTypeResolver::processAssignmentOperatorExpr(gulc::AssignmentOperatorExpr* assignmentOperatorExpr) const {
     processExpr(assignmentOperatorExpr->leftValue);
     processExpr(assignmentOperatorExpr->rightValue);
+}
+
+void gulc::BasicTypeResolver::processCheckExtendsTypeExpr(gulc::CheckExtendsTypeExpr* checkExtendsTypeExpr) const {
+    if (!resolveType(checkExtendsTypeExpr->checkType)) {
+        printError("type `" + checkExtendsTypeExpr->checkType->toString() + "` was not found!",
+                   checkExtendsTypeExpr->checkType->startPosition(),
+                   checkExtendsTypeExpr->checkType->endPosition());
+    }
+
+    if (!resolveType(checkExtendsTypeExpr->extendsType)) {
+        printError("type `" + checkExtendsTypeExpr->extendsType->toString() + "` was not found!",
+                   checkExtendsTypeExpr->extendsType->startPosition(),
+                   checkExtendsTypeExpr->extendsType->endPosition());
+    }
 }
 
 void gulc::BasicTypeResolver::processFunctionCallExpr(gulc::FunctionCallExpr* functionCallExpr) const {

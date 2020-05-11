@@ -19,6 +19,7 @@
 #include <ast/types/TemplateStructType.hpp>
 #include <ast/types/TemplateTraitType.hpp>
 #include <algorithm>
+#include <ast/conts/WhereCont.hpp>
 
 void gulc::DeclInstantiator::processFiles(std::vector<ASTFile>& files) {
     for (ASTFile& file : files) {
@@ -187,19 +188,26 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
         Decl* foundTemplateDecl = nullptr;
         bool isExact = false;
         bool isAmbiguous = false;
+        bool passesContracts = false;
 
         // TODO: Process contracts
         for (Decl* checkDecl : templatedType->matchingTemplateDecls()) {
             bool declIsMatch = true;
             bool declIsExact = true;
+            bool declPassedContracts = false;
 
             switch (checkDecl->getDeclKind()) {
                 case Decl::Kind::TemplateStruct: {
                     auto templateStructDecl = llvm::dyn_cast<TemplateStructDecl>(checkDecl);
 
-                    compareDeclTemplateArgsToParams(templatedType->templateArguments(),
+                    if (!templateStructDecl->contractsAreInstantiated) {
+                        // TODO: Instantiate contracts
+                    }
+
+                    compareDeclTemplateArgsToParams(templateStructDecl->contracts(),
+                                                    templatedType->templateArguments(),
                                                     templateStructDecl->templateParameters(),
-                                                    &declIsMatch, &declIsExact);
+                                                    &declIsMatch, &declIsExact, &declPassedContracts);
 
                     // NOTE: Once we've reached this point the decl has been completely evaluated...
 
@@ -208,9 +216,10 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
                 case Decl::Kind::TemplateTrait: {
                     auto templateTraitDecl = llvm::dyn_cast<TemplateTraitDecl>(checkDecl);
 
-                    compareDeclTemplateArgsToParams(templatedType->templateArguments(),
+                    compareDeclTemplateArgsToParams(templateTraitDecl->contracts(),
+                                                    templatedType->templateArguments(),
                                                     templateTraitDecl->templateParameters(),
-                                                    &declIsMatch, &declIsExact);
+                                                    &declIsMatch, &declIsExact, &declPassedContracts);
 
                     // NOTE: Once we've reached this point the decl has been completely evaluated...
 
@@ -219,9 +228,10 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
                 case Decl::Kind::TypeAlias: {
                     auto typeAliasDecl = llvm::dyn_cast<TypeAliasDecl>(checkDecl);
 
-                    compareDeclTemplateArgsToParams(templatedType->templateArguments(),
+                    compareDeclTemplateArgsToParams({}, // TODO: typeAliasDecl->contracts(),
+                                                    templatedType->templateArguments(),
                                                     typeAliasDecl->templateParameters(),
-                                                    &declIsMatch, &declIsExact);
+                                                    &declIsMatch, &declIsExact, &declPassedContracts);
 
                     // NOTE: Once we've reached this point the decl has been completely evaluated...
 
@@ -230,28 +240,66 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
                 default:
                     declIsMatch = false;
                     declIsExact = false;
+                    declPassedContracts = false;
                     printWarning("[INTERNAL] unknown template declaration found in `BaseResolver::resolveType`!",
                                  checkDecl->startPosition(), checkDecl->endPosition());
                     break;
             }
 
+            // TODO: If `declIsMatch`
+            //        1. If `declIsMatch` and `declPassedContracts` then it was found
+            //        2. If `declIsMatch` and `!declPassedContracts` then we error saying contract wasn't met
+            //        3. If we find two with (`declIsMatch` and `declPassedContracts`) then it is ambiguous
+
             if (declIsMatch) {
-                if (declIsExact) {
-                    if (isExact) {
-                        // If the already found declaration is an exact match and this new decl is an exact match
-                        // then there is an issue with ambiguity
-                        isAmbiguous = true;
+                if (declPassedContracts) {
+                    // If the decl is a match and passes the contract then it is considered a `found` template...
+                    // (The decl MUST pass the contracts to be considered, being an exact match with failed contracts
+                    //  makes it a failed decl...)
+                    if (declIsExact) {
+                        // If the `checkDecl` is an exact match AND the already found decl is too then there is an
+                        // ambiguity...
+                        if (isExact && passesContracts) {
+                            isAmbiguous = true;
+                        } else {
+                            // If the previously found decl isn't exact or doesn't pass the contracts then our new
+                            // found decl isn't ambiguous
+                            isAmbiguous = false;
+                        }
+
+                        foundTemplateDecl = checkDecl;
+                        isExact = declIsExact;
+                        passesContracts = declPassedContracts;
+                    } else if (!passesContracts) {
+                        // `checkDecl` passes the contracts but isn't exact
+                        // previous DOESN'T pass the contracts, so it was an error decl.
+                        isAmbiguous = false;
+                        foundTemplateDecl = checkDecl;
+                        isExact = declIsExact;
+                        passesContracts = declPassedContracts;
                     }
-
-                    isExact = true;
+                } else if (!passesContracts) {
+                    // If the already found decl doesn't pass the contracts but `checkDecl` is an exact match
+                    // then this is saved as a potential error decl...
+                    if (declIsExact) {
+                        // Its only ambiguous of the previously found decl is ALSO exact...
+                        isAmbiguous = isExact;
+                        foundTemplateDecl = checkDecl;
+                        isExact = declIsExact;
+                        passesContracts = declPassedContracts;
+                    }
                 }
-
-                foundTemplateDecl = checkDecl;
             }
         }
 
         if (foundTemplateDecl == nullptr) {
             printError("template type `" + templatedType->toString() + "` was not found for the provided arguments!",
+                       templatedType->startPosition(), templatedType->endPosition());
+        }
+
+        if (passesContracts) {
+            // TODO: We need to improve this error message to say what contract failed...
+            printError("template arguments provided for type `" + templatedType->toString() + "` do not match required contracts!",
                        templatedType->startPosition(), templatedType->endPosition());
         }
 
@@ -289,31 +337,15 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
                     TemplateStructInstDecl* templateStructInstDecl = nullptr;
                     templateStructDecl->getInstantiation(templatedType->templateArguments(), &templateStructInstDecl);
 
-                    // If the template struct instantiation isn't instantiated we have to call the `processDependantDecl`
-                    // We call this instead of `processTemplateStructInstDecl` so that we properly check for circular
-                    // references
-                    // TODO: Should we always do this? This could cause an issue in some niche scenarios when compiling
-                    //       a pointer to a tempalte struct. One potential issue is below:
-                    //       ```
-                    //       struct Example {
-                    //           var member: *TemplateExample<i32>;
-                    //       }
-                    //       struct TemplateExample<T> : Example {
-                    //           // This template will be processed AFTER `Example` and COULD cause a bug where
-                    //           // instantiating `TemplateExample<i32>` causes a false error. We don't need
-                    //           // `TemplateExample<i32>` to be processed for `Example` to be processed.
-                    //       }
-                    //       ```
+                    // We add the template to the `delayInstantiation` list so that it is guaranteed to be instantiated
+                    // If we don't do this and the actual template has already been instantiated then this `inst`
+                    // will never be instantiated...
                     if (!templateStructInstDecl->isInstantiated) {
-//                        if (delayInstantiation) {
                         if (std::find(_delayInstantiationDeclsSet.begin(), _delayInstantiationDeclsSet.end(),
                                       templateStructInstDecl) == _delayInstantiationDeclsSet.end()) {
                             _delayInstantiationDeclsSet.insert(templateStructInstDecl);
                             _delayInstantiationDecls.push(templateStructInstDecl);
                         }
-//                        } else {
-//                            processDependantDecl(templateStructInstDecl);
-//                        }
                     }
 
                     Type* newType = new StructType(templatedType->qualifier(), templateStructInstDecl,
@@ -351,17 +383,15 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
                     TemplateTraitInstDecl* templateTraitInstDecl = nullptr;
                     templateTraitDecl->getInstantiation(templatedType->templateArguments(), &templateTraitInstDecl);
 
-                    // TODO: Ditto to above.
+                    // We add the template to the `delayInstantiation` list so that it is guaranteed to be instantiated
+                    // If we don't do this and the actual template has already been instantiated then this `inst`
+                    // will never be instantiated...
                     if (!templateTraitInstDecl->isInstantiated) {
-//                        if (delayInstantiation) {
                         if (std::find(_delayInstantiationDeclsSet.begin(), _delayInstantiationDeclsSet.end(),
                                       templateTraitInstDecl) == _delayInstantiationDeclsSet.end()) {
                             _delayInstantiationDeclsSet.insert(templateTraitInstDecl);
                             _delayInstantiationDecls.push(templateTraitInstDecl);
                         }
-//                        } else {
-//                            processDependantDecl(templateTraitInstDecl);
-//                        }
                     }
 
                     Type* newType = new TraitType(templatedType->qualifier(), templateTraitInstDecl,
@@ -419,31 +449,15 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
             templateStructType->decl()->getInstantiation(templateStructType->templateArguments(),
                                                          &templateStructInstDecl);
 
-            // If the template struct instantiation isn't instantiated we have to call the `processDependantDecl`
-            // We call this instead of `processTemplateStructInstDecl` so that we properly check for circular
-            // references
-            // TODO: Should we always do this? This could cause an issue in some niche scenarios when compiling
-            //       a pointer to a tempalte struct. One potential issue is below:
-            //       ```
-            //       struct Example {
-            //           var member: *TemplateExample<i32>;
-            //       }
-            //       struct TemplateExample<T> : Example {
-            //           // This template will be processed AFTER `Example` and COULD cause a bug where
-            //           // instantiating `TemplateExample<i32>` causes a false error. We don't need
-            //           // `TemplateExample<i32>` to be processed for `Example` to be processed.
-            //       }
-            //       ```
+            // We add the template to the `delayInstantiation` list so that it is guaranteed to be instantiated
+            // If we don't do this and the actual template has already been instantiated then this `inst`
+            // will never be instantiated...
             if (!templateStructInstDecl->isInstantiated) {
-//                if (delayInstantiation) {
                 if (std::find(_delayInstantiationDeclsSet.begin(), _delayInstantiationDeclsSet.end(),
                               templateStructInstDecl) == _delayInstantiationDeclsSet.end()) {
                     _delayInstantiationDeclsSet.insert(templateStructInstDecl);
                     _delayInstantiationDecls.push(templateStructInstDecl);
                 }
-//                } else {
-//                    processDependantDecl(templateStructInstDecl);
-//                }
             }
 
             Type* newType = new StructType(templateStructType->qualifier(), templateStructInstDecl,
@@ -464,17 +478,15 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
             templateTraitType->decl()->getInstantiation(templateTraitType->templateArguments(),
                                                         &templateTraitInstDecl);
 
-            // TODO: Ditto to above
+            // We add the template to the `delayInstantiation` list so that it is guaranteed to be instantiated
+            // If we don't do this and the actual template has already been instantiated then this `inst`
+            // will never be instantiated...
             if (!templateTraitInstDecl->isInstantiated) {
-//                if (delayInstantiation) {
                 if (std::find(_delayInstantiationDeclsSet.begin(), _delayInstantiationDeclsSet.end(),
                               templateTraitInstDecl) == _delayInstantiationDeclsSet.end()) {
                     _delayInstantiationDeclsSet.insert(templateTraitInstDecl);
                     _delayInstantiationDecls.push(templateTraitInstDecl);
                 }
-//                } else {
-//                    processDependantDecl(templateTraitInstDecl);
-//                }
             }
 
             Type* newType = new TraitType(templateTraitType->qualifier(), templateTraitInstDecl,
@@ -499,17 +511,21 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
     return false;
 }
 
-void gulc::DeclInstantiator::compareDeclTemplateArgsToParams(const std::vector<Expr*>& args,
+void gulc::DeclInstantiator::compareDeclTemplateArgsToParams(const std::vector<Cont*>& contracts,
+                                                             const std::vector<Expr*>& args,
                                                              const std::vector<TemplateParameterDecl*>& params,
-                                                             bool* outIsMatch, bool* outIsExact) const {
+                                                             bool* outIsMatch, bool* outIsExact,
+                                                             bool* outPassedContracts) const {
     if (params.size() < args.size()) {
         // If there are more template arguments than parameters then we skip this Decl...
         *outIsMatch = false;
         *outIsExact = false;
+        *outPassedContracts = false;
         return;
     }
 
     *outIsMatch = true;
+    *outPassedContracts = false;
     // TODO: Once we support implicit casts and default template parameter values we need to set this to false
     //       when we implicit cast or use a default template parameter.
     *outIsExact = true;
@@ -551,7 +567,55 @@ void gulc::DeclInstantiator::compareDeclTemplateArgsToParams(const std::vector<E
         }
     }
 
+    if (*outIsMatch) {
+        // If it was a match we now will check the contracts
+        // For this we default to the contracts being passed until we find a contract that fails.
+        *outPassedContracts = true;
+
+        for (Cont* contract : contracts) {
+            if (llvm::isa<WhereCont>(contract)) {
+                auto checkWhere = llvm::dyn_cast<WhereCont>(contract);
+dsdfsdfsdfsdfsdfsdfsdfsdfsdfsdfdfdfdfdfdfdsdfsdfsdffffffsssss
+                // TODO: Create a new function to handle solving `const` expressions so we can know if the condition
+                //       for the `where` clause is met or not
+            }
+        }
+    }
+
     // NOTE: Once we've reached this point the decl has been completely evaluated...
+}
+
+void gulc::DeclInstantiator::processContract(gulc::Cont* contract) {
+    switch (contract->getContKind()) {
+        case Cont::Kind::Where: {
+            auto whereCont = llvm::dyn_cast<WhereCont>(contract);
+
+            processConstExpr(whereCont->condition);
+
+            if (!llvm::isa<CheckExtendsTypeExpr>(whereCont->condition)) {
+                printError("currently only checking if a type extends another is supported by the `where` clause!",
+                           whereCont->startPosition(), whereCont->endPosition());
+            }
+
+            break;
+        }
+        case Cont::Kind::Requires:
+            printError("`requires` not yet supported!",
+                       contract->startPosition(), contract->endPosition());
+            break;
+        case Cont::Kind::Ensures:
+            printError("`ensures` not yet supported!",
+                       contract->startPosition(), contract->endPosition());
+            break;
+        case Cont::Kind::Throws:
+            printError("`throws` not yet supported!",
+                       contract->startPosition(), contract->endPosition());
+            break;
+        default:
+            printError("unknown contract!",
+                       contract->startPosition(), contract->endPosition());
+            break;
+    }
 }
 
 void gulc::DeclInstantiator::processDecl(gulc::Decl* decl, bool isGlobal) {
@@ -1004,6 +1068,8 @@ void gulc::DeclInstantiator::processTemplateStructDecl(gulc::TemplateStructDecl*
         processTemplateParameterDecl(templateParameter);
     }
 
+    processTemplateStructDeclContracts(templateStructDecl);
+
     _workingDecls.pop_back();
 
     // TODO: I've disabled processing the `TemplateStructDecl` as a normal struct. I don't think we should be doing
@@ -1027,6 +1093,14 @@ void gulc::DeclInstantiator::processTemplateStructDecl(gulc::TemplateStructDecl*
     }
 }
 
+void gulc::DeclInstantiator::processTemplateStructDeclContracts(gulc::TemplateStructDecl* templateStructDecl) {
+    for (Cont*& contract : templateStructDecl->contracts()) {
+        processContract(contract);
+    }
+
+    templateStructDecl->contractsAreInstantiated = true;
+}
+
 void gulc::DeclInstantiator::processTemplateStructInstDecl(gulc::TemplateStructInstDecl* templateStructInstDecl) {
     // The struct could already have been instantiated. We skip any that have already been processed...
     if (templateStructInstDecl->isInstantiated) {
@@ -1048,6 +1122,8 @@ void gulc::DeclInstantiator::processTemplateTraitDecl(gulc::TemplateTraitDecl* t
         processTemplateParameterDecl(templateParameter);
     }
 
+    processTemplateTraitDeclContracts(templateTraitDecl);
+
     _workingDecls.pop_back();
 
     // TODO: Apply the same solution as `TemplateStructDecl` here...
@@ -1057,6 +1133,14 @@ void gulc::DeclInstantiator::processTemplateTraitDecl(gulc::TemplateTraitDecl* t
     for (TemplateTraitInstDecl* templateTraitInstDecl : templateTraitDecl->templateInstantiations()) {
         processTemplateTraitInstDecl(templateTraitInstDecl);
     }
+}
+
+void gulc::DeclInstantiator::processTemplateTraitDeclContracts(gulc::TemplateTraitDecl* templateTraitDecl) {
+    for (Cont*& contract : templateTraitDecl->contracts()) {
+        processContract(contract);
+    }
+
+    templateTraitDecl->contractsAreInstantiated = true;
 }
 
 void gulc::DeclInstantiator::processTemplateTraitInstDecl(gulc::TemplateTraitInstDecl* templateTraitInstDecl) {
@@ -1106,6 +1190,11 @@ void gulc::DeclInstantiator::processTypeAliasDecl(gulc::TypeAliasDecl* typeAlias
     // NOTE: We don't process `typeAliasDecl->typeValue` again here. We want to keep the `TemplatedType` if it has one
     // TODO: Once we add a `PartialType` for handling partially resolved templates we need to process
     //       `typeAliasDecl->typeValue` here again.
+}
+
+void gulc::DeclInstantiator::processTypeAliasDeclContracts(gulc::TypeAliasDecl* typeAliasDecl) {
+    printWarning("[INTERNAL WARNING] type aliases don't support contracts yet!",
+                 typeAliasDecl->startPosition(), typeAliasDecl->endPosition());
 }
 
 void gulc::DeclInstantiator::processVariableDecl(gulc::VariableDecl* variableDecl, bool isGlobal) {
@@ -1231,6 +1320,9 @@ bool gulc::DeclInstantiator::structUsesStructTypeAsValue(gulc::StructDecl* struc
 
 void gulc::DeclInstantiator::processConstExpr(gulc::Expr* expr) {
     switch (expr->getExprKind()) {
+        case Expr::Kind::CheckExtendsType:
+            processCheckExtendsTypeExpr(llvm::dyn_cast<CheckExtendsTypeExpr>(expr));
+            break;
         case Expr::Kind::Type:
             processTypeExpr(llvm::dyn_cast<TypeExpr>(expr));
             break;
@@ -1241,6 +1333,20 @@ void gulc::DeclInstantiator::processConstExpr(gulc::Expr* expr) {
             printError("unsupported expression found where const expression was expected!",
                        expr->startPosition(), expr->endPosition());
             break;
+    }
+}
+
+void gulc::DeclInstantiator::processCheckExtendsTypeExpr(gulc::CheckExtendsTypeExpr* checkExtendsTypeExpr) {
+    if (!resolveType(checkExtendsTypeExpr->checkType)) {
+        printError("type `" + checkExtendsTypeExpr->checkType->toString() + "` was not found!",
+                   checkExtendsTypeExpr->checkType->startPosition(),
+                   checkExtendsTypeExpr->checkType->endPosition());
+    }
+
+    if (!resolveType(checkExtendsTypeExpr->extendsType)) {
+        printError("type `" + checkExtendsTypeExpr->extendsType->toString() + "` was not found!",
+                   checkExtendsTypeExpr->extendsType->startPosition(),
+                   checkExtendsTypeExpr->extendsType->endPosition());
     }
 }
 

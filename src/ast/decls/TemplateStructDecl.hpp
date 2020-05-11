@@ -57,6 +57,9 @@ namespace gulc {
             }
         }
 
+        // This is used to allow us to split contract instantiation off into its own function within `DeclInstantiator`
+        bool contractsAreInstantiated = false;
+
     protected:
         std::vector<TemplateParameterDecl*> _templateParameters;
         std::vector<TemplateStructInstDecl*> _templateInstantiations;

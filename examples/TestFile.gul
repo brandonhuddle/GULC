@@ -1,62 +1,24 @@
-struct Example {
+trait TContractTest {
 
 }
 
-struct Example<T> {
-    struct NestedExample<G> {
-        struct DeepNestedType {
-            var member1: T;
-            var member2: G;
-        }
-
-        func typeResolveTest() -> DeepNestedType {
-
-        }
-    }
-
-    struct TestStruct {
-        struct DeepNestedTemplate<G> {
-            struct SuperDeepNestedType {
-                var member1: T;
-                var member2: G;
-            }
-
-            func funTypeResolveTest() -> SuperDeepNestedType {
-
-            }
-        }
-
-        func templateTypeResolveTest() -> DeepNestedTemplate<i32> {
-
-        }
-    }
-}
-
-// Basic extension...
-extension Example {
+struct ContractTestImpl : TContractTest {
 
 }
 
-// Template extension to apply to everything...
-extension<T> T {
+struct Example<G>
+        where G : TContractTest {
 
 }
 
-// Extension that applies to a type named `Example` with it's own template arguments
-extension<T> Example<T> {
+//struct Example<G> {
+//
+//}
+
+func failTest() -> Example<i32> {
 
 }
 
-// Extension that applies to any pointers to the type `Example`
-extension *Example {
-
-}
-
-// i64 isn't instantiating
-func worstTest() -> Example<i32>.TestStruct.DeepNestedTemplate<i64>.SuperDeepNestedType {
-
-}
-
-func _start() -> Example<i32>.NestedExample<i8>.DeepNestedType {
+func _start() -> Example<ContractTestImpl> {
 
 }

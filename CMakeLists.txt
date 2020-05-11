@@ -141,6 +141,8 @@ add_executable(gulc
         src/ast/exprs/AsExpr.hpp
         src/ast/exprs/AssignmentOperatorExpr.cpp
         src/ast/exprs/AssignmentOperatorExpr.hpp
+        src/ast/exprs/CheckExtendsTypeExpr.cpp
+        src/ast/exprs/CheckExtendsTypeExpr.hpp
         src/ast/exprs/FunctionCallExpr.cpp
         src/ast/exprs/FunctionCallExpr.hpp
         src/ast/exprs/HasExpr.cpp
@@ -236,6 +238,8 @@ add_executable(gulc
 
         src/utilities/ConstExprHelper.cpp
         src/utilities/ConstExprHelper.hpp
+        src/utilities/ContractUtil.cpp
+        src/utilities/ContractUtil.hpp
         src/utilities/SignatureComparer.cpp
         src/utilities/SignatureComparer.hpp
         src/utilities/SizeofUtil.cpp

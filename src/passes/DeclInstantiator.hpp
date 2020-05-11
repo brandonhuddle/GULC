@@ -22,6 +22,7 @@
 #include <ast/decls/ExtensionDecl.hpp>
 #include <queue>
 #include <set>
+#include <ast/exprs/CheckExtendsTypeExpr.hpp>
 
 namespace gulc {
     /**
@@ -66,9 +67,12 @@ namespace gulc {
         // the end of the `ASTFile` processing at the latest.
         bool resolveType(Type*& type, bool delayInstantiation = false);
 
-        void compareDeclTemplateArgsToParams(std::vector<Expr*> const& args,
+        void compareDeclTemplateArgsToParams(std::vector<Cont*> const& contracts,
+                                             std::vector<Expr*> const& args,
                                              std::vector<TemplateParameterDecl*> const& params,
-                                             bool* outIsMatch, bool* outIsExact) const;
+                                             bool* outIsMatch, bool* outIsExact, bool* outPassedContracts) const;
+
+        void processContract(Cont* contract);
 
         void processDecl(Decl* decl, bool isGlobal = true);
         void processEnumDecl(EnumDecl* enumDecl);
@@ -86,11 +90,14 @@ namespace gulc {
         void processTemplateFunctionDecl(TemplateFunctionDecl* templateFunctionDecl);
         void processTemplateParameterDecl(TemplateParameterDecl* templateParameterDecl);
         void processTemplateStructDecl(TemplateStructDecl* templateStructDecl);
+        void processTemplateStructDeclContracts(TemplateStructDecl* templateStructDecl);
         void processTemplateStructInstDecl(TemplateStructInstDecl* templateStructInstDecl);
         void processTemplateTraitDecl(TemplateTraitDecl* templateTraitDecl);
+        void processTemplateTraitDeclContracts(TemplateTraitDecl* templateTraitDecl);
         void processTemplateTraitInstDecl(TemplateTraitInstDecl* templateTraitInstDecl);
         void processTraitDecl(TraitDecl* traitDecl);
         void processTypeAliasDecl(TypeAliasDecl* typeAliasDecl);
+        void processTypeAliasDeclContracts(TypeAliasDecl* typeAliasDecl);
         void processVariableDecl(VariableDecl* variableDecl, bool isGlobal);
 
         // This will process a `Decl` while also checking for any circular dependencies using `_workingDecls`
@@ -99,6 +106,7 @@ namespace gulc {
         bool structUsesStructTypeAsValue(StructDecl* structType, StructDecl* checkStruct, bool checkBaseStruct);
 
         void processConstExpr(Expr* expr);
+        void processCheckExtendsTypeExpr(CheckExtendsTypeExpr* checkExtendsTypeExpr);
         void processTypeExpr(TypeExpr* typeExpr);
         void processValueLiteralExpr(ValueLiteralExpr* valueLiteralExpr) const;
 

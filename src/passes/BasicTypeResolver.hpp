@@ -41,6 +41,7 @@
 #include <ast/decls/TypeAliasDecl.hpp>
 #include <ast/decls/EnumDecl.hpp>
 #include <ast/decls/ExtensionDecl.hpp>
+#include <ast/exprs/CheckExtendsTypeExpr.hpp>
 
 namespace gulc {
     /**
@@ -79,6 +80,8 @@ namespace gulc {
 
         // After a type is resolved we will do a second pass to process it (mainly just process template arguments)
         void processType(Type* type) const;
+
+        void processContracts(std::vector<Cont*>& contracts) const;
 
         void processDecl(Decl* decl, bool isGlobal = true);
         void processEnumDecl(EnumDecl* enumDecl);
@@ -119,6 +122,7 @@ namespace gulc {
         void processArrayLiteralExpr(ArrayLiteralExpr* arrayLiteralExpr) const;
         void processAsExpr(AsExpr* asExpr) const;
         void processAssignmentOperatorExpr(AssignmentOperatorExpr* assignmentOperatorExpr) const;
+        void processCheckExtendsTypeExpr(CheckExtendsTypeExpr* checkExtendsTypeExpr) const;
         void processFunctionCallExpr(FunctionCallExpr* functionCallExpr) const;
         void processHasExpr(HasExpr* hasExpr) const;
         void processIdentifierExpr(IdentifierExpr* identifierExpr) const;
