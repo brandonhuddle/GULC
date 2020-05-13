@@ -364,6 +364,9 @@ void gulc::TemplateInstHelper::instantiateExpr(gulc::Expr* expr) const {
         case Expr::Kind::AssignmentOperator:
             instantiateAssignmentOperatorExpr(llvm::dyn_cast<AssignmentOperatorExpr>(expr));
             break;
+        case Expr::Kind::CheckExtendsType:
+            instantiateCheckExtendsTypeExpr(llvm::dyn_cast<CheckExtendsTypeExpr>(expr));
+            break;
         case Expr::Kind::FunctionCall:
             instantiateFunctionCallExpr(llvm::dyn_cast<FunctionCallExpr>(expr));
             break;
@@ -408,6 +411,7 @@ void gulc::TemplateInstHelper::instantiateExpr(gulc::Expr* expr) const {
             break;
         default:
             std::cerr << "[INTERNAL ERROR] unhandled `Expr` found in `TemplateInstHelper`!" << std::endl;
+            std::exit(1);
             break;
     }
 }
@@ -555,13 +559,16 @@ void gulc::TemplateInstHelper::instantiateTemplateFunctionDecl(gulc::TemplateFun
     instantiateFunctionDecl(templateFunctionDecl);
 }
 
-void gulc::TemplateInstHelper::instantiateTemplateParameterDecl(
-        gulc::TemplateParameterDecl* templateParameterDecl) const {
+void gulc::TemplateInstHelper::instantiateTemplateParameterDecl(gulc::TemplateParameterDecl* templateParameterDecl) const {
     if (templateParameterDecl->templateParameterKind() == TemplateParameterDecl::TemplateParameterKind::Const) {
         instantiateType(templateParameterDecl->constType);
 
         // TODO: Handle default value
     } else {
+        for (Type*& inheritedType : templateParameterDecl->inheritedTypes) {
+            instantiateType(inheritedType);
+        }
+
         // TODO: Can `typename`s have default values??
     }
 }
@@ -855,10 +862,14 @@ void gulc::TemplateInstHelper::instantiateAsExpr(gulc::AsExpr* asExpr) const {
     instantiateType(asExpr->asType);
 }
 
-void gulc::TemplateInstHelper::instantiateAssignmentOperatorExpr(
-        gulc::AssignmentOperatorExpr* assignmentOperatorExpr) const {
+void gulc::TemplateInstHelper::instantiateAssignmentOperatorExpr(gulc::AssignmentOperatorExpr* assignmentOperatorExpr) const {
     instantiateExpr(assignmentOperatorExpr->leftValue);
     instantiateExpr(assignmentOperatorExpr->rightValue);
+}
+
+void gulc::TemplateInstHelper::instantiateCheckExtendsTypeExpr(gulc::CheckExtendsTypeExpr* checkExtendsTypeExpr) const {
+    instantiateType(checkExtendsTypeExpr->checkType);
+    instantiateType(checkExtendsTypeExpr->extendsType);
 }
 
 void gulc::TemplateInstHelper::instantiateFunctionCallExpr(gulc::FunctionCallExpr* functionCallExpr) const {

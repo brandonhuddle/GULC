@@ -467,6 +467,10 @@ void gulc::TemplateCopyUtil::instantiateTemplateParameterDecl(gulc::TemplatePara
 
         // TODO: Handle default value
     } else {
+        for (Type*& inheritedType : templateParameterDecl->inheritedTypes) {
+            instantiateType(inheritedType);
+        }
+
         // TODO: Can `typename`s have default values??
     }
 }

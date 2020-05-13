@@ -248,6 +248,8 @@ add_executable(gulc
         src/utilities/TemplateCopyUtil.hpp
         src/utilities/TemplateInstHelper.cpp
         src/utilities/TemplateInstHelper.hpp
+        src/utilities/TypeCompareUtil.cpp
+        src/utilities/TypeCompareUtil.hpp
         src/utilities/TypeHelper.cpp
         src/utilities/TypeHelper.hpp)
 

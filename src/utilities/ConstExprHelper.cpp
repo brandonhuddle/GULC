@@ -7,7 +7,7 @@
 #include <ast/types/PointerType.hpp>
 #include <ast/types/ReferenceType.hpp>
 #include "ConstExprHelper.hpp"
-#include "TypeHelper.hpp"
+#include "TypeCompareUtil.hpp"
 
 bool gulc::ConstExprHelper::compareAreSame(const gulc::Expr* left, const gulc::Expr* right) {
     // NOTE: Should this always be correct? Are there any scenarios where the kinds could differ?
@@ -17,16 +17,19 @@ bool gulc::ConstExprHelper::compareAreSame(const gulc::Expr* left, const gulc::E
                 auto leftType = llvm::dyn_cast<TypeExpr>(left);
                 auto rightType = llvm::dyn_cast<TypeExpr>(right);
 
-                return gulc::TypeHelper::compareAreSame(leftType->type, rightType->type);
+                gulc::TypeCompareUtil typeCompareUtil;
+                return typeCompareUtil.compareAreSame(leftType->type, rightType->type);
             }
             case Expr::Kind::ValueLiteral: {
                 auto leftValueLiteral = llvm::dyn_cast<ValueLiteralExpr>(left);
                 auto rightValueLiteral = llvm::dyn_cast<ValueLiteralExpr>(right);
 
+                gulc::TypeCompareUtil typeCompareUtil;
+
                 // For `ConstExprHelper` we only compare two literals of the same type. The `const` expression should
                 // be solved before calling us
                 if (leftValueLiteral->literalType() != rightValueLiteral->literalType() ||
-                    !TypeHelper::compareAreSame(leftValueLiteral->valueType, rightValueLiteral->valueType)) {
+                    !typeCompareUtil.compareAreSame(leftValueLiteral->valueType, rightValueLiteral->valueType)) {
                     return false;
                 }
 

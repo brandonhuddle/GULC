@@ -4,13 +4,15 @@
 #include <ast/exprs/TypeExpr.hpp>
 #include <ast/types/StructType.hpp>
 #include <ast/types/TraitType.hpp>
+#include <ast/types/TemplateStructType.hpp>
+#include <ast/types/TemplateTraitType.hpp>
 #include "ContractUtil.hpp"
+#include "TypeCompareUtil.hpp"
 
 bool gulc::ContractUtil::checkWhereCont(gulc::WhereCont* whereCont) {
     switch (whereCont->condition->getExprKind()) {
         case Expr::Kind::CheckExtendsType:
-
-            break;
+            return checkCheckExtendsTypeExpr(llvm::dyn_cast<CheckExtendsTypeExpr>(whereCont->condition));
         default:
             printError("unsupported expression found in `where` clause!",
                        whereCont->startPosition(), whereCont->endPosition());
@@ -71,23 +73,98 @@ bool gulc::ContractUtil::checkCheckExtendsTypeExpr(gulc::CheckExtendsTypeExpr* c
         switch (argType->getTypeKind()) {
             case Type::Kind::Struct: {
                 auto structType = llvm::dyn_cast<StructType>(argType);
-                // TODO: START HERE ---------------------------------------------------------------------------------------
-                asdasdasdasdasdasdasdasd
+
+                if (!structType->decl()->inheritedTypesIsInitialized) {
+                    printError("[INTERNAL ERROR] uninitialized struct found in type extension check!",
+                               structType->startPosition(), structType->endPosition());
+                }
+
+                TypeCompareUtil typeCompareUtil;
+
+                // We check `allInheritedTypes` as it holds all types, even the ones not explicitly stated by the
+                // currently being checked struct decl
+                for (Type const* checkType : structType->decl()->inheritedTypes()) {
+                    if (typeCompareUtil.compareAreSameOrInherits(checkType, checkExtendsTypeExpr->extendsType)) {
+                        return true;
+                    }
+                }
+
                 break;
             }
             case Type::Kind::Trait: {
                 auto traitType = llvm::dyn_cast<TraitType>(argType);
+
+                if (!traitType->decl()->inheritedTypesIsInitialized) {
+                    printError("[INTERNAL ERROR] uninitialized trait found in type extension check!",
+                               traitType->startPosition(), traitType->endPosition());
+                }
+
+                TypeCompareUtil typeCompareUtil;
+
+                // We check `allInheritedTypes` as it holds all types, even the ones not explicitly stated by the
+                // currently being checked struct decl
+                for (Type const* checkType : traitType->decl()->inheritedTypes()) {
+                    if (typeCompareUtil.compareAreSameOrInherits(checkType, checkExtendsTypeExpr->extendsType)) {
+                        return true;
+                    }
+                }
+
                 break;
             }
-            case Type::Kind::TemplateStruct:
-            case Type::Kind::TemplateTrait:
-                // TODO: We need to support `TemplateStruct` and `TemplateTrait`...
+            case Type::Kind::TemplateStruct: {
+                auto templateStructType = llvm::dyn_cast<TemplateStructType>(argType);
+
+                if (!templateStructType->decl()->inheritedTypesIsInitialized) {
+                    printError("[INTERNAL ERROR] uninitialized struct found in type extension check!",
+                               templateStructType->startPosition(), templateStructType->endPosition());
+                }
+
+                TypeCompareUtil typeCompareUtil(&templateStructType->decl()->templateParameters(),
+                                                &templateStructType->templateArguments());
+
+                // We check `allInheritedTypes` as it holds all types, even the ones not explicitly stated by the
+                // currently being checked struct decl
+                for (Type const* checkType : templateStructType->decl()->inheritedTypes()) {
+                    if (typeCompareUtil.compareAreSameOrInherits(checkType, checkExtendsTypeExpr->extendsType)) {
+                        return true;
+                    }
+                }
+
+                break;
+            }
+            case Type::Kind::TemplateTrait: {
+                auto templateTraitType = llvm::dyn_cast<TemplateTraitType>(argType);
+
+                if (!templateTraitType->decl()->inheritedTypesIsInitialized) {
+                    printError("[INTERNAL ERROR] uninitialized trait found in type extension check!",
+                               templateTraitType->startPosition(), templateTraitType->endPosition());
+                }
+
+                TypeCompareUtil typeCompareUtil(&templateTraitType->decl()->templateParameters(),
+                                                &templateTraitType->templateArguments());
+
+                // We check `allInheritedTypes` as it holds all types, even the ones not explicitly stated by the
+                // currently being checked struct decl
+                for (Type const* checkType : templateTraitType->decl()->inheritedTypes()) {
+                    if (typeCompareUtil.compareAreSameOrInherits(checkType, checkExtendsTypeExpr->extendsType)) {
+                        return true;
+                    }
+                }
+
+                break;
+            }
             case Type::Kind::TemplateTypenameRef:
                 // TODO: We need to check the typename ref to see if it has preexisting rules for this type...
-            default:
-                printError("unsupported type found on left side of `:` check!",
-                           checkExtendsTypeExpr->startPosition(), checkExtendsTypeExpr->endPosition());
+            default: {
+                TypeCompareUtil typeCompareUtil;
+
+                // To allow for `T : i32`...
+                if (typeCompareUtil.compareAreSameOrInherits(argType, checkExtendsTypeExpr->extendsType)) {
+                    return true;
+                }
+
                 break;
+            }
         }
     } else {
         printError("`:` can only be used on template types within this context!",

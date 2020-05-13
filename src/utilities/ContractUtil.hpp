@@ -9,8 +9,8 @@
 namespace gulc {
     class ContractUtil {
     public:
-        explicit ContractUtil(std::string const& fileName, std::vector<TemplateParameterDecl*>* templateParameters,
-                              std::vector<Expr*>* templateArguments)
+        ContractUtil(std::string const& fileName, std::vector<TemplateParameterDecl*> const* templateParameters,
+                     std::vector<Expr*> const* templateArguments)
                 : _fileName(fileName), _templateParameters(templateParameters),
                   _templateArguments(templateArguments) {}
 
@@ -18,8 +18,8 @@ namespace gulc {
 
     protected:
         std::string const& _fileName;
-        std::vector<TemplateParameterDecl*>* _templateParameters;
-        std::vector<Expr*>* _templateArguments;
+        std::vector<TemplateParameterDecl*> const* _templateParameters;
+        std::vector<Expr*> const* _templateArguments;
 
         void printError(std::string const& message, TextPosition startPosition, TextPosition endPosition) const;
         void printWarning(std::string const& message, TextPosition startPosition, TextPosition endPosition) const;

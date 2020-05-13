@@ -4,6 +4,7 @@
 #include <ast/Decl.hpp>
 #include <ast/Type.hpp>
 #include <ast/Cont.hpp>
+#include <set>
 
 namespace gulc {
     class TraitDecl : public Decl {
@@ -90,6 +91,9 @@ namespace gulc {
 
         // This is used to know if this trait has passed through `DeclInstantiator`
         bool isInstantiated = false;
+        // Inherited types MIGHT need to be initialized before the entire struct, to account for that we have a
+        // separate field to account for its initialization
+        bool inheritedTypesIsInitialized = false;
 
     protected:
         TraitDecl(Decl::Kind declKind, unsigned int sourceFileID, std::vector<Attr*> attributes,

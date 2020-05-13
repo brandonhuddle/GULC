@@ -14,7 +14,6 @@ namespace gulc {
                                 std::vector<std::vector<TemplateParameterDecl*>*> const& templateParameters,
                                 std::vector<gulc::Decl*> const& containingDecls, bool* outIsAmbiguous);
         static bool typeIsConstExpr(Type* resolvedType);
-        static bool compareAreSame(Type const* left, Type const* right);
 
         // TODO: Note that `type` must be `UnresolvedType`
         static bool resolveTypeWithinDecl(Type*& type, Decl* container);

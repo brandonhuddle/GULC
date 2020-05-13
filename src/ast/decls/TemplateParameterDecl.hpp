@@ -43,12 +43,18 @@ namespace gulc {
         Decl* deepCopy() const override {
             std::vector<Attr*> copiedAttributes;
             copiedAttributes.reserve(_attributes.size());
+            std::vector<Type*> copiedInheritedTypes;
+            copiedInheritedTypes.reserve(inheritedTypes.size());
 
             for (Attr* attribute : _attributes) {
                 copiedAttributes.push_back(attribute->deepCopy());
             }
 
-            Decl* result = nullptr;
+            for (Type* inheritedType : inheritedTypes) {
+                copiedInheritedTypes.push_back(inheritedType->deepCopy());
+            }
+
+            TemplateParameterDecl* result = nullptr;
 
             if (_templateParameterKind == TemplateParameterKind::Const) {
                 result = new TemplateParameterDecl(_sourceFileID, copiedAttributes, _identifier,
@@ -60,12 +66,25 @@ namespace gulc {
 
             result->container = container;
             result->containedInTemplate = containedInTemplate;
+            result->inheritedTypes = copiedInheritedTypes;
             return result;
         }
 
         ~TemplateParameterDecl() override {
             delete constType;
+
+            for (Type* inheritedType : inheritedTypes) {
+                delete inheritedType;
+            }
         }
+
+        // These will be defined by `where` contracts
+        // NOTE: This will not apply to `const` template parameters
+        std::vector<Type*> inheritedTypes;
+        // TODO: We'll also have to define `members` and probably `constructors`
+        //       We shouldn't define a destructor as that should be implied (ALL types have destructors,
+        //       some just can be deleted implicitly. e.g. `i32` "has" a destructor but it is worthless and never even
+        //       considered)
 
     protected:
         TemplateParameterKind _templateParameterKind;

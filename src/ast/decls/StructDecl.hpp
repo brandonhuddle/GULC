@@ -3,6 +3,7 @@
 
 #include <ast/Decl.hpp>
 #include <ast/Type.hpp>
+#include <set>
 #include "ConstructorDecl.hpp"
 #include "DestructorDecl.hpp"
 #include "VariableDecl.hpp"
@@ -144,6 +145,9 @@ namespace gulc {
         StructDecl* baseStruct;
         // This is used to know if this struct has passed through `DeclInstantiator`
         bool isInstantiated = false;
+        // Inherited types MIGHT need to be initialized before the entire struct, to account for that we have a
+        // separate field to account for its initialization
+        bool inheritedTypesIsInitialized = false;
         // This is a list of the actual data members with padding.
         // NOTE: This does NOT include inherited members! It also does NOT include a member to reference our base,
         //       this must be handled manually!

@@ -23,6 +23,7 @@
 #include <queue>
 #include <set>
 #include <ast/exprs/CheckExtendsTypeExpr.hpp>
+#include <ast/conts/WhereCont.hpp>
 
 namespace gulc {
     /**
@@ -40,6 +41,15 @@ namespace gulc {
         void processFiles(std::vector<ASTFile>& files);
 
     private:
+        enum class WhereContractsResult {
+            // One of the where contracts failed
+            Failed,
+            // All where contracts were passed
+            Passed,
+            // There were no where contracts found
+            NoContracts
+        };
+
         gulc::Target const& _target;
         std::vector<std::string> const& _filePaths;
         ASTFile* _currentFile;
@@ -70,7 +80,8 @@ namespace gulc {
         void compareDeclTemplateArgsToParams(std::vector<Cont*> const& contracts,
                                              std::vector<Expr*> const& args,
                                              std::vector<TemplateParameterDecl*> const& params,
-                                             bool* outIsMatch, bool* outIsExact, bool* outPassedContracts) const;
+                                             bool* outIsMatch, bool* outIsExact,
+                                             WhereContractsResult* outPassedWhereContracts) const;
 
         void processContract(Cont* contract);
 
@@ -83,6 +94,7 @@ namespace gulc {
         void processPropertyDecl(PropertyDecl* propertyDecl);
         void processPropertyGetDecl(PropertyGetDecl* propertyGetDecl);
         void processPropertySetDecl(PropertySetDecl* propertySetDecl);
+        void processStructDeclInheritedTypes(StructDecl* structDecl);
         void processStructDecl(StructDecl* structDecl, bool calculateSizeAndVTable = true);
         void processSubscriptOperatorDecl(SubscriptOperatorDecl* subscriptOperatorDecl);
         void processSubscriptOperatorGetDecl(SubscriptOperatorGetDecl* subscriptOperatorGetDecl);
@@ -95,10 +107,15 @@ namespace gulc {
         void processTemplateTraitDecl(TemplateTraitDecl* templateTraitDecl);
         void processTemplateTraitDeclContracts(TemplateTraitDecl* templateTraitDecl);
         void processTemplateTraitInstDecl(TemplateTraitInstDecl* templateTraitInstDecl);
+        void processTraitDeclInheritedTypes(TraitDecl* traitDecl);
         void processTraitDecl(TraitDecl* traitDecl);
         void processTypeAliasDecl(TypeAliasDecl* typeAliasDecl);
         void processTypeAliasDeclContracts(TypeAliasDecl* typeAliasDecl);
         void processVariableDecl(VariableDecl* variableDecl, bool isGlobal);
+
+        // This will process the `where` contract and modify the referenced template parameter accordingly
+        // (e.g. this will fill `TemplateParameterDecl::inheritedTypes` etc.)
+        void descriptTemplateParameterForWhereCont(WhereCont* whereCont);
 
         // This will process a `Decl` while also checking for any circular dependencies using `_workingDecls`
         void processDependantDecl(Decl* decl);

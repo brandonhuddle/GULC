@@ -34,6 +34,7 @@
 #include <ast/decls/OperatorDecl.hpp>
 #include <ast/decls/PropertyDecl.hpp>
 #include <ast/decls/SubscriptOperatorDecl.hpp>
+#include <ast/exprs/CheckExtendsTypeExpr.hpp>
 //#include <ast/decls/TypeAliasDecl.hpp>
 
 namespace gulc {
@@ -126,6 +127,7 @@ namespace gulc {
         void instantiateArrayLiteralExpr(ArrayLiteralExpr* arrayLiteralExpr) const;
         void instantiateAsExpr(AsExpr* asExpr) const;
         void instantiateAssignmentOperatorExpr(AssignmentOperatorExpr* assignmentOperatorExpr) const;
+        void instantiateCheckExtendsTypeExpr(CheckExtendsTypeExpr* checkExtendsTypeExpr) const;
         void instantiateFunctionCallExpr(FunctionCallExpr* functionCallExpr) const;
         void instantiateHasExpr(HasExpr* hasExpr) const;
         void instantiateIdentifierExpr(IdentifierExpr* identifierExpr) const;

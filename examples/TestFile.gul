@@ -7,15 +7,14 @@ struct ContractTestImpl : TContractTest {
 }
 
 struct Example<G>
-        where G : TContractTest {
+where G : TContractTest {
 
 }
 
-//struct Example<G> {
-//
-//}
-
-func failTest() -> Example<i32> {
+// For this to work we will need to support using `where` to modify the abilities for `G`
+// (i.e. store `TContractTest` as an inherited type within `G`)
+struct HardTest<G> : Example<G>
+where G : TContractTest {
 
 }
 

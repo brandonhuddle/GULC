@@ -20,6 +20,7 @@
 #include <ast/types/EnumType.hpp>
 #include <ast/types/NestedType.hpp>
 #include <ast/types/FlatArrayType.hpp>
+#include <ast/types/TemplateStructType.hpp>
 #include "TypeHelper.hpp"
 
 bool gulc::TypeHelper::resolveType(gulc::Type*& type, ASTFile const* currentFile,
@@ -419,89 +420,6 @@ bool gulc::TypeHelper::typeIsConstExpr(gulc::Type* resolvedType) {
         default:
             return false;
     }
-}
-
-bool gulc::TypeHelper::compareAreSame(const gulc::Type* left, const gulc::Type* right) {
-    // TODO: THis might be better as an option? There may be some scenarios where we want to know if the types are the
-    //       same WITHOUT qualifiers (or even same without top-level qualifiers)
-    if (left->qualifier() != right->qualifier() ||
-        left->getTypeKind() != right->getTypeKind()) {
-        return false;
-    }
-
-    switch (left->getTypeKind()) {
-        case Type::Kind::Alias: {
-            auto leftAlias = llvm::dyn_cast<AliasType>(left);
-            auto rightAlias = llvm::dyn_cast<AliasType>(right);
-
-            return compareAreSame(leftAlias->decl()->typeValue, rightAlias->decl()->typeValue);
-        }
-        case Type::Kind::BuiltIn: {
-            auto leftBuiltIn = llvm::dyn_cast<BuiltInType>(left);
-            auto rightBuiltIn = llvm::dyn_cast<BuiltInType>(right);
-
-            // NOTE: `typealias int = i32;` will mean `i32 == int` so they are the same type
-            //       `typealias` will be its own type that references a `BuiltInType`
-            return leftBuiltIn->name() == rightBuiltIn->name();
-        }
-        case Type::Kind::Dimension:
-            // TODO: Account for dimension types?
-            std::cerr << "FATAL ERROR: Dimension types not yet supported!" << std::endl;
-            std::exit(1);
-        case Type::Kind::Enum: {
-            auto leftEnum = llvm::dyn_cast<EnumType>(left);
-            auto rightEnum = llvm::dyn_cast<EnumType>(right);
-
-            return leftEnum->decl() == rightEnum->decl();
-        }
-        case Type::Kind::Pointer: {
-            auto leftPointer = llvm::dyn_cast<PointerType>(left);
-            auto rightPointer = llvm::dyn_cast<PointerType>(right);
-
-            return compareAreSame(leftPointer->nestedType, rightPointer->nestedType);
-        }
-        case Type::Kind::Reference: {
-            auto leftReference = llvm::dyn_cast<ReferenceType>(left);
-            auto rightReference = llvm::dyn_cast<ReferenceType>(right);
-
-            return compareAreSame(leftReference->nestedType, rightReference->nestedType);
-        }
-        case Type::Kind::Struct: {
-            auto leftStruct = llvm::dyn_cast<StructType>(left);
-            auto rightStruct = llvm::dyn_cast<StructType>(right);
-
-            return leftStruct->decl() == rightStruct->decl();
-        }
-        case Type::Kind::Templated: {
-            // TODO: How will we account for this? Should we just return false? Fatal Error?
-            //       We COULD compare this by checking if the lists of potential Decls are the same and the arguments
-            //       are the same BUT this could miss types that are the same and might not be worth the effort
-            //       (it would be easier to just enforce this function not being usable with `Templated`)
-            std::cerr << "FATAL ERROR: Uninstantiated template types CANNOT be compared!" << std::endl;
-            std::exit(1);
-        }
-        case Type::Kind::TemplateTypenameRef: {
-            auto leftTemplateTypenameRef = llvm::dyn_cast<TemplateTypenameRefType>(left);
-            auto rightTemplateTypenameRef = llvm::dyn_cast<TemplateTypenameRefType>(right);
-
-            return leftTemplateTypenameRef->refTemplateParameter() == rightTemplateTypenameRef->refTemplateParameter();
-        }
-        case Type::Kind::Trait: {
-            auto leftTrait = llvm::dyn_cast<TraitType>(left);
-            auto rightTrait = llvm::dyn_cast<TraitType>(right);
-
-            return leftTrait->decl() == rightTrait->decl();
-        }
-        case Type::Kind::Unresolved: {
-            std::cerr << "FATAL ERROR: Unresolved types cannot be compared!" << std::endl;
-            std::exit(1);
-        }
-        default:
-            std::cerr << "FATAL ERROR: Unknown `Type::Kind` found in `gulc::TypeHelper::compareAreSame`!" << std::endl;
-            std::exit(1);
-    }
-
-    return false;
 }
 
 bool gulc::TypeHelper::resolveTypeWithinDecl(gulc::Type*& type, gulc::Decl* container) {

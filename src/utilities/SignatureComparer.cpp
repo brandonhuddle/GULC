@@ -1,6 +1,7 @@
 #include <ast/types/ReferenceType.hpp>
 #include "SignatureComparer.hpp"
 #include "TypeHelper.hpp"
+#include "TypeCompareUtil.hpp"
 
 using namespace gulc;
 
@@ -74,7 +75,8 @@ SignatureComparer::CompareResult SignatureComparer::compareFunctions(const Funct
                 rightType = llvm::dyn_cast<ReferenceType>(rightType)->nestedType;
             }
 
-            if (!TypeHelper::compareAreSame(leftType, rightType)) {
+            TypeCompareUtil typeCompareUtil;
+            if (!typeCompareUtil.compareAreSame(leftType, rightType)) {
                 return CompareResult::Different;
             }
         }
