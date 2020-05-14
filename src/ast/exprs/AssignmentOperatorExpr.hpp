@@ -41,6 +41,16 @@ namespace gulc {
             }
         }
 
+        std::string toString() const override {
+            if (hasNestedOperator()) {
+                return leftValue->toString() + " " + getInfixOperatorStringValue(_nestedOperator) + "= " +
+                       rightValue->toString();
+            } else {
+                return leftValue->toString() + " " + getInfixOperatorStringValue(_nestedOperator) + " " +
+                       rightValue->toString();
+            }
+        }
+
         ~AssignmentOperatorExpr() override {
             delete leftValue;
             delete rightValue;

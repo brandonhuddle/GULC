@@ -23,6 +23,10 @@ namespace gulc {
             return new TernaryExpr(condition->deepCopy(), trueExpr->deepCopy(), falseExpr->deepCopy());
         }
 
+        std::string toString() const override {
+            return condition->toString() + " ? " + trueExpr->toString() + " : " + falseExpr->toString();
+        }
+
         ~TernaryExpr() override {
             delete condition;
             delete trueExpr;

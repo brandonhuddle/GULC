@@ -35,7 +35,17 @@ namespace gulc {
         TextPosition endPosition() const override { return _endPosition; }
 
         std::string toString() const override {
-            return _matchingTemplateDecls[0]->identifier().name() + "<...>";
+            std::string templateArgumentsString = "<";
+
+            for (std::size_t i = 0; i < _templateArguments.size(); ++i) {
+                if (i != 0) templateArgumentsString += ", ";
+
+                templateArgumentsString += _templateArguments[i]->toString();
+            }
+
+            templateArgumentsString += ">";
+
+            return _matchingTemplateDecls[0]->identifier().name() + templateArgumentsString;
         }
 
         Type* deepCopy() const override {

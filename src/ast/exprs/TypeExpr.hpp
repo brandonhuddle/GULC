@@ -24,6 +24,10 @@ namespace gulc {
             return new TypeExpr(type->deepCopy());
         }
 
+        std::string toString() const override {
+            return type->toString();
+        }
+
         ~TypeExpr() override {
             delete type;
         }

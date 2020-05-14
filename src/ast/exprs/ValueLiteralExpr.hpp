@@ -49,6 +49,10 @@ namespace gulc {
             return result;
         }
 
+        std::string toString() const override {
+            return _value + _suffix;
+        }
+
         ~ValueLiteralExpr() override  {
             delete valueType;
         }

@@ -31,6 +31,10 @@ namespace gulc {
                               _asStartPosition, _asEndPosition);
         }
 
+        std::string toString() const override {
+            return expr->toString() + " as " + asType->toString();
+        }
+
         ~AsExpr() override {
             delete expr;
             delete asType;

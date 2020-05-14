@@ -40,6 +40,10 @@ namespace gulc {
                                             _extendsStartPosition, _extendsEndPosition);
         }
 
+        std::string toString() const override {
+            return checkType->toString() + " : " + extendsType->toString();
+        }
+
         ~CheckExtendsTypeExpr() override {
             delete checkType;
             delete extendsType;

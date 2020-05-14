@@ -33,6 +33,22 @@ namespace gulc {
             return new IdentifierExpr(_identifier, copiedTemplateArguments);
         }
 
+        std::string toString() const override {
+            std::string templateArgumentsString;
+
+            if (!_templateArguments.empty()) {
+                templateArgumentsString += "<";
+
+                for (std::size_t i = 0; i < _templateArguments.size(); ++i) {
+                    templateArgumentsString += _templateArguments[i]->toString();
+                }
+
+                templateArgumentsString += ">";
+            }
+
+            return _identifier.name() + templateArgumentsString;
+        }
+
         ~IdentifierExpr() override {
             for (Expr* templateArgument : _templateArguments) {
                 delete templateArgument;

@@ -21,6 +21,10 @@ namespace gulc {
             return new TemplateConstRefExpr(_templateParameter);
         }
 
+        std::string toString() const override {
+            return _templateParameter->identifier().name();
+        }
+
     protected:
         TemplateParameterDecl* _templateParameter;
 

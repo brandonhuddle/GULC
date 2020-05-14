@@ -23,6 +23,10 @@ namespace gulc {
             return new LabeledArgumentExpr(_label, argument->deepCopy());
         }
 
+        std::string toString() const override {
+            return _label.name() + ": " + argument->toString();
+        }
+
         ~LabeledArgumentExpr() override {
             delete argument;
         }

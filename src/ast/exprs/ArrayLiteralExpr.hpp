@@ -38,6 +38,18 @@ namespace gulc {
             return new ArrayLiteralExpr(copiedIndexes, _startPosition, _endPosition);
         }
 
+        std::string toString() const override {
+            std::string result = "[ ";
+
+            for (std::size_t i = 0; i < indexes.size(); ++i) {
+                if (i != 0) result += ", ";
+
+                result += indexes[i]->toString();
+            }
+
+            return result + " ]";
+        }
+
         ~ArrayLiteralExpr() override {
             for (Expr* index : indexes) {
                 delete index;

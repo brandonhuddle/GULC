@@ -21,6 +21,10 @@ namespace gulc {
             return new ParenExpr(nestedExpr->deepCopy(), _startPosition, _endPosition);
         }
 
+        std::string toString() const override {
+            return "(" + nestedExpr->toString() + ")";
+        }
+
         ~ParenExpr() override {
             delete nestedExpr;
         }

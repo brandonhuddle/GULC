@@ -36,6 +36,26 @@ namespace gulc {
                                         _isAssignable, _startPosition, _endPosition);
         }
 
+        std::string toString() const override {
+            std::string letString = "let ";
+            std::string typeString;
+            std::string initialValueString;
+
+            if (_isAssignable) {
+                letString += "mut ";
+            }
+
+            if (type != nullptr) {
+                typeString = " : " + type->toString();
+            }
+
+            if (initialValue != nullptr) {
+                initialValueString = " = " + initialValue->toString();
+            }
+
+            return letString + _identifier.name() + typeString + initialValueString;
+        }
+
         ~VariableDeclExpr() override {
             delete type;
             delete initialValue;

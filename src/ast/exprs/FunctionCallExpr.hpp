@@ -34,6 +34,18 @@ namespace gulc {
                                         _startPosition, _endPosition);
         }
 
+        std::string toString() const override {
+            std::string argumentsString;
+
+            for (std::size_t i = 0; i < arguments.size(); ++i) {
+                if (i != 0) argumentsString += ", ";
+
+                argumentsString += arguments[i]->toString();
+            }
+
+            return functionReference->toString() + "(" + argumentsString + ")";
+        }
+
         ~FunctionCallExpr() override {
             for (Expr* argument : arguments) {
                 delete argument;

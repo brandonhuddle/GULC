@@ -34,7 +34,15 @@ namespace gulc {
             std::string templateArgsString;
 
             if (!_templateArguments.empty()) {
-                templateArgsString = "<...>";
+                templateArgsString = "<";
+
+                for (std::size_t i = 0; i < _templateArguments.size(); ++i) {
+                    if (i != 0) templateArgsString += ", ";
+
+                    templateArgsString += _templateArguments[i]->toString();
+                }
+
+                templateArgsString += ">";
             }
 
             return container->toString() + "." + _nestedIdentifier.name() + templateArgsString;

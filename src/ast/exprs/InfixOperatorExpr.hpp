@@ -32,6 +32,51 @@ namespace gulc {
         LessThanEqualTo, // <=
     };
 
+    inline std::string getInfixOperatorStringValue(InfixOperators infixOperator) {
+        switch (infixOperator) {
+            default:
+                return "[UNKNOWN]";
+            case InfixOperators::Add:
+                return "+";
+            case InfixOperators::Subtract:
+                return "-";
+            case InfixOperators::Multiply:
+                return "*";
+            case InfixOperators::Divide:
+                return "/";
+            case InfixOperators::Remainder:
+                return "%";
+            case InfixOperators::Power:
+                return "^^";
+            case InfixOperators::BitwiseAnd:
+                return "&";
+            case InfixOperators::BitwiseOr:
+                return "|";
+            case InfixOperators::BitwiseXor:
+                return "^";
+            case InfixOperators::BitshiftLeft:
+                return "<<";
+            case InfixOperators::BitshiftRight:
+                return ">>";
+            case InfixOperators::LogicalAnd:
+                return "&&";
+            case InfixOperators::LogicalOr:
+                return "||";
+            case InfixOperators::EqualTo:
+                return "==";
+            case InfixOperators::NotEqualTo:
+                return "!=";
+            case InfixOperators::GreaterThan:
+                return ">";
+            case InfixOperators::LessThan:
+                return "<";
+            case InfixOperators::GreaterThanEqualTo:
+                return ">=";
+            case InfixOperators::LessThanEqualTo:
+                return "<=";
+        }
+    }
+
     class InfixOperatorExpr : public Expr {
     public:
         static bool classof(const Expr* expr) { return expr->getExprKind() == Expr::Kind::InfixOperator; }
@@ -50,6 +95,10 @@ namespace gulc {
 
         Expr* deepCopy() const override {
             return new InfixOperatorExpr(_infixOperator, leftValue->deepCopy(), rightValue->deepCopy());
+        }
+
+        std::string toString() const override {
+            return leftValue->toString() + " " + getInfixOperatorStringValue(_infixOperator) + " " + rightValue->toString();
         }
 
         ~InfixOperatorExpr() override {

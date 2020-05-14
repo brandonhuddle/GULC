@@ -33,8 +33,6 @@ void gulc::DeclInstantiator::processFiles(std::vector<ASTFile>& files) {
             processDecl(decl);
         }
 
-        // TODO: The act of instantiating a template instantiation could add another `delay...` to the list
-        //       We need to account for this...
         while (!_delayInstantiationDecls.empty()) {
             Decl* delayedInstantiation = _delayInstantiationDecls.front();
             _delayInstantiationDecls.pop();
@@ -323,7 +321,6 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
         bool isAmbiguous = false;
         WhereContractsResult whereContractsResult = WhereContractsResult::Failed;
 
-        // TODO: Process contracts
         for (Decl* checkDecl : templatedType->matchingTemplateDecls()) {
             bool declIsMatch = true;
             bool declIsExact = true;
@@ -963,9 +960,6 @@ void gulc::DeclInstantiator::processExtensionDecl(gulc::ExtensionDecl* extension
         processTemplateParameterDecl(templateParameter);
     }
 
-    // TODO: We need to improve our support for templates. Currently we can't properly finish instantiating any
-    //       templates due to their need to keep their `TemplatedType` and not being able to properly account for
-    //       non-template types nested within a template type.
     if (!extensionDecl->hasTemplateParameters()) {
         if (!resolveType(extensionDecl->typeToExtend)) {
             printError("extension type `" + extensionDecl->typeToExtend->toString() + "` was not found!",
@@ -1545,7 +1539,6 @@ void gulc::DeclInstantiator::descriptTemplateParameterForWhereCont(gulc::WhereCo
         case Expr::Kind::CheckExtendsType: {
             auto checkExtendsType = llvm::dyn_cast<CheckExtendsTypeExpr>(whereCont->condition);
 
-            // TODO: Give the referenced template parameter descriptors...
             if (llvm::isa<TemplateTypenameRefType>(checkExtendsType->checkType)) {
                 auto templateTypenameRefType = llvm::dyn_cast<TemplateTypenameRefType>(checkExtendsType->checkType);
 

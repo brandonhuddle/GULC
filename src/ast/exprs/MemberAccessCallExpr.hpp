@@ -26,6 +26,14 @@ namespace gulc {
                                             llvm::dyn_cast<IdentifierExpr>(member->deepCopy()));
         }
 
+        std::string toString() const override {
+            if (_isArrowCall) {
+                return objectRef->toString() + "->" + member->toString();
+            } else {
+                return objectRef->toString() + "." + member->toString();
+            }
+        }
+
         ~MemberAccessCallExpr() override {
             delete objectRef;
             delete member;

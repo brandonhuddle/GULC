@@ -9,6 +9,17 @@ namespace gulc {
         Decrement, // --
     };
 
+    inline std::string getPostfixOperatorString(PostfixOperators postfixOperator) {
+        switch (postfixOperator) {
+            case PostfixOperators::Increment:
+                return "++";
+            case PostfixOperators::Decrement:
+                return "--";
+            default:
+                return "[UNKNOWN]";
+        }
+    }
+
     class PostfixOperatorExpr : public Expr {
     public:
         static bool classof(const Expr* expr) { return expr->getExprKind() == Expr::Kind::PostfixOperator; }
@@ -29,6 +40,10 @@ namespace gulc {
         Expr* deepCopy() const override {
             return new PostfixOperatorExpr(_postfixOperator, nestedExpr->deepCopy(),
                                            _operatorStartPosition, _operatorEndPosition);
+        }
+
+        std::string toString() const override {
+            return nestedExpr->toString() + getPostfixOperatorString(_postfixOperator);
         }
 
         ~PostfixOperatorExpr() override {

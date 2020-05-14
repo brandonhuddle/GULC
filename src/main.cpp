@@ -7,11 +7,7 @@
 
 using namespace gulc;
 
-// TODO: Should we add a `toString()` function to `Expr`?
-//         1. It would be useful for error messages AND only used for error messages
-//         2. AFAIK everything within an `Expr` is easily 1:1 translatable to a string representation?
-//         3. It is really needed for error messages. `Example<...>` looks awful.
-
+// TODO: Finish adding support for extensions...
 
 int main() {
     Target target = Target::getHostTarget();

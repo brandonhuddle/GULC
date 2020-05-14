@@ -43,7 +43,15 @@ namespace gulc {
             }
 
             if (!templateArguments.empty()) {
-                templateArgsString = "<...>";
+                templateArgsString = "<";
+
+                for (std::size_t i = 0; i < templateArguments.size(); ++i) {
+                    if (i != 0) templateArgsString += ", ";
+
+                    templateArgsString += templateArguments[i]->toString();
+                }
+
+                templateArgsString += ">";
             }
 
             return result + _identifier.name() + templateArgsString;

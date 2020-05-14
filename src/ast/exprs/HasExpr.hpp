@@ -37,6 +37,10 @@ namespace gulc {
                                _hasStartPosition, _hasEndPosition);
         }
 
+        std::string toString() const override {
+            return expr->toString() + " has " + trait->toString();
+        }
+
         ~HasExpr() override {
             delete expr;
             delete trait;

@@ -20,11 +20,7 @@ namespace gulc {
         TextPosition endPosition() const override { return indexType->endPosition(); }
 
         std::string toString() const override {
-            std::string lengthString = "...";
-
-            // TODO: To improve debugging we should detect if `length` is a `ValueLiteralExpr` and output the number...
-
-            return "[" + indexType->toString() + "; " + lengthString + "]";
+            return "[" + indexType->toString() + "; " + length->toString() + "]";
         }
 
         Type* deepCopy() const override {

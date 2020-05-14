@@ -2,6 +2,7 @@
 #define GULC_EXPR_HPP
 
 #include "Stmt.hpp"
+#include <string>
 
 namespace gulc {
     class __ExprStmtFix : public Stmt {
@@ -48,6 +49,7 @@ namespace gulc {
 
         Expr::Kind getExprKind() const { return _exprKind; }
         virtual Expr* deepCopy() const = 0;
+        virtual std::string toString() const = 0;
 
     protected:
         Expr::Kind _exprKind;

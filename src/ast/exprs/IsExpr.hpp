@@ -27,6 +27,10 @@ namespace gulc {
                               _isStartPosition, _isEndPosition);
         }
 
+        std::string toString() const override {
+            return expr->toString() + " is " + isType->toString();
+        }
+
         ~IsExpr() override {
             delete expr;
             delete isType;

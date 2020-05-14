@@ -32,6 +32,39 @@ namespace gulc {
         TraitsOf, // traitsof
     };
 
+    inline std::string getPrefixOperatorString(PrefixOperators prefixOperator) {
+        switch (prefixOperator) {
+            case PrefixOperators::Increment:
+                return "++";
+            case PrefixOperators::Decrement:
+                return "--";
+            case PrefixOperators::Positive:
+                return "+";
+            case PrefixOperators::Negative:
+                return "-";
+            case PrefixOperators::LogicalNot:
+                return "!";
+            case PrefixOperators::BitwiseNot:
+                return "~";
+            case PrefixOperators::Dereference:
+                return "*";
+            case PrefixOperators::Reference:
+                return "&";
+            case PrefixOperators::SizeOf:
+                return "sizeof";
+            case PrefixOperators::AlignOf:
+                return "alignof";
+            case PrefixOperators::OffsetOf:
+                return "offsetof";
+            case PrefixOperators::NameOf:
+                return "nameof";
+            case PrefixOperators::TraitsOf:
+                return "traitsof";
+            default:
+                return "[UNKNOWN]";
+        }
+    }
+
     class PrefixOperatorExpr : public Expr {
     public:
         static bool classof(const Expr* expr) { return expr->getExprKind() == Expr::Kind::PrefixOperator; }
@@ -52,6 +85,10 @@ namespace gulc {
         Expr* deepCopy() const override {
             return new PrefixOperatorExpr(_prefixOperator, nestedExpr->deepCopy(),
                                           _operatorStartPosition, _operatorEndPosition);
+        }
+
+        std::string toString() const override {
+            return getPrefixOperatorString(_prefixOperator) + "(" + nestedExpr->toString() + ")";
         }
 
         ~PrefixOperatorExpr() override {
