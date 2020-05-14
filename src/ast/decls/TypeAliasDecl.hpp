@@ -94,6 +94,7 @@ namespace gulc {
             result->container = container;
             result->containedInTemplate = containedInTemplate;
             result->containerTemplateType = (containerTemplateType == nullptr ? nullptr : containerTemplateType->deepCopy());
+            result->originalDecl = (originalDecl == nullptr ? this : originalDecl);
             return result;
         }
 

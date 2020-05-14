@@ -104,14 +104,16 @@ add_executable(gulc
         src/ast/types/AliasType.hpp
         src/ast/types/BuiltInType.cpp
         src/ast/types/BuiltInType.hpp
+        src/ast/types/DependentType.cpp
+        src/ast/types/DependentType.hpp
         src/ast/types/DimensionType.cpp
         src/ast/types/DimensionType.hpp
         src/ast/types/EnumType.cpp
         src/ast/types/EnumType.hpp
         src/ast/types/FlatArrayType.cpp
         src/ast/types/FlatArrayType.hpp
-        src/ast/types/NestedType.cpp
-        src/ast/types/NestedType.hpp
+        src/ast/types/UnresolvedNestedType.cpp
+        src/ast/types/UnresolvedNestedType.hpp
         src/ast/types/PointerType.cpp
         src/ast/types/PointerType.hpp
         src/ast/types/ReferenceType.cpp

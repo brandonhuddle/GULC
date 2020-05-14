@@ -86,6 +86,7 @@ namespace gulc {
             }
 
             result->pointToNamespace = pointToNamespace;
+            result->originalDecl = (originalDecl == nullptr ? this : originalDecl);
             return result;
         }
 

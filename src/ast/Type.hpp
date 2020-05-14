@@ -12,10 +12,10 @@ namespace gulc {
         enum class Kind {
             Alias,
             BuiltIn,
+            Dependent,
             Dimension,
             Enum,
             FlatArray,
-            Nested,
             Pointer,
             Reference,
             Struct,
@@ -25,6 +25,7 @@ namespace gulc {
             TemplateTypenameRef,
             Trait,
             Unresolved,
+            UnresolvedNested,
             VTable
         };
 

@@ -56,6 +56,7 @@ namespace gulc {
                                             _parameterKind, _startPosition, _endPosition);
             result->container = container;
             result->containedInTemplate = containedInTemplate;
+            result->originalDecl = (originalDecl == nullptr ? this : originalDecl);
             return result;
         }
 

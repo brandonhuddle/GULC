@@ -67,6 +67,7 @@ namespace gulc {
             result->container = container;
             result->containedInTemplate = containedInTemplate;
             result->inheritedTypes = copiedInheritedTypes;
+            result->originalDecl = (originalDecl == nullptr ? this : originalDecl);
             return result;
         }
 

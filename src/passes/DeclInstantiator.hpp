@@ -75,7 +75,10 @@ namespace gulc {
 
         // `delayInstantiation` will make it so the instantiation of uninstantiated `Decl`s will be be delayed until
         // the end of the `ASTFile` processing at the latest.
-        bool resolveType(Type*& type, bool delayInstantiation = false);
+        // `containDependents` means if the type is found to be contained within a template we will make it a dependent
+        bool resolveType(Type*& type, bool delayInstantiation = false, bool containDependents = true);
+        Type* resolveDependentType(std::vector<Decl*>& checkDecls, Identifier const& identifier,
+                                   std::vector<Expr*>& templateArguments);
 
         void compareDeclTemplateArgsToParams(std::vector<Cont*> const& contracts,
                                              std::vector<Expr*> const& args,

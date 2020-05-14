@@ -1,0 +1,32 @@
+trait TContractTest {
+
+}
+
+struct ContractTestImpl : TContractTest {
+
+}
+
+struct Example<G>
+where G : TContractTest {
+
+}
+
+// For this to work we will need to support using `where` to modify the abilities for `G`
+// (i.e. store `TContractTest` as an inherited type within `G`)
+struct HardTest<G> : Example<G>
+where G : TContractTest {
+
+}
+
+// For now we won't be supporting this. We may never support this as I don't know of any situation where it would be
+// useful. It also has too many potential issues (like do we support ranges? only one range? multiple ranges?
+// how do we handle duplicate templates with the same constraints when we support 3rd party types as template
+// parameters? there are too many unanswered questions related to this right now so for now we just won't support it.)
+//struct ErrorMessageTest<const HM: i32>
+//where HM > 12 {
+//
+//}
+
+func _start() -> Example<ContractTestImpl> {
+
+}

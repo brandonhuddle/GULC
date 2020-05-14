@@ -1,8 +1,41 @@
+/**
+ * This file contains multiple, niche scenarios that need to be properly supported when it comes to nested types,
+ * dependent types, and templates
+ */
+
 struct Example {
 
 }
 
+struct SeparateDependent<G> {
+    struct NestedDependence {
+
+    }
+}
+
 struct Example<T> {
+    struct Dependent<G> {
+        struct NestedDependence {
+
+        }
+    }
+
+    func dependenceTest() -> Dependent<T> {
+
+    }
+
+    func nestedDependenceTest() -> Dependent<T>.NestedDependence {
+
+    }
+
+    func separateDependenceTest() -> SeparateDependent<T> {
+
+    }
+
+    func separateNestedDependenceTest() -> SeparateDependent<T>.NestedDependence {
+
+    }
+
     struct NestedExample<G> {
         struct DeepNestedType {
             var member1: T;
@@ -10,6 +43,16 @@ struct Example<T> {
         }
 
         func typeResolveTest() -> DeepNestedType {
+
+        }
+
+        struct DeepNestedTemplateType<M> {
+            struct SuperDeepDependentType {
+
+            }
+        }
+
+        func dependenceTest() -> DeepNestedTemplateType<G>.SuperDeepDependentType {
 
         }
     }

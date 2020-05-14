@@ -48,6 +48,7 @@ gulc::Decl* gulc::TemplateTraitDecl::deepCopy() const {
     result->container = container;
     result->containedInTemplate = containedInTemplate;
     result->containerTemplateType = (containerTemplateType == nullptr ? nullptr : containerTemplateType->deepCopy());
+    result->originalDecl = (originalDecl == nullptr ? this : originalDecl);
 
     // We have to loop through all nested AST Nodes to replace old template parameter references with the new
     // template parameters

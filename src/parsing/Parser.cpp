@@ -24,7 +24,7 @@
 #include <ast/exprs/TypeExpr.hpp>
 #include <ast/decls/TemplateStructDecl.hpp>
 #include <ast/decls/TemplateTraitDecl.hpp>
-#include <ast/types/NestedType.hpp>
+#include <ast/types/UnresolvedNestedType.hpp>
 #include <ast/exprs/CheckExtendsTypeExpr.hpp>
 #include "Parser.hpp"
 
@@ -314,7 +314,7 @@ Type* Parser::parseType() {
                                                   templateArguments);
 
                 if (_lexer.peekType() == TokenType::PERIOD) {
-                    // If there is a period we need to go through and create `NestedType` containers, this is the
+                    // If there is a period we need to go through and create `UnresolvedNestedType` containers, this is the
                     // easiest way I can think of to implement this feature into the current compiler.
                     while (_lexer.consumeType(TokenType::PERIOD)) {
                         if (_lexer.peekType() != TokenType::SYMBOL) {
@@ -330,8 +330,8 @@ Type* Parser::parseType() {
                             nestedTemplateArguments = parseTypeTemplateArguments(&nestedEndPosition);
                         }
 
-                        result = new NestedType(Type::Qualifier::Unassigned, result, nestedIdentifier,
-                                                nestedTemplateArguments, startPosition, nestedEndPosition);
+                        result = new UnresolvedNestedType(Type::Qualifier::Unassigned, result, nestedIdentifier,
+                                                          nestedTemplateArguments, startPosition, nestedEndPosition);
                     }
                 }
 

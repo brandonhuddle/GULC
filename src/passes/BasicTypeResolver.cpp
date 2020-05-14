@@ -8,8 +8,9 @@
 #include <ast/types/FlatArrayType.hpp>
 #include <ast/types/BuiltInType.hpp>
 #include <ast/types/TraitType.hpp>
-#include <ast/types/NestedType.hpp>
+#include <ast/types/UnresolvedNestedType.hpp>
 #include <ast/conts/WhereCont.hpp>
+#include <ast/types/DependentType.hpp>
 #include "BasicTypeResolver.hpp"
 
 void gulc::BasicTypeResolver::processFiles(std::vector<ASTFile>& files) {
@@ -57,7 +58,12 @@ bool gulc::BasicTypeResolver::resolveType(gulc::Type*& type) const {
 }
 
 void gulc::BasicTypeResolver::processType(gulc::Type* type) const {
-    if (llvm::isa<DimensionType>(type)) {
+    if (llvm::isa<DependentType>(type)) {
+        auto dependentType = llvm::dyn_cast<DependentType>(type);
+
+        processType(dependentType->container);
+        processType(dependentType->dependent);
+    } else if (llvm::isa<DimensionType>(type)) {
         auto dimensionType = llvm::dyn_cast<DimensionType>(type);
 
         processType(dimensionType->nestedType);
@@ -66,8 +72,8 @@ void gulc::BasicTypeResolver::processType(gulc::Type* type) const {
 
         processExpr(flatArrayType->length);
         processType(flatArrayType->indexType);
-    } else if (llvm::isa<NestedType>(type)) {
-        auto nestedType = llvm::dyn_cast<NestedType>(type);
+    } else if (llvm::isa<UnresolvedNestedType>(type)) {
+        auto nestedType = llvm::dyn_cast<UnresolvedNestedType>(type);
 
         processType(nestedType->container);
 

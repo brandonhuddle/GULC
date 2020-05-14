@@ -6,6 +6,7 @@
 #include <ast/types/TraitType.hpp>
 #include <ast/types/TemplateStructType.hpp>
 #include <ast/types/TemplateTraitType.hpp>
+#include <ast/types/DependentType.hpp>
 #include "ContractUtil.hpp"
 #include "TypeCompareUtil.hpp"
 
@@ -62,12 +63,14 @@ bool gulc::ContractUtil::checkCheckExtendsTypeExpr(gulc::CheckExtendsTypeExpr* c
     if (llvm::isa<TemplateTypenameRefType>(checkExtendsTypeExpr->checkType)) {
         auto templateTypenameRefType = llvm::dyn_cast<TemplateTypenameRefType>(checkExtendsTypeExpr->checkType);
 
-        // TODO:
-        //       1. Grab the `argument` using the template parameter above
-        //       2. Using the `arg` check if that type inherits from the `extendsType`
-        //       3. Return result
         // Grab the actual type argument for the parameter reference
         Type const* argType = getTemplateTypeArgument(templateTypenameRefType);
+
+        // If the type is a dependent type then we grab the actual dependent (which could be a template struct,
+        // normal trait, etc.)
+        if (llvm::isa<DependentType>(argType)) {
+            argType = llvm::dyn_cast<DependentType>(argType)->dependent;
+        }
 
         // TODO: We need to support checking if the type has an extension that adds the trait...
         switch (argType->getTypeKind()) {

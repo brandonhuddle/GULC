@@ -104,6 +104,8 @@ namespace gulc {
         // The reason we need this is because a `StructDecl` (or any other Decl type) contained in any way within a
         // template will always be unique to the template instantiation. (`Example<i32>::Type` != `Example<i8>::Type`)
         bool containedInTemplate;
+        // If the decl has been copied then this will point to the original decl that was copied
+        Decl const* originalDecl;
 
     protected:
         Kind _declKind;
@@ -120,7 +122,7 @@ namespace gulc {
                        isConstExpr, std::move(identifier), declModifiers) {}
         Decl(Node::Kind nodeKind, Kind declKind, unsigned int sourceFileID, std::vector<Attr*> attributes,
              Visibility declVisibility, bool isConstExpr, Identifier identifier, DeclModifiers declModifiers)
-                : Node(nodeKind), container(nullptr), containedInTemplate(false),
+                : Node(nodeKind), container(nullptr), containedInTemplate(false), originalDecl(nullptr),
                   _declKind(declKind), _declVisibility(declVisibility), _sourceFileID(sourceFileID),
                   _attributes(std::move(attributes)), _isConstExpr(isConstExpr), _identifier(std::move(identifier)),
                   _declModifiers(declModifiers) {}

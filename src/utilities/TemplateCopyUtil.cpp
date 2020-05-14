@@ -8,9 +8,10 @@
 #include <ast/types/TemplateTypenameRefType.hpp>
 #include <ast/types/AliasType.hpp>
 #include <ast/types/FlatArrayType.hpp>
-#include <ast/types/NestedType.hpp>
+#include <ast/types/UnresolvedNestedType.hpp>
 #include <ast/types/TemplateStructType.hpp>
 #include <ast/types/TemplateTraitType.hpp>
+#include <ast/types/DependentType.hpp>
 #include "TemplateCopyUtil.hpp"
 
 void gulc::TemplateCopyUtil::instantiateTemplateStructCopy(std::vector<TemplateParameterDecl*> const* oldTemplateParameters,
@@ -88,7 +89,12 @@ void gulc::TemplateCopyUtil::instantiateCont(gulc::Cont* cont) const {
 }
 
 void gulc::TemplateCopyUtil::instantiateType(gulc::Type*& type) const {
-    if (llvm::isa<DimensionType>(type)) {
+    if (llvm::isa<DependentType>(type)) {
+        auto dependentType = llvm::dyn_cast<DependentType>(type);
+
+        instantiateType(dependentType->container);
+        instantiateType(dependentType->dependent);
+    } else if (llvm::isa<DimensionType>(type)) {
         auto dimensionType = llvm::dyn_cast<DimensionType>(type);
 
         instantiateType(dimensionType->nestedType);
@@ -97,8 +103,8 @@ void gulc::TemplateCopyUtil::instantiateType(gulc::Type*& type) const {
 
         instantiateType(flatArrayType->indexType);
         instantiateExpr(flatArrayType->length);
-    } else if (llvm::isa<NestedType>(type)) {
-        auto nestedType = llvm::dyn_cast<NestedType>(type);
+    } else if (llvm::isa<UnresolvedNestedType>(type)) {
+        auto nestedType = llvm::dyn_cast<UnresolvedNestedType>(type);
 
         instantiateType(nestedType->container);
 

@@ -12,26 +12,13 @@ using namespace gulc;
 //         2. AFAIK everything within an `Expr` is easily 1:1 translatable to a string representation?
 //         3. It is really needed for error messages. `Example<...>` looks awful.
 
-// TODO: AAAHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH Template Contracts!
-//        3. Attempt to detect templates that are identical with identical contracts
-//        5. Use `where T has <member signature>` to give `TemplateParameter`s type information
-
-// TODO: For `where` contracts we should do:
-//        2. For `const`: allow `>`, `<`, `==`, `!=`, `<=`, `>=`, and all math operators
-//        3. Disallow all boolean operators EXCEPT `||`
-//        4. Require the `const` to be on the left side (i.e. ONLY `where T == 12` NOT `where `12 == T`!)
-//        5. Disallow parenthesis (no `where (T == 12)` EXCEPT for `where T has (func T())` that is needed for nested contracts)
-
-// TODO: To properly handle contracts in ALL situations we MIGHT need to changed `NestedType` to `DependantType`
-//       This is because we will need an EXACT `Decl` to handle `where T : G`, which `NestedType` doesn't give us.
-//       The way `DependantType` would work is EXACTLY the same as `NestedType` EXCEPT instead of working like
-//       `UnresolvedType` it will contain ANOTHER `Type` that is the `Dependant`
 
 int main() {
     Target target = Target::getHostTarget();
 
     std::vector<std::string> filePaths {
             "examples/TestFile.gul"
+//            "examples/NestedTypeTest.gul"
     };
     std::vector<ASTFile> parsedFiles;
 

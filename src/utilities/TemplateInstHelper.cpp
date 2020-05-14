@@ -9,10 +9,13 @@
 #include "TemplateInstHelper.hpp"
 #include <ast/decls/TypeAliasDecl.hpp>
 #include <ast/types/FlatArrayType.hpp>
-#include <ast/types/NestedType.hpp>
+#include <ast/types/UnresolvedNestedType.hpp>
 #include <ast/types/TemplateStructType.hpp>
 #include <ast/types/TemplateTraitType.hpp>
 #include <ast/exprs/TemplateConstRefExpr.hpp>
+#include <ast/types/DependentType.hpp>
+#include <ast/types/StructType.hpp>
+#include <ast/types/TraitType.hpp>
 
 void gulc::TemplateInstHelper::instantiateTemplateStructInstDecl(gulc::TemplateStructDecl* parentTemplateStruct,
                                                                  gulc::TemplateStructInstDecl* templateStructInstDecl,
@@ -40,10 +43,12 @@ void gulc::TemplateInstHelper::instantiateTemplateStructInstDecl(gulc::TemplateS
             copiedTemplateArguments.push_back(templateArgument->deepCopy());
         }
 
-        _currentContainerTemplateType = new NestedType(Type::Qualifier::Unassigned,
-                                                       templateStructInstDecl->containerTemplateType,
-                                                       templateStructInstDecl->identifier(),
-                                                       copiedTemplateArguments, {}, {});
+        _currentContainerTemplateType = new DependentType(Type::Qualifier::Unassigned,
+                                                          _currentContainerTemplateType,
+                                                          new TemplateStructType(Type::Qualifier::Unassigned,
+                                                                                 copiedTemplateArguments,
+                                                                                 templateStructInstDecl->parentTemplateStruct(),
+                                                                                 {}, {}));
     }
 
     for (Attr* attribute : templateStructInstDecl->attributes()) {
@@ -97,10 +102,12 @@ void gulc::TemplateInstHelper::instantiateTemplateTraitInstDecl(gulc::TemplateTr
             copiedTemplateArguments.push_back(templateArgument->deepCopy());
         }
 
-        _currentContainerTemplateType = new NestedType(Type::Qualifier::Unassigned,
-                                                       templateTraitInstDecl->containerTemplateType,
-                                                       templateTraitInstDecl->identifier(),
-                                                       copiedTemplateArguments, {}, {});
+        _currentContainerTemplateType = new DependentType(Type::Qualifier::Unassigned,
+                                                          _currentContainerTemplateType,
+                                                          new TemplateTraitType(Type::Qualifier::Unassigned,
+                                                                                copiedTemplateArguments,
+                                                                                templateTraitInstDecl->parentTemplateTrait(),
+                                                                                {}, {}));
     }
 
     for (Attr* attribute : templateTraitInstDecl->attributes()) {
@@ -158,7 +165,12 @@ void gulc::TemplateInstHelper::instantiateCont(gulc::Cont* cont) const {
 }
 
 void gulc::TemplateInstHelper::instantiateType(gulc::Type*& type) const {
-    if (llvm::isa<DimensionType>(type)) {
+    if (llvm::isa<DependentType>(type)) {
+        auto dependentType = llvm::dyn_cast<DependentType>(type);
+
+        instantiateType(dependentType->container);
+        instantiateType(dependentType->dependent);
+    } else if (llvm::isa<DimensionType>(type)) {
         auto dimensionType = llvm::dyn_cast<DimensionType>(type);
 
         instantiateType(dimensionType->nestedType);
@@ -167,8 +179,8 @@ void gulc::TemplateInstHelper::instantiateType(gulc::Type*& type) const {
 
         instantiateType(flatArrayType->indexType);
         instantiateExpr(flatArrayType->length);
-    } else if (llvm::isa<NestedType>(type)) {
-        auto nestedType = llvm::dyn_cast<NestedType>(type);
+    } else if (llvm::isa<UnresolvedNestedType>(type)) {
+        auto nestedType = llvm::dyn_cast<UnresolvedNestedType>(type);
 
         instantiateType(nestedType->container);
 
@@ -501,9 +513,10 @@ void gulc::TemplateInstHelper::instantiateStructDecl(gulc::StructDecl* structDec
     Type* oldContainerTemplateType = _currentContainerTemplateType;
 
     if (setTemplateContainer && _currentContainerTemplateType != nullptr) {
-        _currentContainerTemplateType = new NestedType(Type::Qualifier::Unassigned,
-                                                       _currentContainerTemplateType, structDecl->identifier(),
-                                                       {}, {}, {});
+        _currentContainerTemplateType = new DependentType(Type::Qualifier::Unassigned,
+                                                          _currentContainerTemplateType,
+                                                          new StructType(Type::Qualifier::Unassigned,
+                                                                         structDecl, {}, {}));
     }
 
     for (Cont* contract : structDecl->contracts()) {
@@ -593,14 +606,16 @@ void gulc::TemplateInstHelper::instantiateTemplateStructDecl(gulc::TemplateStruc
         }
     }
 
+    Type* containerTemplateType = new TemplateStructType(Type::Qualifier::Unassigned,
+                                                         containerTemplateArguments,
+                                                         templateStructDecl, {}, {});
+
     if (_currentContainerTemplateType != nullptr) {
-        _currentContainerTemplateType = new NestedType(Type::Qualifier::Unassigned,
-                                                       _currentContainerTemplateType, templateStructDecl->identifier(),
-                                                       containerTemplateArguments, {}, {});
+        _currentContainerTemplateType = new DependentType(Type::Qualifier::Unassigned,
+                                                          _currentContainerTemplateType,
+                                                          containerTemplateType);
     } else {
-        _currentContainerTemplateType = new TemplateStructType(Type::Qualifier::Unassigned,
-                                                               containerTemplateArguments,
-                                                               templateStructDecl, {}, {});
+        _currentContainerTemplateType = containerTemplateType;
     }
 
     instantiateStructDecl(templateStructDecl, false);
@@ -631,10 +646,12 @@ void gulc::TemplateInstHelper::instantiateTemplateStructInstDecl(gulc::TemplateS
             copiedTemplateArguments.push_back(templateArgument->deepCopy());
         }
 
-        _currentContainerTemplateType = new NestedType(Type::Qualifier::Unassigned,
-                                                       _currentContainerTemplateType,
-                                                       templateStructInstDecl->identifier(),
-                                                       copiedTemplateArguments, {}, {});
+        _currentContainerTemplateType = new DependentType(Type::Qualifier::Unassigned,
+                                                          _currentContainerTemplateType,
+                                                          new TemplateStructType(Type::Qualifier::Unassigned,
+                                                                                 copiedTemplateArguments,
+                                                                                 templateStructInstDecl->parentTemplateStruct(),
+                                                                                 {}, {}));
     }
 
     instantiateStructDecl(templateStructInstDecl, false);
@@ -667,14 +684,16 @@ void gulc::TemplateInstHelper::instantiateTemplateTraitDecl(gulc::TemplateTraitD
         }
     }
 
+    Type* containerTemplateType = new TemplateTraitType(Type::Qualifier::Unassigned,
+                                                        containerTemplateArguments,
+                                                        templateTraitDecl, {}, {});
+
     if (_currentContainerTemplateType != nullptr) {
-        _currentContainerTemplateType = new NestedType(Type::Qualifier::Unassigned,
-                                                       _currentContainerTemplateType, templateTraitDecl->identifier(),
-                                                       containerTemplateArguments, {}, {});
+        _currentContainerTemplateType = new DependentType(Type::Qualifier::Unassigned,
+                                                          _currentContainerTemplateType,
+                                                          containerTemplateType);
     } else {
-        _currentContainerTemplateType = new TemplateTraitType(Type::Qualifier::Unassigned,
-                                                              containerTemplateArguments,
-                                                              templateTraitDecl, {}, {});
+        _currentContainerTemplateType = containerTemplateType;
     }
 
     instantiateTraitDecl(templateTraitDecl, false);
@@ -705,10 +724,12 @@ void gulc::TemplateInstHelper::instantiateTemplateTraitInstDecl(gulc::TemplateTr
             copiedTemplateArguments.push_back(templateArgument->deepCopy());
         }
 
-        _currentContainerTemplateType = new NestedType(Type::Qualifier::Unassigned,
-                                                       _currentContainerTemplateType,
-                                                       templateTraitInstDecl->identifier(),
-                                                       copiedTemplateArguments, {}, {});
+        _currentContainerTemplateType = new DependentType(Type::Qualifier::Unassigned,
+                                                          _currentContainerTemplateType,
+                                                          new TemplateTraitType(Type::Qualifier::Unassigned,
+                                                                                copiedTemplateArguments,
+                                                                                templateTraitInstDecl->parentTemplateTrait(),
+                                                                                {}, {}));
     }
 
     instantiateTraitDecl(templateTraitInstDecl, false);
@@ -728,9 +749,10 @@ void gulc::TemplateInstHelper::instantiateTraitDecl(gulc::TraitDecl* traitDecl, 
     Type* oldContainerTemplateType = _currentContainerTemplateType;
 
     if (setTemplateContainer && _currentContainerTemplateType != nullptr) {
-        _currentContainerTemplateType = new NestedType(Type::Qualifier::Unassigned,
-                                                       _currentContainerTemplateType, traitDecl->identifier(),
-                                                       {}, {}, {});
+        _currentContainerTemplateType = new DependentType(Type::Qualifier::Unassigned,
+                                                          _currentContainerTemplateType,
+                                                          new TraitType(Type::Qualifier::Unassigned,
+                                                                        traitDecl, {}, {}));
     }
 
     for (Cont* contract : traitDecl->contracts()) {

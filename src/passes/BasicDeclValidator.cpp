@@ -1,9 +1,11 @@
-#include <ast/types/NestedType.hpp>
+#include <ast/types/UnresolvedNestedType.hpp>
 #include <ast/types/TemplateStructType.hpp>
 #include <ast/types/TemplateTypenameRefType.hpp>
 #include <ast/exprs/TemplateConstRefExpr.hpp>
 #include <ast/types/TemplateTraitType.hpp>
 #include <ast/types/StructType.hpp>
+#include <ast/types/DependentType.hpp>
+#include <ast/types/TraitType.hpp>
 #include "BasicDeclValidator.hpp"
 
 void gulc::BasicDeclValidator::processFiles(std::vector<ASTFile>& files) {
@@ -679,9 +681,10 @@ void gulc::BasicDeclValidator::validateStructDecl(gulc::StructDecl* structDecl, 
     Type* oldContainerTemplateType = _currentContainerTemplateType;
 
     if (setTemplateContainer && _currentContainerTemplateType != nullptr) {
-        _currentContainerTemplateType = new NestedType(Type::Qualifier::Unassigned,
-                                                       _currentContainerTemplateType, structDecl->identifier(),
-                                                       {}, {}, {});
+        _currentContainerTemplateType = new DependentType(Type::Qualifier::Unassigned,
+                                                          _currentContainerTemplateType,
+                                                          new StructType(Type::Qualifier::Unassigned,
+                                                                         structDecl, {}, {}));
     }
 
     Decl* oldContainer = _currentContainerDecl;
@@ -850,14 +853,16 @@ void gulc::BasicDeclValidator::validateTemplateStructDecl(gulc::TemplateStructDe
         }
     }
 
+    Type* containerTemplateType = new TemplateStructType(Type::Qualifier::Unassigned,
+                                                         containerTemplateArguments,
+                                                         templateStructDecl, {}, {});
+
     if (_currentContainerTemplateType != nullptr) {
-        _currentContainerTemplateType = new NestedType(Type::Qualifier::Unassigned,
-                                                       _currentContainerTemplateType, templateStructDecl->identifier(),
-                                                       containerTemplateArguments, {}, {});
+        _currentContainerTemplateType = new DependentType(Type::Qualifier::Unassigned,
+                                                          _currentContainerTemplateType,
+                                                          containerTemplateType);
     } else {
-        _currentContainerTemplateType = new TemplateStructType(Type::Qualifier::Unassigned,
-                                                               containerTemplateArguments,
-                                                               templateStructDecl, {}, {});
+        _currentContainerTemplateType = containerTemplateType;
     }
 
     _templateParameters.push_back(&templateStructDecl->templateParameters());
@@ -892,14 +897,16 @@ void gulc::BasicDeclValidator::validateTemplateTraitDecl(gulc::TemplateTraitDecl
         }
     }
 
+    Type* containerTemplateType = new TemplateTraitType(Type::Qualifier::Unassigned,
+                                                        containerTemplateArguments,
+                                                        templateTraitDecl, {}, {});
+
     if (_currentContainerTemplateType != nullptr) {
-        _currentContainerTemplateType = new NestedType(Type::Qualifier::Unassigned,
-                                                       _currentContainerTemplateType, templateTraitDecl->identifier(),
-                                                       containerTemplateArguments, {}, {});
+        _currentContainerTemplateType = new DependentType(Type::Qualifier::Unassigned,
+                                                          _currentContainerTemplateType,
+                                                          containerTemplateType);
     } else {
-        _currentContainerTemplateType = new TemplateTraitType(Type::Qualifier::Unassigned,
-                                                               containerTemplateArguments,
-                                                               templateTraitDecl, {}, {});
+        _currentContainerTemplateType = containerTemplateType;
     }
 
     _templateParameters.push_back(&templateTraitDecl->templateParameters());
@@ -964,9 +971,10 @@ void gulc::BasicDeclValidator::validateTraitDecl(gulc::TraitDecl* traitDecl, boo
     Type* oldContainerTemplateType = _currentContainerTemplateType;
 
     if (setTemplateContainer && _currentContainerTemplateType != nullptr) {
-        _currentContainerTemplateType = new NestedType(Type::Qualifier::Unassigned,
-                                                       _currentContainerTemplateType, traitDecl->identifier(),
-                                                       {}, {}, {});
+        _currentContainerTemplateType = new DependentType(Type::Qualifier::Unassigned,
+                                                          _currentContainerTemplateType,
+                                                          new TraitType(Type::Qualifier::Unassigned,
+                                                                        traitDecl, {}, {}));
     }
 
     Decl* oldContainer = _currentContainerDecl;

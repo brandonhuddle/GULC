@@ -1,5 +1,5 @@
-#ifndef GULC_NESTEDTYPE_HPP
-#define GULC_NESTEDTYPE_HPP
+#ifndef GULC_UNRESOLVEDNESTEDTYPE_HPP
+#define GULC_UNRESOLVEDNESTEDTYPE_HPP
 
 #include <ast/Type.hpp>
 #include <ast/Expr.hpp>
@@ -8,20 +8,18 @@
 
 namespace gulc {
     /**
-     * Type to make it easier to represent types nested within uninstantiated templates
-     *
-     * Allows for easy representation of `Example<T>::NestedExample<G>::DeepNestedType`
+     * Type to make unresolved types nested within other types or namespaces easier to represent
      */
-    class NestedType : public Type {
+    class UnresolvedNestedType : public Type {
     public:
-        static bool classof(const Type* type) { return type->getTypeKind() == Type::Kind::Nested; }
+        static bool classof(const Type* type) { return type->getTypeKind() == Type::Kind::UnresolvedNested; }
 
         // The container the type is nested within
         Type* container;
 
-        NestedType(Qualifier qualifier, Type* container, Identifier nestedIdentifier,
-                   std::vector<Expr*> templateArguments, TextPosition startPosition, TextPosition endPosition)
-                : Type(Type::Kind::Nested, qualifier, false),
+        UnresolvedNestedType(Qualifier qualifier, Type* container, Identifier nestedIdentifier,
+                             std::vector<Expr*> templateArguments, TextPosition startPosition, TextPosition endPosition)
+                : Type(Type::Kind::UnresolvedNested, qualifier, false),
                   container(container), _nestedIdentifier(std::move(nestedIdentifier)),
                   _templateArguments(std::move(templateArguments)),
                   _startPosition(startPosition), _endPosition(endPosition) {}
@@ -49,11 +47,11 @@ namespace gulc {
                 copiedTemplateArguments.push_back(templateArgument->deepCopy());
             }
 
-            return new NestedType(_qualifier, container->deepCopy(), _nestedIdentifier,
-                                  copiedTemplateArguments, _startPosition, _endPosition);
+            return new UnresolvedNestedType(_qualifier, container->deepCopy(), _nestedIdentifier,
+                                            copiedTemplateArguments, _startPosition, _endPosition);
         }
 
-        ~NestedType() override {
+        ~UnresolvedNestedType() override {
             delete container;
 
             for (Expr* templateArgument : _templateArguments) {
@@ -70,4 +68,4 @@ namespace gulc {
     };
 }
 
-#endif //GULC_NESTEDTYPE_HPP
+#endif //GULC_UNRESOLVEDNESTEDTYPE_HPP

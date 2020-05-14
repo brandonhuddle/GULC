@@ -15,13 +15,15 @@
 #include <ast/types/VTableType.hpp>
 #include <ast/types/TraitType.hpp>
 #include <ast/types/AliasType.hpp>
-#include <ast/types/NestedType.hpp>
+#include <ast/types/UnresolvedNestedType.hpp>
 #include <ast/types/TemplateStructType.hpp>
 #include <ast/types/TemplateTraitType.hpp>
 #include <algorithm>
 #include <ast/conts/WhereCont.hpp>
 #include <utilities/TypeCompareUtil.hpp>
 #include <utilities/ContractUtil.hpp>
+#include <ast/types/DependentType.hpp>
+#include <ast/types/EnumType.hpp>
 
 void gulc::DeclInstantiator::processFiles(std::vector<ASTFile>& files) {
     for (ASTFile& file : files) {
@@ -84,7 +86,7 @@ void gulc::DeclInstantiator::printWarning(std::string const& message, gulc::Text
               << message << std::endl;
 }
 
-bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiation) {
+bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiation, bool containDependents) {
     if (llvm::isa<AliasType>(type)) {
         auto aliasType = llvm::dyn_cast<AliasType>(type);
         Type* resultType = aliasType->decl()->getInstantiation({});
@@ -100,12 +102,54 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
             delete resultType;
             return false;
         }
+    } else if (llvm::isa<DependentType>(type)) {
+        auto dependentType = llvm::dyn_cast<DependentType>(type);
+
+        if (resolveType(dependentType->container, true)) {
+            // TODO: Are there any other types we need to support?
+            switch (dependentType->container->getTypeKind()) {
+                case Type::Kind::Struct: {
+                    auto structType = llvm::dyn_cast<StructType>(dependentType->container);
+
+                    if (TypeHelper::reresolveDependentWithinDecl(dependentType->dependent, structType->decl())) {
+                        auto newType = dependentType->dependent;
+                        dependentType->dependent = nullptr;
+                        delete type;
+                        type = newType;
+
+                        return resolveType(type, delayInstantiation);
+                    } else {
+                        return false;
+                    }
+                }
+                case Type::Kind::Trait: {
+                    auto traitType = llvm::dyn_cast<TraitType>(dependentType->container);
+
+                    if (TypeHelper::reresolveDependentWithinDecl(dependentType->dependent, traitType->decl())) {
+                        auto newType = dependentType->dependent;
+                        dependentType->dependent = nullptr;
+                        delete type;
+                        type = newType;
+
+                        return resolveType(type, delayInstantiation);
+                    } else {
+                        return false;
+                    }
+                }
+                default:
+                    break;
+            }
+
+            return true;
+        } else {
+            return false;
+        }
     } else if (llvm::isa<DimensionType>(type)) {
         auto dimensionType = llvm::dyn_cast<DimensionType>(type);
 
         return resolveType(dimensionType->nestedType, delayInstantiation);
-    } else if (llvm::dyn_cast<NestedType>(type)) {
-        auto nestedType = llvm::dyn_cast<NestedType>(type);
+    } else if (llvm::dyn_cast<UnresolvedNestedType>(type)) {
+        auto nestedType = llvm::dyn_cast<UnresolvedNestedType>(type);
 
         // Process the template arguments and try to resolve any potential types in the list...
         for (Expr*& templateArgument : nestedType->templateArguments()) {
@@ -162,6 +206,93 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
                     }
 
                     break;
+                }
+                case Type::Kind::TemplateStruct: {
+                    auto templateStructType = llvm::dyn_cast<TemplateStructType>(nestedType->container);
+                    Type* resolvedDependent = resolveDependentType(templateStructType->decl()->ownedMembers(),
+                                                                   nestedType->identifier(),
+                                                                   nestedType->templateArguments());
+
+                    if (resolvedDependent == nullptr) {
+                        return false;
+                    } else {
+                        auto newType = new DependentType(nestedType->qualifier(), nestedType->container, resolvedDependent);
+
+                        // We steal the container
+                        nestedType->container = nullptr;
+                        // We steal the arguments
+                        nestedType->templateArguments().clear();
+                        delete nestedType;
+
+                        type = newType;
+
+                        return true;
+                    }
+                }
+                case Type::Kind::TemplateTrait: {
+                    auto templateTraitType = llvm::dyn_cast<TemplateTraitType>(nestedType->container);
+                    Type* resolvedDependent = resolveDependentType(templateTraitType->decl()->ownedMembers(),
+                                                                   nestedType->identifier(),
+                                                                   nestedType->templateArguments());
+
+                    if (resolvedDependent == nullptr) {
+                        return false;
+                    } else {
+                        auto newType = new DependentType(nestedType->qualifier(), nestedType->container, resolvedDependent);
+
+                        // We steal the container
+                        nestedType->container = nullptr;
+                        // We steal the arguments
+                        nestedType->templateArguments().clear();
+                        delete nestedType;
+
+                        type = newType;
+
+                        return true;
+                    }
+                }
+                case Type::Kind::Dependent: {
+                    // If the container was found to be a `Dependent` then we will convert ourselves to `Dependent`
+                    auto dependentType = llvm::dyn_cast<DependentType>(nestedType->container)->dependent;
+                    std::vector<Decl*>* checkDecls = nullptr;
+
+                    switch (dependentType->getTypeKind()) {
+                        case Type::Kind::Struct:
+                            checkDecls = &llvm::dyn_cast<StructType>(dependentType)->decl()->ownedMembers();
+                            break;
+                        case Type::Kind::Trait:
+                            checkDecls = &llvm::dyn_cast<TraitType>(dependentType)->decl()->ownedMembers();
+                            break;
+                        case Type::Kind::TemplateStruct:
+                            checkDecls = &llvm::dyn_cast<TemplateStructType>(dependentType)->decl()->ownedMembers();
+                            break;
+                        case Type::Kind::TemplateTrait:
+                            checkDecls = &llvm::dyn_cast<TemplateTraitType>(dependentType)->decl()->ownedMembers();
+                            break;
+                        default:
+                            printError("[INTERNAL ERROR] unsupported container found for dependent type!",
+                                       dependentType->startPosition(), dependentType->endPosition());
+                            break;
+                    }
+
+                    Type* resolvedDependent = resolveDependentType(*checkDecls, nestedType->identifier(),
+                                                                   nestedType->templateArguments());
+
+                    if (resolvedDependent == nullptr) {
+                        return false;
+                    } else {
+                        auto newType = new DependentType(nestedType->qualifier(), nestedType->container, resolvedDependent);
+
+                        // We steal the container
+                        nestedType->container = nullptr;
+                        // We steal the arguments
+                        nestedType->templateArguments().clear();
+                        delete nestedType;
+
+                        type = newType;
+
+                        return true;
+                    }
                 }
                 default:
                     break;
@@ -366,17 +497,8 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
             case Decl::Kind::TemplateStruct: {
                 auto templateStructDecl = llvm::dyn_cast<TemplateStructDecl>(foundTemplateDecl);
 
-                if (templateStructDecl->containedInTemplate) {
-                    auto containerTemplateType = templateStructDecl->containerTemplateType->deepCopy();
-                    auto newType = new NestedType(templatedType->qualifier(), containerTemplateType,
-                                                  templateStructDecl->identifier(),
-                                                  templatedType->templateArguments(),
-                                                  templatedType->startPosition(), templatedType->endPosition());
-                    // We've stolen ownership of the template arguments
-                    templatedType->templateArguments().clear();
-                    delete type;
-                    type = newType;
-                } else if (ConstExprHelper::templateArgumentsAreSolved(templatedType->templateArguments())) {
+                if (!templateStructDecl->containedInTemplate &&
+                    ConstExprHelper::templateArgumentsAreSolved(templatedType->templateArguments())) {
                     TemplateStructInstDecl* templateStructInstDecl = nullptr;
                     templateStructDecl->getInstantiation(templatedType->templateArguments(), &templateStructInstDecl);
 
@@ -401,6 +523,12 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
                                                            templatedType->templateArguments(), templateStructDecl,
                                                            templatedType->startPosition(),
                                                            templatedType->endPosition());
+
+                    if (templateStructDecl->containedInTemplate && containDependents) {
+                        auto containerTemplateType = templateStructDecl->containerTemplateType->deepCopy();
+                        newType = new DependentType(templatedType->qualifier(), containerTemplateType, newType);
+                    }
+
                     // We steal the template arguments
                     templatedType->templateArguments().clear();
                     delete type;
@@ -412,17 +540,8 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
             case Decl::Kind::TemplateTrait: {
                 auto templateTraitDecl = llvm::dyn_cast<TemplateTraitDecl>(foundTemplateDecl);
 
-                if (templateTraitDecl->containedInTemplate) {
-                    auto containerTemplateType = templateTraitDecl->containerTemplateType->deepCopy();
-                    auto newType = new NestedType(templatedType->qualifier(), containerTemplateType,
-                                                  templateTraitDecl->identifier(),
-                                                  templatedType->templateArguments(),
-                                                  templatedType->startPosition(), templatedType->endPosition());
-                    // We've stolen ownership of the template arguments
-                    templatedType->templateArguments().clear();
-                    delete type;
-                    type = newType;
-                } else if (ConstExprHelper::templateArgumentsAreSolved(templatedType->templateArguments())) {
+                if (!templateTraitDecl->containedInTemplate &&
+                    ConstExprHelper::templateArgumentsAreSolved(templatedType->templateArguments())) {
                     TemplateTraitInstDecl* templateTraitInstDecl = nullptr;
                     templateTraitDecl->getInstantiation(templatedType->templateArguments(), &templateTraitInstDecl);
 
@@ -447,6 +566,12 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
                                                           templatedType->templateArguments(), templateTraitDecl,
                                                           templatedType->startPosition(),
                                                           templatedType->endPosition());
+
+                    if (templateTraitDecl->containedInTemplate && containDependents) {
+                        auto containerTemplateType = templateTraitDecl->containerTemplateType->deepCopy();
+                        newType = new DependentType(templatedType->qualifier(), containerTemplateType, newType);
+                    }
+
                     // We steal the template arguments
                     templatedType->templateArguments().clear();
                     delete type;
@@ -458,26 +583,14 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
             case Decl::Kind::TypeAlias: {
                 auto typeAlias = llvm::dyn_cast<TypeAliasDecl>(foundTemplateDecl);
 
-                if (typeAlias->containedInTemplate) {
-                    auto containerTemplateType = typeAlias->containerTemplateType->deepCopy();
-                    auto newType = new NestedType(templatedType->qualifier(), containerTemplateType,
-                                                  typeAlias->identifier(),
-                                                  templatedType->templateArguments(),
-                                                  templatedType->startPosition(), templatedType->endPosition());
-                    // We've stolen ownership of the template arguments
-                    templatedType->templateArguments().clear();
-                    delete type;
-                    type = newType;
-                    // We can't pass back into `resolveType` here, we can only
-                    return true;
-                } else {
-                    // TODO: Should we apply the `qualifier`?
-                    Type* newType = typeAlias->getInstantiation(templatedType->templateArguments());
-                    delete type;
-                    type = newType;
-                    // We pass the `newType` back into `resolveType` since it might be a `TemplatedType`
-                    return resolveType(newType, delayInstantiation);
-                }
+                // TODO: Should we apply the `qualifier`?
+                // TODO: Should we handle checking if the alias is contained within a template?
+                //       I think we MIGHT need to do what we did with template structs and template traits here...
+                Type* newType = typeAlias->getInstantiation(templatedType->templateArguments());
+                delete type;
+                type = newType;
+                // We pass the `newType` back into `resolveType` since it might be a `TemplatedType`
+                return resolveType(newType, delayInstantiation);
             }
             default:
                 printWarning("[INTERNAL] unknown template declaration found in `BaseResolver::resolveType`!",
@@ -552,6 +665,96 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
     }
 
     return false;
+}
+
+gulc::Type* gulc::DeclInstantiator::resolveDependentType(std::vector<Decl*>& checkDecls,
+                                                         const gulc::Identifier& identifier,
+                                                         std::vector<Expr*>& templateArguments) {
+    bool templated = !templateArguments.empty();
+
+    std::vector<Decl*> potentialTemplates;
+
+    for (Decl* checkDecl : checkDecls) {
+        if (checkDecl->identifier().name() != identifier.name()) {
+            continue;
+        }
+
+        switch (checkDecl->getDeclKind()) {
+            case Decl::Kind::TypeAlias: {
+                auto checkAlias = llvm::dyn_cast<TypeAliasDecl>(checkDecl);
+
+                if (checkAlias->hasTemplateParameters()) {
+                    if (!templated) continue;
+
+                    // TODO: Support optional template parameters
+                    if (checkAlias->templateParameters().size() == templateArguments.size()) {
+                        potentialTemplates.push_back(checkAlias);
+                        // We keep searching as this might be the wrong type...
+                    }
+                } else {
+                    if (templated) continue;
+
+                    return new AliasType(Type::Qualifier::Unassigned, checkAlias, {}, {});
+                }
+
+                break;
+            }
+            case Decl::Kind::Enum: {
+                if (templated) continue;
+
+                return new EnumType(Type::Qualifier::Unassigned, llvm::dyn_cast<EnumDecl>(checkDecl), {}, {});
+            }
+            case Decl::Kind::Struct: {
+                if (templated) continue;
+
+                return new StructType(Type::Qualifier::Unassigned, llvm::dyn_cast<StructDecl>(checkDecl), {}, {});
+            }
+            case Decl::Kind::Trait: {
+                if (templated) continue;
+
+                return new TraitType(Type::Qualifier::Unassigned, llvm::dyn_cast<TraitDecl>(checkDecl), {}, {});
+            }
+            case Decl::Kind::TemplateStruct: {
+                if (!templated) continue;
+
+                auto checkTemplateStruct = llvm::dyn_cast<TemplateStructDecl>(checkDecl);
+
+                if (checkTemplateStruct->templateParameters().size() == templateArguments.size()) {
+                    potentialTemplates.push_back(checkTemplateStruct);
+                    // We keep searching as this might be the wrong type...
+                }
+            }
+            case Decl::Kind::TemplateTrait: {
+                if (!templated) continue;
+
+                auto checkTemplateTrait = llvm::dyn_cast<TemplateTraitDecl>(checkDecl);
+
+                if (checkTemplateTrait->templateParameters().size() == templateArguments.size()) {
+                    potentialTemplates.push_back(checkTemplateTrait);
+                    // We keep searching as this might be the wrong type...
+                }
+            }
+            default:
+                continue;
+        }
+    }
+
+    // If there aren't any potential templates at this point then the type wasn't found...
+    if (potentialTemplates.empty()) {
+        return nullptr;
+    }
+
+    Type* templatedType = new TemplatedType(Type::Qualifier::Unassigned, potentialTemplates,
+                                            templateArguments, {}, {});
+
+    // TODO: If the tempalted type is a type alias this will return the wrong stuff I believe.
+    if (resolveType(templatedType, true, false)) {
+        return templatedType;
+    } else {
+        llvm::dyn_cast<TemplatedType>(templatedType)->templateArguments().clear();
+        delete templatedType;
+        return nullptr;
+    }
 }
 
 void gulc::DeclInstantiator::compareDeclTemplateArgsToParams(const std::vector<Cont*>& contracts,
@@ -643,12 +846,12 @@ void gulc::DeclInstantiator::processContract(gulc::Cont* contract) {
         case Cont::Kind::Where: {
             auto whereCont = llvm::dyn_cast<WhereCont>(contract);
 
-            processConstExpr(whereCont->condition);
-
             if (!llvm::isa<CheckExtendsTypeExpr>(whereCont->condition)) {
                 printError("currently only checking if a type extends another is supported by the `where` clause!",
                            whereCont->startPosition(), whereCont->endPosition());
             }
+
+            processConstExpr(whereCont->condition);
 
             break;
         }
@@ -856,8 +1059,14 @@ void gulc::DeclInstantiator::processStructDeclInheritedTypes(gulc::StructDecl* s
                        structDecl->startPosition(), structDecl->endPosition());
         }
 
-        if (llvm::isa<StructType>(inheritedType)) {
-            auto structType = llvm::dyn_cast<StructType>(inheritedType);
+        Type* processType = inheritedType;
+
+        if (llvm::isa<DependentType>(processType)) {
+            processType = llvm::dyn_cast<DependentType>(processType)->dependent;
+        }
+
+        if (llvm::isa<StructType>(processType)) {
+            auto structType = llvm::dyn_cast<StructType>(processType);
 
             if (structDecl->baseStruct != nullptr) {
                 printError("struct '" + structDecl->identifier().name() + "' cannot extend both '" +
@@ -872,14 +1081,14 @@ void gulc::DeclInstantiator::processStructDeclInheritedTypes(gulc::StructDecl* s
             if (!structType->decl()->inheritedTypesIsInitialized) {
                 processStructDeclInheritedTypes(structType->decl());
             }
-        } else if (llvm::isa<TraitType>(inheritedType)) {
-            auto traitType = llvm::dyn_cast<TraitType>(inheritedType);
+        } else if (llvm::isa<TraitType>(processType)) {
+            auto traitType = llvm::dyn_cast<TraitType>(processType);
 
             if (!traitType->decl()->inheritedTypesIsInitialized) {
                 processTraitDeclInheritedTypes(traitType->decl());
             }
-        } else if (llvm::isa<TemplateStructType>(inheritedType)) {
-            auto templateStructType = llvm::dyn_cast<TemplateStructType>(inheritedType);
+        } else if (llvm::isa<TemplateStructType>(processType)) {
+            auto templateStructType = llvm::dyn_cast<TemplateStructType>(processType);
 
             if (!templateStructType->decl()->contractsAreInstantiated) {
                 processTemplateStructDeclContracts(templateStructType->decl());
@@ -888,8 +1097,8 @@ void gulc::DeclInstantiator::processStructDeclInheritedTypes(gulc::StructDecl* s
             if (!templateStructType->decl()->inheritedTypesIsInitialized) {
                 processStructDeclInheritedTypes(templateStructType->decl());
             }
-        } else if (llvm::isa<TemplateTraitType>(inheritedType)) {
-            auto templateTraitType = llvm::dyn_cast<TemplateTraitType>(inheritedType);
+        } else if (llvm::isa<TemplateTraitType>(processType)) {
+            auto templateTraitType = llvm::dyn_cast<TemplateTraitType>(processType);
 
             if (!templateTraitType->decl()->contractsAreInstantiated) {
                 processTemplateTraitDeclContracts(templateTraitType->decl());
@@ -1256,26 +1465,20 @@ void gulc::DeclInstantiator::processTraitDeclInheritedTypes(gulc::TraitDecl* tra
                        traitDecl->startPosition(), traitDecl->endPosition());
         }
 
-        if (llvm::isa<StructType>(inheritedType)) {
-            auto structType = llvm::dyn_cast<StructType>(inheritedType);
+        Type* processType = inheritedType;
 
-            if (!structType->decl()->inheritedTypesIsInitialized) {
-                processStructDeclInheritedTypes(structType->decl());
-            }
-        } else if (llvm::isa<TraitType>(inheritedType)) {
-            auto traitType = llvm::dyn_cast<TraitType>(inheritedType);
+        if (llvm::isa<DependentType>(processType)) {
+            processType = llvm::dyn_cast<DependentType>(processType)->dependent;
+        }
+
+        if (llvm::isa<TraitType>(processType)) {
+            auto traitType = llvm::dyn_cast<TraitType>(processType);
 
             if (!traitType->decl()->inheritedTypesIsInitialized) {
                 processTraitDeclInheritedTypes(traitType->decl());
             }
-        } else if (llvm::isa<TemplateStructType>(inheritedType)) {
-            auto templateStructType = llvm::dyn_cast<TemplateStructType>(inheritedType);
-
-            if (!templateStructType->decl()->inheritedTypesIsInitialized) {
-                processStructDeclInheritedTypes(templateStructType->decl());
-            }
-        } else if (llvm::isa<TemplateTraitType>(inheritedType)) {
-            auto templateTraitType = llvm::dyn_cast<TemplateTraitType>(inheritedType);
+        } else if (llvm::isa<TemplateTraitType>(processType)) {
+            auto templateTraitType = llvm::dyn_cast<TemplateTraitType>(processType);
 
             if (!templateTraitType->decl()->inheritedTypesIsInitialized) {
                 processTraitDeclInheritedTypes(templateTraitType->decl());
