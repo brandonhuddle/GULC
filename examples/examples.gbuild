@@ -1,0 +1,20 @@
+// TODO: Decide how we want to do the build files for Ghoul.
+// TODO: I would like for `gbuild` to be usable with any languages to make it so we don't have to have separate build
+// TODO: systems for creating libraries that reference other languages (so Swift, C, C++, Rust, etc. should be supported)
+
+// TODO: Things to account for
+// TODO: 1. Multiple languages
+// TODO: 2. Resource awareness (i.e. if we have a `resources/` directory we should be able to specify when to copy the
+// TODO:    contents of that directory. One of the most annoying things for me when it comes to CMake is handling
+// TODO:    my GLSL compilation and copying the SPIR-V binaries, copying the textures, etc. every build. I have to
+// TODO:    manually add random newlines to my normal source code for CMake to detect a change and copy the non-source
+// TODO:    files. Same thing happens here with our `examples/*.ghoul` not being copied until we change the C++ code.
+// TODO: 3. OS/Platform detection and configuration
+// TODO: 4. Pre and post compilation actions? Do we want that?
+// TODO: 5. `gbuild` files should be objects (i.e. we should be able to reference other `gbuild` files from within a
+// TODO:    `gbuild` file, basically to allow us to just copy `git clone` a library into our `libs` directory and add
+// TODO:    it as a build dependency, and still be able to access it's new dependencies for our own current build.
+// TODO:    This should be virtually effortless to the `gbuild` file writer)
+// TODO: 6. The syntax should be easy for both humans AND computers to write and read. One thing that annoys me about
+// TODO:    CLion is its careless formatting of cmake files. It will just continually write new filenames to the same
+// TODO:    line, creating an unreadable mess

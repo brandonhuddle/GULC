@@ -434,15 +434,13 @@ void gulc::BasicDeclValidator::validateExtensionDecl(gulc::ExtensionDecl* extens
                    extensionDecl->startPosition(), extensionDecl->endPosition());
     }
 
-    validateTemplateParameters(extensionDecl->templateParameters());
-
-    extensionDecl->containerTemplateType = _currentContainerTemplateType != nullptr ?
-                                           _currentContainerTemplateType->deepCopy() : nullptr;
+    if (_currentContainerDecl != nullptr && !llvm::isa<NamespaceDecl>(_currentContainerDecl)) {
+        printError("extensions can only be contained within namespaces!",
+                   extensionDecl->startPosition(), extensionDecl->endPosition());
+    }
 
     Decl* oldContainer = _currentContainerDecl;
     _currentContainerDecl = extensionDecl;
-
-    _templateParameters.push_back(&extensionDecl->templateParameters());
 
     for (Decl* checkDecl : extensionDecl->ownedMembers()) {
         if (llvm::isa<NamespaceDecl>(checkDecl)) {
@@ -476,8 +474,6 @@ void gulc::BasicDeclValidator::validateExtensionDecl(gulc::ExtensionDecl* extens
         }
     }
 
-    _templateParameters.pop_back();
-
     _currentContainerDecl = oldContainer;
 }
 
@@ -501,6 +497,12 @@ void gulc::BasicDeclValidator::validateFunctionDecl(gulc::FunctionDecl* function
 }
 
 void gulc::BasicDeclValidator::validateNamespaceDecl(gulc::NamespaceDecl* namespaceDecl) {
+    // Namespaces can only be contained within other namespaces or the top level of a file
+    if (_currentContainerDecl != nullptr && !llvm::isa<NamespaceDecl>(_currentContainerDecl)) {
+        printError("namespaces can only be nested within other namespaces!",
+                   namespaceDecl->startPosition(), namespaceDecl->endPosition());
+    }
+
     Decl* oldContainer = _currentContainerDecl;
     _currentContainerDecl = namespaceDecl;
 
@@ -698,6 +700,11 @@ void gulc::BasicDeclValidator::validateStructDecl(gulc::StructDecl* structDecl, 
 
         if (llvm::isa<ImportDecl>(checkDecl)) {
             printError("`import` cannot be contained within `" + structDecl->structKindName() + "`!",
+                       checkDecl->startPosition(), checkDecl->endPosition());
+        }
+
+        if (llvm::isa<ExtensionDecl>(checkDecl)) {
+            printError("`extension` cannot be contained within `" + structDecl->structKindName() + "`!",
                        checkDecl->startPosition(), checkDecl->endPosition());
         }
 

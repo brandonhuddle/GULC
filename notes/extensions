@@ -1,0 +1,44 @@
+// TODO: Things that will have to be accounted for with extensions:
+//  [WRONG] * Template instantiations: Currently we go off the idea that `Example<i32> == Example<i32>` is ALWAYS true
+//            BUT if one file has an `extension i32 { ... }` then `Example<i32 extended>` != `Example<i32>`
+//          * ACTUALLY THIS ISN'T TRUE: for `Example<i32>` == `Example<i32>` UNLESS there is another template with the
+//            name but different contracts
+//            (e.g. `struct Example<T> where T : TExampleTrait{} extension i32 : TExampleTrait {}`)
+//            An instantiation with a type will ALWAYS be the same NO MATTER WHAT. The only time this changes is IFF
+//            the extensions meets the requirements for a different template's contracts...
+//          * We will need to account for HOW we represent a type that is extended. Looking up the extensions every
+//            time we access a type would be slow, we can't store the extensions within the main Decl as active
+//            extensions can change per the context, we MIGHT be able to store them within the `Type` but that would
+//            take up space (how would we handle `i32<extended> == i32`?)...
+//          * Storing within the `Type` is the easiest and fastest solution (in theory) BUT would end up being too
+//            much repetitive data and slow
+//          * SOLUTION?: When something fails (such as checking if a type has a trait or member) search the list of
+//            `extensions` for anything matching the current type signature, store this list within a `extendedTypes`
+//            set (local to file?), then anytime we need to access extension data we will search the `extendedTypes`
+//            basically as the cached results for `extensions`.
+//          * The benefit to the above is the data is ONLY searched and cached on failure only, we don't have any
+//            slow-down related to searching the data when it isn't needed and we don't get the overhead of storing
+//            this data within every `Type` instantiation
+//  [WRONG] * ALTERNATIVE: Do something similar to `originalDecl` OR store an `extensionID` or something like that for
+//            use with `Type` instantiations. Basically make all types have one extra `pointer`/`ID` that points back
+//            to it's list of extensions...
+//          * One downside to storing anything within the `Type` instances is accessing from other files should NOT
+//            have access to the extensions for that type. They should be generating their own extension lists for
+//            that type as it is now within a new context
+
+// TODO: I think this is the process we will use:
+//       1. Preprocess the extensions and generate a list of all extensions accessible to the current context
+//       2. Keep a `extendedTypes` set to make it so we don't have to research the `extensions` every time
+//       3. Only check for extensions when either A. we're using the type as a template type or B. a check for
+//          something failed
+
+// TODO: When processing extensions:
+//       1. ONLY process extensions within our current container
+//         a. If we are contained within the top level of the file, process other extensions within the file AND imports
+//         b. If we are contained within a namespace only process the extensions within the current namespace
+
+// TODO: Contract support needed:
+//       * `extension TTraitExample where self : StructExample` - extend any implementation of `TTraitExample` that
+//         also extends `StructExample`
+//       * `extension TemplateExample<T>` shouldn't have to repeat the `where` clauses, we don't allow overloading
+//         based on the contracts anymore. `global::TemplateExample<T>` == `global::TemplateExample<T>` ALWAYS

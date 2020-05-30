@@ -934,6 +934,10 @@ Token Lexer::parseToken(std::string& tokenText, TextPosition startPosition, bool
         result.metaType = TokenMetaType::KEYWORD;
         result.tokenType = TokenType::EXTENSION;
         result.currentSymbol = "extension";
+    } else if (tokenText == "fallthrough") {
+        result.metaType = TokenMetaType::KEYWORD;
+        result.tokenType = TokenType::FALLTHROUGH;
+        result.currentSymbol = "fallthrough";
     } else {
         result.metaType = TokenMetaType::VALUE;
         result.tokenType = TokenType::SYMBOL;

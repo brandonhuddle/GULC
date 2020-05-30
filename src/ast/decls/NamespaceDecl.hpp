@@ -3,8 +3,12 @@
 
 #include <ast/Decl.hpp>
 #include <llvm/Support/Casting.h>
+#include <map>
 
 namespace gulc {
+    class ExtensionDecl;
+    class ASTFile;
+
     class NamespaceDecl : public Decl {
     public:
         static bool classof(const Decl* decl) { return decl->getDeclKind() == Decl::Kind::Namespace; }
@@ -72,10 +76,19 @@ namespace gulc {
 
                 delete decl;
             }
+
+            // We own the types that are used as keys for the cached type extensions, we delete those here
+            for (auto const& cachedTypeIterator : _cachedTypeExtensions) {
+                delete cachedTypeIterator.first;
+            }
         }
 
         // We use this to give us a link to the actual namespace with ALL `nestedDecls` from all sources
         NamespaceDecl* prototype;
+        // All extensions within the current scope
+        std::vector<ExtensionDecl*> scopeExtensions;
+
+        std::vector<ExtensionDecl*>* getTypeExtensions(ASTFile& scopeFile, Type const* forType);
 
     protected:
         TextPosition _startPosition;
@@ -83,6 +96,7 @@ namespace gulc {
         std::vector<Decl*> _nestedDecls;
         // If this is true it means we only own a nested `Decl` if it is a namespace, all other cannot be deleted by us.
         bool _isPrototype;
+        std::map<Type const*, std::vector<ExtensionDecl*>> _cachedTypeExtensions;
 
     };
 }

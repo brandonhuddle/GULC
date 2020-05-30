@@ -20,7 +20,9 @@ namespace gulc {
         TextPosition endPosition() const override { return falseExpr->endPosition(); }
 
         Expr* deepCopy() const override {
-            return new TernaryExpr(condition->deepCopy(), trueExpr->deepCopy(), falseExpr->deepCopy());
+            auto result = new TernaryExpr(condition->deepCopy(), trueExpr->deepCopy(), falseExpr->deepCopy());
+            result->valueType = valueType == nullptr ? nullptr : valueType->deepCopy();
+            return result;
         }
 
         std::string toString() const override {

@@ -23,8 +23,10 @@ namespace gulc {
         TextPosition isEndPosition() const { return _isEndPosition; }
 
         Expr* deepCopy() const override {
-            return new IsExpr(expr->deepCopy(), isType->deepCopy(),
-                              _isStartPosition, _isEndPosition);
+            auto result = new IsExpr(expr->deepCopy(), isType->deepCopy(),
+                                     _isStartPosition, _isEndPosition);
+            result->valueType = valueType == nullptr ? nullptr : valueType->deepCopy();
+            return result;
         }
 
         std::string toString() const override {

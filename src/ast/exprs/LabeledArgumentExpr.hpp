@@ -20,7 +20,9 @@ namespace gulc {
         TextPosition endPosition() const override { return argument->endPosition(); }
 
         Expr* deepCopy() const override {
-            return new LabeledArgumentExpr(_label, argument->deepCopy());
+            auto result = new LabeledArgumentExpr(_label, argument->deepCopy());
+            result->valueType = valueType == nullptr ? nullptr : valueType->deepCopy();
+            return result;
         }
 
         std::string toString() const override {

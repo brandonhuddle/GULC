@@ -32,8 +32,10 @@ namespace gulc {
                 copiedInitialValue = initialValue->deepCopy();
             }
 
-            return new VariableDeclExpr(_identifier, type->deepCopy(), copiedInitialValue,
-                                        _isAssignable, _startPosition, _endPosition);
+            auto result = new VariableDeclExpr(_identifier, type->deepCopy(), copiedInitialValue,
+                                               _isAssignable, _startPosition, _endPosition);
+            result->valueType = valueType == nullptr ? nullptr : valueType->deepCopy();
+            return result;
         }
 
         std::string toString() const override {

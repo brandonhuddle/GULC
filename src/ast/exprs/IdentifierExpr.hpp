@@ -4,6 +4,8 @@
 #include <ast/Expr.hpp>
 #include <ast/Identifier.hpp>
 #include <vector>
+#include <ast/Decl.hpp>
+#include "VariableDeclExpr.hpp"
 
 namespace gulc {
     class IdentifierExpr : public Expr {
@@ -30,7 +32,9 @@ namespace gulc {
                 copiedTemplateArguments.push_back(templateArgument->deepCopy());
             }
 
-            return new IdentifierExpr(_identifier, copiedTemplateArguments);
+            auto result = new IdentifierExpr(_identifier, copiedTemplateArguments);
+            result->valueType = valueType == nullptr ? nullptr : valueType->deepCopy();
+            return result;
         }
 
         std::string toString() const override {
@@ -39,8 +43,8 @@ namespace gulc {
             if (!_templateArguments.empty()) {
                 templateArgumentsString += "<";
 
-                for (std::size_t i = 0; i < _templateArguments.size(); ++i) {
-                    templateArgumentsString += _templateArguments[i]->toString();
+                for (auto templateArgument : _templateArguments) {
+                    templateArgumentsString += templateArgument->toString();
                 }
 
                 templateArgumentsString += ">";

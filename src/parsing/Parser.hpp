@@ -42,6 +42,7 @@
 #include <ast/decls/EnumDecl.hpp>
 #include <ast/decls/TypeSuffixDecl.hpp>
 #include <ast/decls/ExtensionDecl.hpp>
+#include <ast/stmts/FallthroughStmt.hpp>
 #include "Lexer.hpp"
 #include "ASTFile.hpp"
 
@@ -122,6 +123,7 @@ namespace gulc {
         CompoundStmt* parseCompoundStmt();
         ContinueStmt* parseContinueStmt();
         DoStmt* parseDoStmt();
+        FallthroughStmt* parseFallthroughStmt();
         ForStmt* parseForStmt();
         GotoStmt* parseGotoStmt();
         IfStmt* parseIfStmt();
@@ -147,6 +149,8 @@ namespace gulc {
         Expr* parseIsAsHas();
         Expr* parsePrefixes();
         Expr* parseCallPostfixOrMemberAccess();
+        // closeToken - `)` for functions, `]` for indexers
+        std::vector<LabeledArgumentExpr*> parseCallArguments(TokenType closeToken);
         Expr* parseIdentifierOrLiteralExpr();
         IdentifierExpr* parseIdentifierExpr();
         ValueLiteralExpr* parseNumberLiteralExpr();

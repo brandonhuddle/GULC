@@ -20,6 +20,7 @@ namespace gulc {
             Compound,
             Continue,
             Do,
+            Fallthrough,
             For,
             Goto,
             If,

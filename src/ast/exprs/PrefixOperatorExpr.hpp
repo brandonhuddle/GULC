@@ -83,8 +83,10 @@ namespace gulc {
         TextPosition endPosition() const override { return nestedExpr->endPosition(); }
 
         Expr* deepCopy() const override {
-            return new PrefixOperatorExpr(_prefixOperator, nestedExpr->deepCopy(),
-                                          _operatorStartPosition, _operatorEndPosition);
+            auto result = new PrefixOperatorExpr(_prefixOperator, nestedExpr->deepCopy(),
+                                                 _operatorStartPosition, _operatorEndPosition);
+            result->valueType = valueType == nullptr ? nullptr : valueType->deepCopy();
+            return result;
         }
 
         std::string toString() const override {

@@ -17,8 +17,6 @@ namespace gulc {
             String
         };
 
-        /// The type for the literal. The default for this is usually `i32` for integers, `f32` for float, etc.
-        Type* valueType;
         /// What kind of literal this value is
         LiteralType literalType() const { return _literalType; }
         /// The string representation for the provided integer literal, this might be larger than can fit into the
@@ -32,7 +30,7 @@ namespace gulc {
         ValueLiteralExpr(LiteralType literalType, std::string value, std::string suffix,
                          TextPosition startPosition, TextPosition endPosition)
                 : Expr(Expr::Kind::ValueLiteral),
-                  valueType(nullptr), _literalType(literalType), _value(std::move(value)), _suffix(std::move(suffix)),
+                  _literalType(literalType), _value(std::move(value)), _suffix(std::move(suffix)),
                   _startPosition(startPosition), _endPosition(endPosition) {}
 
         TextPosition startPosition() const override { return _startPosition; }
@@ -51,10 +49,6 @@ namespace gulc {
 
         std::string toString() const override {
             return _value + _suffix;
-        }
-
-        ~ValueLiteralExpr() override  {
-            delete valueType;
         }
 
     protected:

@@ -35,7 +35,9 @@ namespace gulc {
                 copiedIndexes.push_back(index->deepCopy());
             }
 
-            return new ArrayLiteralExpr(copiedIndexes, _startPosition, _endPosition);
+            auto result = new ArrayLiteralExpr(copiedIndexes, _startPosition, _endPosition);
+            result->valueType = valueType == nullptr ? nullptr : valueType->deepCopy();
+            return result;
         }
 
         std::string toString() const override {

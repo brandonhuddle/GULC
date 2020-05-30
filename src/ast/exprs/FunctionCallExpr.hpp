@@ -3,6 +3,8 @@
 
 #include <ast/Expr.hpp>
 #include <vector>
+#include <llvm/Support/Casting.h>
+#include "LabeledArgumentExpr.hpp"
 
 namespace gulc {
     class FunctionCallExpr : public Expr {
@@ -10,10 +12,10 @@ namespace gulc {
         static bool classof(const Expr* expr) { return expr->getExprKind() == Expr::Kind::FunctionCall; }
 
         Expr* functionReference;
-        std::vector<Expr*> arguments;
+        std::vector<LabeledArgumentExpr*> arguments;
         bool hasArguments() const { return !arguments.empty(); }
 
-        FunctionCallExpr(Expr* functionReference, std::vector<Expr*> arguments,
+        FunctionCallExpr(Expr* functionReference, std::vector<LabeledArgumentExpr*> arguments,
                          TextPosition startPosition, TextPosition endPosition)
                 : Expr(Expr::Kind::FunctionCall),
                   functionReference(functionReference), arguments(std::move(arguments)),
@@ -23,15 +25,17 @@ namespace gulc {
         TextPosition endPosition() const override { return _endPosition; }
 
         Expr* deepCopy() const override {
-            std::vector<Expr*> copiedArguments;
+            std::vector<LabeledArgumentExpr*> copiedArguments;
             copiedArguments.reserve(arguments.size());
 
             for (Expr* argument : arguments) {
-                copiedArguments.push_back(argument->deepCopy());
+                copiedArguments.push_back(llvm::dyn_cast<LabeledArgumentExpr>(argument->deepCopy()));
             }
 
-            return new FunctionCallExpr(functionReference->deepCopy(), copiedArguments,
-                                        _startPosition, _endPosition);
+            auto result = new FunctionCallExpr(functionReference->deepCopy(), copiedArguments,
+                                               _startPosition, _endPosition);
+            result->valueType = valueType == nullptr ? nullptr : valueType->deepCopy();
+            return result;
         }
 
         std::string toString() const override {
@@ -47,7 +51,7 @@ namespace gulc {
         }
 
         ~FunctionCallExpr() override {
-            for (Expr* argument : arguments) {
+            for (LabeledArgumentExpr* argument : arguments) {
                 delete argument;
             }
 

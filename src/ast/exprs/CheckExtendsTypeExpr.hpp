@@ -36,8 +36,10 @@ namespace gulc {
         TextPosition extendsEndPosition() const { return _extendsEndPosition; }
 
         Expr* deepCopy() const override {
-            return new CheckExtendsTypeExpr(checkType->deepCopy(), extendsType->deepCopy(),
-                                            _extendsStartPosition, _extendsEndPosition);
+            auto result = new CheckExtendsTypeExpr(checkType->deepCopy(), extendsType->deepCopy(),
+                                                   _extendsStartPosition, _extendsEndPosition);
+            result->valueType = valueType == nullptr ? nullptr : valueType->deepCopy();
+            return result;
         }
 
         std::string toString() const override {

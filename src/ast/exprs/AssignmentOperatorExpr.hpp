@@ -32,13 +32,18 @@ namespace gulc {
         TextPosition endPosition() const override { return _endPosition; }
 
         Expr* deepCopy() const override {
+            Expr* result;
+
             if (_hasNestedOperator) {
-                return new AssignmentOperatorExpr(leftValue->deepCopy(), rightValue->deepCopy(),
-                                                  _nestedOperator, _startPosition, _endPosition);
+                result = new AssignmentOperatorExpr(leftValue->deepCopy(), rightValue->deepCopy(),
+                                                    _nestedOperator, _startPosition, _endPosition);
             } else {
-                return new AssignmentOperatorExpr(leftValue->deepCopy(), rightValue->deepCopy(),
-                                                  _startPosition, _endPosition);
+                result = new AssignmentOperatorExpr(leftValue->deepCopy(), rightValue->deepCopy(),
+                                                    _startPosition, _endPosition);
             }
+
+            result->valueType = valueType == nullptr ? nullptr : valueType->deepCopy();
+            return result;
         }
 
         std::string toString() const override {

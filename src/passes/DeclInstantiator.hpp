@@ -24,6 +24,7 @@
 #include <set>
 #include <ast/exprs/CheckExtendsTypeExpr.hpp>
 #include <ast/conts/WhereCont.hpp>
+#include <ast/exprs/TemplateConstRefExpr.hpp>
 
 namespace gulc {
     /**
@@ -36,22 +37,14 @@ namespace gulc {
     class DeclInstantiator {
     public:
         DeclInstantiator(gulc::Target const& target, std::vector<std::string> const& filePaths)
-                : _target(target), _filePaths(filePaths), _currentFile() {}
+                : _target(target), _filePaths(filePaths), _files(nullptr), _currentFile() {}
 
         void processFiles(std::vector<ASTFile>& files);
 
     private:
-        enum class WhereContractsResult {
-            // One of the where contracts failed
-            Failed,
-            // All where contracts were passed
-            Passed,
-            // There were no where contracts found
-            NoContracts
-        };
-
         gulc::Target const& _target;
         std::vector<std::string> const& _filePaths;
+        std::vector<ASTFile>* _files;
         ASTFile* _currentFile;
         // List of Decls currently being worked on.
         //
@@ -80,11 +73,15 @@ namespace gulc {
         Type* resolveDependentType(std::vector<Decl*>& checkDecls, Identifier const& identifier,
                                    std::vector<Expr*>& templateArguments);
 
-        void compareDeclTemplateArgsToParams(std::vector<Cont*> const& contracts,
-                                             std::vector<Expr*> const& args,
+        void compareDeclTemplateArgsToParams(std::vector<Expr*> const& args,
                                              std::vector<TemplateParameterDecl*> const& params,
-                                             bool* outIsMatch, bool* outIsExact,
-                                             WhereContractsResult* outPassedWhereContracts) const;
+                                             bool* outIsMatch, bool* outIsExact) const;
+
+        // Process the where contracts and output an easy to read error message for any failed contracts
+        void errorOnWhereContractFailure(Type const* errorMessageType,
+                                         std::vector<Cont*> const& contracts,
+                                         std::vector<Expr*> const& args,
+                                         std::vector<TemplateParameterDecl*> const& params);
 
         void processContract(Cont* contract);
 
@@ -125,10 +122,44 @@ namespace gulc {
 
         bool structUsesStructTypeAsValue(StructDecl* structType, StructDecl* checkStruct, bool checkBaseStruct);
 
+        void processStmt(Stmt* stmt);
+        void processCaseStmt(CaseStmt* caseStmt);
+        void processCatchStmt(CatchStmt* catchStmt);
+        void processCompoundStmt(CompoundStmt* compoundStmt);
+        void processDoStmt(DoStmt* doStmt);
+        void processForStmt(ForStmt* forStmt);
+        void processIfStmt(IfStmt* ifStmt);
+        void processLabeledStmt(LabeledStmt* labeledStmt);
+        void processReturnStmt(ReturnStmt* returnStmt);
+        void processSwitchStmt(SwitchStmt* switchStmt);
+        void processTryStmt(TryStmt* tryStmt);
+        void processWhileStmt(WhileStmt* whileStmt);
+
         void processConstExpr(Expr* expr);
+        void processExpr(Expr* expr);
+        void processArrayLiteralExpr(ArrayLiteralExpr* arrayLiteralExpr);
+        void processAsExpr(AsExpr* asExpr);
+        void processAssignmentOperatorExpr(AssignmentOperatorExpr* assignmentOperatorExpr);
         void processCheckExtendsTypeExpr(CheckExtendsTypeExpr* checkExtendsTypeExpr);
+        void processFunctionCallExpr(FunctionCallExpr* functionCallExpr);
+        void processHasExpr(HasExpr* hasExpr);
+        void processIdentifierExpr(IdentifierExpr* identifierExpr);
+        // NOTE: `allowInstanceMembers` allows non-const and non-static members to be included in the potentialDecl list
+        void gatherPotentialDeclMatchesInContainer(Decl* container, IdentifierExpr* identifierExpr,
+                                                   bool allowInstanceMembers);
+        void processIndexerCallExpr(IndexerCallExpr* indexerCallExpr);
+        void processInfixOperatorExpr(InfixOperatorExpr* infixOperatorExpr);
+        void processIsExpr(IsExpr* isExpr);
+        void processLabeledArgumentExpr(LabeledArgumentExpr* labeledArgumentExpr);
+        void processMemberAccessCallExpr(MemberAccessCallExpr* memberAccessCallExpr);
+        void processParenExpr(ParenExpr* parenExpr);
+        void processPostfixOperatorExpr(PostfixOperatorExpr* postfixOperatorExpr);
+        void processPrefixOperatorExpr(PrefixOperatorExpr* prefixOperatorExpr);
+        void processTemplateConstRefExpr(TemplateConstRefExpr* templateConstRefExpr);
+        void processTernaryExpr(TernaryExpr* ternaryExpr);
         void processTypeExpr(TypeExpr* typeExpr);
         void processValueLiteralExpr(ValueLiteralExpr* valueLiteralExpr) const;
+        void processVariableDeclExpr(VariableDeclExpr* variableDeclExpr);
 
     };
 }

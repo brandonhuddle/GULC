@@ -38,8 +38,10 @@ namespace gulc {
         TextPosition endPosition() const override { return _operatorEndPosition; }
 
         Expr* deepCopy() const override {
-            return new PostfixOperatorExpr(_postfixOperator, nestedExpr->deepCopy(),
-                                           _operatorStartPosition, _operatorEndPosition);
+            auto result = new PostfixOperatorExpr(_postfixOperator, nestedExpr->deepCopy(),
+                                                  _operatorStartPosition, _operatorEndPosition);
+            result->valueType = valueType == nullptr ? nullptr : valueType->deepCopy();
+            return result;
         }
 
         std::string toString() const override {

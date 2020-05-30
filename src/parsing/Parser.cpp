@@ -838,6 +838,7 @@ ExtensionDecl* Parser::parseExtensionDecl(std::vector<Attr*> attributes, Decl::V
         templateParameters = parseTemplateParameters();
     }
 
+    // TODO: How should we handle parsing templates? Should we continue how we are now with `extension<T...>`?
     Type* typeToExtend = parseType();
     TextPosition endPosition = typeToExtend->endPosition();
     std::vector<Type*> inheritedTypes;
@@ -888,9 +889,15 @@ ExtensionDecl* Parser::parseExtensionDecl(std::vector<Attr*> attributes, Decl::V
                    _lexer.peekStartPosition(), _lexer.peekEndPosition());
     }
 
-    return new ExtensionDecl(_fileID, std::move(attributes), visibility, isConstExpr, declModifiers,
-                             templateParameters, typeToExtend, startPosition, endPosition, inheritedTypes,
-                             contracts, members, constructors);
+    if (templateParameters.empty()) {
+        return new ExtensionDecl(_fileID, std::move(attributes), visibility, isConstExpr, declModifiers,
+                                 typeToExtend, startPosition, endPosition, inheritedTypes,
+                                 contracts, members, constructors);
+    } else {
+        printError("templated extensions not yet supported!",
+                   typeToExtend->startPosition(), typeToExtend->endPosition());
+        return nullptr;
+    }
 }
 
 FunctionDecl* Parser::parseFunctionDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
@@ -1924,6 +1931,8 @@ Stmt* Parser::parseStmt() {
             return parseContinueStmt();
         case TokenType::DO:
             return parseDoStmt();
+        case TokenType::FALLTHROUGH:
+            return parseFallthroughStmt();
         case TokenType::FOR:
             return parseForStmt();
         case TokenType::GOTO:
@@ -2113,6 +2122,20 @@ DoStmt* Parser::parseDoStmt() {
     }
 
     return new DoStmt(loopStmt, condition, doStartPosition, doEndPosition, whileStartPosition, whileEndPosition);
+}
+
+FallthroughStmt* Parser::parseFallthroughStmt() {
+    TextPosition startPosition = _lexer.peekStartPosition();
+    TextPosition endPosition = _lexer.peekEndPosition();
+
+    _lexer.consumeType(TokenType::FALLTHROUGH);
+
+    if (!_lexer.consumeType(TokenType::SEMICOLON)) {
+        printError("expected `;` after `fallthrough`, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    return new FallthroughStmt(startPosition, endPosition);
 }
 
 ForStmt* Parser::parseForStmt() {
@@ -2888,51 +2911,7 @@ Expr* Parser::parseCallPostfixOrMemberAccess() {
             case TokenType::LPAREN: {
                 _lexer.consumeType(TokenType::LPAREN);
 
-                std::vector<Expr*> arguments{};
-
-                while (_lexer.peekType() != TokenType::RPAREN && _lexer.peekType() != TokenType::ENDOFFILE) {
-                    // When parsing arguments we usually require argument labels (like Swift)
-                    // Examples:
-                    //     example(left: 2, right: new! Window());
-                    //     attempt(try: function(), onFail: failure());
-                    // We also allow keywords as labels (as you can see with the `try: ...`)
-                    // In this situation you don't have to prefix with `@`
-                    if (_lexer.peekMeta() == TokenMetaType::KEYWORD || _lexer.peekMeta() == TokenMetaType::MODIFIER) {
-                        Identifier argumentLabel(_lexer.peekStartPosition(),
-                                                 _lexer.peekEndPosition(),
-                                                 _lexer.peekCurrentSymbol());
-
-                        _lexer.consumeType(_lexer.peekType());
-
-                        if (!_lexer.consumeType(TokenType::COLON)) {
-                            printError("expected `:` after argument label `" + argumentLabel.name() + "`, "
-                                       "found `" + _lexer.peekCurrentSymbol() + "`!",
-                                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
-                        }
-
-                        arguments.push_back(new LabeledArgumentExpr(argumentLabel, parseExpr()));
-                    } else {
-                        Expr* parsedExpr = parseExpr();
-
-                        if (llvm::isa<IdentifierExpr>(parsedExpr)) {
-                            if (_lexer.consumeType(TokenType::COLON)) {
-                                auto identifierExpr = llvm::dyn_cast<IdentifierExpr>(parsedExpr);
-                                Identifier argumentLabel = identifierExpr->identifier();
-
-                                // TODO: Make sure `identifierExpr` doesn't have template arguments
-                                delete identifierExpr;
-
-                                arguments.push_back(new LabeledArgumentExpr(argumentLabel, parseExpr()));
-                            } else {
-                                arguments.push_back(parsedExpr);
-                            }
-                        } else {
-                            arguments.push_back(parsedExpr);
-                        }
-                    }
-
-                    if (!_lexer.consumeType(TokenType::COMMA)) break;
-                }
+                std::vector<LabeledArgumentExpr*> arguments = parseCallArguments(TokenType::RPAREN);
 
                 TextPosition endPosition = _lexer.peekToken().endPosition;
 
@@ -2948,14 +2927,7 @@ Expr* Parser::parseCallPostfixOrMemberAccess() {
             case TokenType::LSQUARE: {
                 _lexer.consumeType(TokenType::LSQUARE);
 
-
-                std::vector<Expr*> arguments{};
-
-                while (_lexer.peekType() != TokenType::RSQUARE && _lexer.peekType() != TokenType::ENDOFFILE) {
-                    arguments.push_back(parseExpr());
-
-                    if (!_lexer.consumeType(TokenType::COMMA)) break;
-                }
+                std::vector<LabeledArgumentExpr*> arguments = parseCallArguments(TokenType::RSQUARE);
 
                 TextPosition endPosition = _lexer.peekToken().endPosition;
 
@@ -2989,6 +2961,56 @@ Expr* Parser::parseCallPostfixOrMemberAccess() {
 
     printError("reach end of file unexpectedly!", _lexer.peekToken().startPosition, _lexer.peekToken().endPosition);
     return nullptr;
+}
+
+std::vector<LabeledArgumentExpr*> Parser::parseCallArguments(TokenType closeToken) {
+    std::vector<LabeledArgumentExpr*> arguments{};
+
+    while (_lexer.peekType() != closeToken && _lexer.peekType() != TokenType::ENDOFFILE) {
+        // When parsing arguments we usually require argument labels (like Swift)
+        // Examples:
+        //     example(left: 2, right: new! Window());
+        //     attempt(try: function(), onFail: failure());
+        // We also allow keywords as labels (as you can see with the `try: ...`)
+        // In this situation you don't have to prefix with `@`
+        if (_lexer.peekMeta() == TokenMetaType::KEYWORD || _lexer.peekMeta() == TokenMetaType::MODIFIER) {
+            Identifier argumentLabel(_lexer.peekStartPosition(),
+                                     _lexer.peekEndPosition(),
+                                     _lexer.peekCurrentSymbol());
+
+            _lexer.consumeType(_lexer.peekType());
+
+            if (!_lexer.consumeType(TokenType::COLON)) {
+                printError("expected `:` after argument label `" + argumentLabel.name() + "`, "
+                                                                                          "found `" + _lexer.peekCurrentSymbol() + "`!",
+                           _lexer.peekStartPosition(), _lexer.peekEndPosition());
+            }
+
+            arguments.push_back(new LabeledArgumentExpr(argumentLabel, parseExpr()));
+        } else {
+            Expr* parsedExpr = parseExpr();
+
+            if (llvm::isa<IdentifierExpr>(parsedExpr)) {
+                if (_lexer.consumeType(TokenType::COLON)) {
+                    auto identifierExpr = llvm::dyn_cast<IdentifierExpr>(parsedExpr);
+                    Identifier argumentLabel = identifierExpr->identifier();
+
+                    // TODO: Make sure `identifierExpr` doesn't have template arguments
+                    delete identifierExpr;
+
+                    arguments.push_back(new LabeledArgumentExpr(argumentLabel, parseExpr()));
+                } else {
+                    arguments.push_back(new LabeledArgumentExpr(Identifier({}, {}, "_"), parsedExpr));
+                }
+            } else {
+                arguments.push_back(new LabeledArgumentExpr(Identifier({}, {}, "_"), parsedExpr));
+            }
+        }
+
+        if (!_lexer.consumeType(TokenType::COMMA)) break;
+    }
+
+    return arguments;
 }
 
 Expr* Parser::parseIdentifierOrLiteralExpr() {

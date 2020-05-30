@@ -33,8 +33,10 @@ namespace gulc {
         TextPosition hasEndPosition() const { return _hasEndPosition; }
 
         Expr* deepCopy() const override {
-            return new HasExpr(expr->deepCopy(), trait->deepCopy(),
-                               _hasStartPosition, _hasEndPosition);
+            auto result = new HasExpr(expr->deepCopy(), trait->deepCopy(),
+                                      _hasStartPosition, _hasEndPosition);
+            result->valueType = valueType == nullptr ? nullptr : valueType->deepCopy();
+            return result;
         }
 
         std::string toString() const override {

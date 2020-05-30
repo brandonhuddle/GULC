@@ -21,7 +21,7 @@ namespace gulc {
         TemplateParameterDecl* refTemplateParameter() const { return _refTemplateParameter; }
 
         std::string toString() const override {
-            return "&<" + _refTemplateParameter->identifier().name() + ">";
+            return _refTemplateParameter->identifier().name();
         }
 
         Type* deepCopy() const override {

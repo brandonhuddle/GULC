@@ -145,6 +145,8 @@ add_executable(gulc
         src/ast/exprs/AssignmentOperatorExpr.hpp
         src/ast/exprs/CheckExtendsTypeExpr.cpp
         src/ast/exprs/CheckExtendsTypeExpr.hpp
+        src/ast/exprs/ConstructorCallExpr.cpp
+        src/ast/exprs/ConstructorCallExpr.hpp
         src/ast/exprs/FunctionCallExpr.cpp
         src/ast/exprs/FunctionCallExpr.hpp
         src/ast/exprs/HasExpr.cpp
@@ -192,6 +194,8 @@ add_executable(gulc
         src/ast/stmts/ContinueStmt.hpp
         src/ast/stmts/DoStmt.cpp
         src/ast/stmts/DoStmt.hpp
+        src/ast/stmts/FallthroughStmt.cpp
+        src/ast/stmts/FallthroughStmt.hpp
         src/ast/stmts/ForStmt.cpp
         src/ast/stmts/ForStmt.hpp
         src/ast/stmts/GotoStmt.cpp
@@ -233,8 +237,12 @@ add_executable(gulc
         src/passes/BasicDeclValidator.hpp
         src/passes/BasicTypeResolver.cpp
         src/passes/BasicTypeResolver.hpp
+        src/passes/CodeProcessor.cpp
+        src/passes/CodeProcessor.hpp
         src/passes/DeclInstantiator.cpp
         src/passes/DeclInstantiator.hpp
+        src/passes/DeclInstValidator.cpp
+        src/passes/DeclInstValidator.hpp
         src/passes/NamespacePrototyper.cpp
         src/passes/NamespacePrototyper.hpp
 

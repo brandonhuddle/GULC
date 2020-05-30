@@ -17,15 +17,14 @@ namespace gulc {
 
         ExtensionDecl(unsigned int sourceFileID, std::vector<Attr*> attributes, Decl::Visibility visibility,
                       bool isConstExpr, DeclModifiers declModifiers,
-                      std::vector<TemplateParameterDecl*> templateParameters, Type* typeToExtend,
+                      Type* typeToExtend,
                       TextPosition startPosition, TextPosition endPosition,
                       std::vector<Type*> inheritedTypes, std::vector<Cont*> contracts, std::vector<Decl*> ownedMembers,
                       std::vector<ConstructorDecl*> constructors)
                 : Decl(Decl::Kind::Extension, sourceFileID, std::move(attributes), visibility, isConstExpr,
                        Identifier({}, {}, "_"), declModifiers),
-                  typeToExtend(typeToExtend), containerTemplateType(),
-                  _startPosition(startPosition), _endPosition(endPosition),
-                  _templateParameters(std::move(templateParameters)), _inheritedTypes(std::move(inheritedTypes)),
+                  typeToExtend(typeToExtend),
+                  _startPosition(startPosition), _endPosition(endPosition), _inheritedTypes(std::move(inheritedTypes)),
                   _contracts(std::move(contracts)), _ownedMembers(std::move(ownedMembers)),
                   _constructors(std::move(constructors)) {
             for (Decl* ownedMember : _ownedMembers) {
@@ -36,10 +35,6 @@ namespace gulc {
                 constructor->container = this;
             }
         }
-
-        std::vector<TemplateParameterDecl*>& templateParameters() { return _templateParameters; }
-        std::vector<TemplateParameterDecl*> const& templateParameters() const { return _templateParameters; }
-        bool hasTemplateParameters() const { return !_templateParameters.empty(); }
 
         std::vector<Type*>& inheritedTypes() { return _inheritedTypes; }
         std::vector<Type*> const& inheritedTypes() const { return _inheritedTypes; }
@@ -56,8 +51,6 @@ namespace gulc {
         Decl* deepCopy() const override {
             std::vector<Attr*> copiedAttributes;
             copiedAttributes.reserve(_attributes.size());
-            std::vector<TemplateParameterDecl*> copiedTemplateParameters;
-            copiedTemplateParameters.reserve(_templateParameters.size());
             std::vector<Type*> copiedInheritedTypes;
             copiedInheritedTypes.reserve(_inheritedTypes.size());
             std::vector<Cont*> copiedContracts;
@@ -69,10 +62,6 @@ namespace gulc {
 
             for (Attr* attribute : _attributes) {
                 copiedAttributes.push_back(attribute->deepCopy());
-            }
-
-            for (TemplateParameterDecl* templateParameter : _templateParameters) {
-                copiedTemplateParameters.push_back(llvm::dyn_cast<TemplateParameterDecl>(templateParameter->deepCopy()));
             }
 
             for (Type* inheritedType : _inheritedTypes) {
@@ -92,22 +81,17 @@ namespace gulc {
             }
 
             auto result = new ExtensionDecl(_sourceFileID, copiedAttributes, _declVisibility, _isConstExpr, _declModifiers,
-                                            copiedTemplateParameters, typeToExtend->deepCopy(),
+                                            typeToExtend->deepCopy(),
                                             _startPosition, _endPosition,
                                             copiedInheritedTypes, copiedContracts, copiedOwnedMembers, copiedConstructors);
             result->container = container;
             result->containedInTemplate = containedInTemplate;
-            result->containerTemplateType = (containerTemplateType == nullptr ? nullptr : containerTemplateType->deepCopy());
             result->originalDecl = (originalDecl == nullptr ? this : originalDecl);
             return result;
         }
 
         ~ExtensionDecl() override {
             delete typeToExtend;
-
-            for (TemplateParameterDecl* templateParameter : _templateParameters) {
-                delete templateParameter;
-            }
 
             for (Type* inheritedType : _inheritedTypes) {
                 delete inheritedType;
@@ -126,16 +110,9 @@ namespace gulc {
             }
         }
 
-        // If the type is contained within a template this is a `Type` that will resolve to the container
-        // The reason we need this is to make it easier properly resolve types to `Decl`s when they are contained
-        // within templates. Without this we would need to manually search the `container` backwards looking for any
-        // templates for every single type that resolves to a Decl
-        Type* containerTemplateType;
-
     protected:
         TextPosition _startPosition;
         TextPosition _endPosition;
-        std::vector<TemplateParameterDecl*> _templateParameters;
         // This a list of inherited traits, this CANNOT contain anything but traits
         std::vector<Type*> _inheritedTypes;
         std::vector<Cont*> _contracts;

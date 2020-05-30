@@ -85,3 +85,48 @@ SignatureComparer::CompareResult SignatureComparer::compareFunctions(const Funct
     // If we make it to this point the functions are exactly the same
     return CompareResult::Exact;
 }
+
+SignatureComparer::ArgMatchResult SignatureComparer::compareArgumentsToParameters(std::vector<ParameterDecl*> const& parameters,
+                                                                                  std::vector<LabeledArgumentExpr*> const& arguments) {
+    return compareArgumentsToParameters(parameters, arguments, {}, {});
+}
+
+SignatureComparer::ArgMatchResult SignatureComparer::compareArgumentsToParameters(std::vector<ParameterDecl*> const& parameters,
+                                                                                  std::vector<LabeledArgumentExpr*> const& arguments,
+                                                                                  std::vector<TemplateParameterDecl*> const& templateParameters,
+                                                                                  std::vector<Expr*> const& templateArguments) {
+    // If there are more arguments than parameters then we can immediately fail
+    if (arguments.size() > parameters.size()) {
+        return ArgMatchResult::Fail;
+    }
+
+    ArgMatchResult currentResult = ArgMatchResult::Match;
+
+    TypeCompareUtil typeCompareUtil(&templateParameters, &templateArguments);
+
+    for (std::size_t i = 0; i < parameters.size(); ++i) {
+        if (i >= arguments.size()) {
+            // If there are more parameters than arguments then the parameter immediately after the last argument MUST
+            // be optional
+            if (parameters[i]->defaultValue != nullptr) {
+                return currentResult;
+            } else {
+                return ArgMatchResult::Fail;
+            }
+        } else {
+            // If the argument label doesn't match the one provided by the parameter then we fail...
+            // NOTE: For arguments without labels we implicitly add `_` to the argument expression as the label
+            if (arguments[i]->label().name() != parameters[i]->argumentLabel().name()) {
+                return ArgMatchResult::Fail;
+            }
+
+            // Compare the type of the argument to the type of the parameter...
+            if (!typeCompareUtil.compareAreSame(arguments[i]->valueType, parameters[i]->type)) {
+                // TODO: Check if the argument type can be casted to the parameter type...
+                return ArgMatchResult::Fail;
+            }
+        }
+    }
+
+    return currentResult;
+}

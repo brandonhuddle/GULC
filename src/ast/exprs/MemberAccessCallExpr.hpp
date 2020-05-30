@@ -22,8 +22,10 @@ namespace gulc {
         TextPosition endPosition() const override { return member->endPosition(); }
 
         Expr* deepCopy() const override {
-            return new MemberAccessCallExpr(_isArrowCall, objectRef->deepCopy(),
-                                            llvm::dyn_cast<IdentifierExpr>(member->deepCopy()));
+            auto result = new MemberAccessCallExpr(_isArrowCall, objectRef->deepCopy(),
+                                                   llvm::dyn_cast<IdentifierExpr>(member->deepCopy()));
+            result->valueType = valueType == nullptr ? nullptr : valueType->deepCopy();
+            return result;
         }
 
         std::string toString() const override {

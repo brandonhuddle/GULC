@@ -18,7 +18,9 @@ namespace gulc {
         TextPosition endPosition() const override { return _endPosition; }
 
         Expr* deepCopy() const override {
-            return new ParenExpr(nestedExpr->deepCopy(), _startPosition, _endPosition);
+            auto result = new ParenExpr(nestedExpr->deepCopy(), _startPosition, _endPosition);
+            result->valueType = valueType == nullptr ? nullptr : valueType->deepCopy();
+            return result;
         }
 
         std::string toString() const override {

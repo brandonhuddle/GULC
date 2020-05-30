@@ -99,7 +99,7 @@ namespace gulc {
         bool isAnyVirtual() const { return isVirtual() || isAbstract() || isOverride(); }
 
         // The namespace, struct, trait, etc. that the Decl is contained within. Null when contained in a file.
-        Decl const* container;
+        Decl* container;
         // True if the container or the container of the container (ad infinitum) is a template
         // The reason we need this is because a `StructDecl` (or any other Decl type) contained in any way within a
         // template will always be unique to the template instantiation. (`Example<i32>::Type` != `Example<i8>::Type`)

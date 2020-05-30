@@ -73,6 +73,7 @@ namespace gulc {
         TYPEALIAS,
         TYPESUFFIX, // User-defined literals
         EXTENSION, // Existing type modification
+        FALLTHROUGH, // Stealing the Swift keyword `fallthrough` as I've experienced accidental fallthrough one too many times
 
         // Modifier Tokens
         PUBLIC, // 'public'

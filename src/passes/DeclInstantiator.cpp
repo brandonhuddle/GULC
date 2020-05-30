@@ -24,10 +24,18 @@
 #include <utilities/ContractUtil.hpp>
 #include <ast/types/DependentType.hpp>
 #include <ast/types/EnumType.hpp>
+#include <make_reverse_iterator.hpp>
 
 void gulc::DeclInstantiator::processFiles(std::vector<ASTFile>& files) {
+    _files = &files;
+
     for (ASTFile& file : files) {
         _currentFile = &file;
+
+        // Preprocess extensions
+        for (ExtensionDecl* extension : file.scopeExtensions) {
+            processExtensionDecl(llvm::dyn_cast<ExtensionDecl>(extension));
+        }
 
         for (Decl* decl : file.declarations) {
             processDecl(decl);
@@ -78,7 +86,7 @@ void gulc::DeclInstantiator::printError(std::string const& message, gulc::TextPo
 
 void gulc::DeclInstantiator::printWarning(std::string const& message, gulc::TextPosition startPosition,
                                           gulc::TextPosition endPosition) const {
-    std::cerr << "gulc warning[" << _filePaths[_currentFile->sourceFileID] << ", "
+    std::cout << "gulc warning[" << _filePaths[_currentFile->sourceFileID] << ", "
                              "{" << startPosition.line << ", " << startPosition.column << " "
                              "to " << endPosition.line << ", " << endPosition.column << "}]: "
               << message << std::endl;
@@ -316,28 +324,27 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
             processConstExpr(templateArgument);
         }
 
-        Decl* foundTemplateDecl = nullptr;
-        bool isExact = false;
-        bool isAmbiguous = false;
-        WhereContractsResult whereContractsResult = WhereContractsResult::Failed;
+        // We fill these two lists based on the potential matches found within the `TemplatedType`
+        // If there is more than one exact match then we error out due to ambiguity
+        // If there are no exact matches but multiple partial matches then we error out for the same reason
+        // TODO: We need to keep `namespaceDepth` into account (i.e. if there is an exact match at depth 0 AND depth 1
+        //       then depth 0 shadows depth 1 so we DO NOT need to error due to ambiguity)
+        //       Depth is 0 for in the same container, add 1 for every container until we reach the file. It is -1?
+        //       for imports
+        std::vector<Decl*> exactMatches;
+        std::vector<Decl*> partialMatches;
 
         for (Decl* checkDecl : templatedType->matchingTemplateDecls()) {
             bool declIsMatch = true;
             bool declIsExact = true;
-            WhereContractsResult declWhereContractsResult = WhereContractsResult::NoContracts;
 
             switch (checkDecl->getDeclKind()) {
                 case Decl::Kind::TemplateStruct: {
                     auto templateStructDecl = llvm::dyn_cast<TemplateStructDecl>(checkDecl);
 
-                    if (!templateStructDecl->contractsAreInstantiated) {
-                        processTemplateStructDeclContracts(templateStructDecl);
-                    }
-
-                    compareDeclTemplateArgsToParams(templateStructDecl->contracts(),
-                                                    templatedType->templateArguments(),
+                    compareDeclTemplateArgsToParams(templatedType->templateArguments(),
                                                     templateStructDecl->templateParameters(),
-                                                    &declIsMatch, &declIsExact, &declWhereContractsResult);
+                                                    &declIsMatch, &declIsExact);
 
                     // NOTE: Once we've reached this point the decl has been completely evaluated...
 
@@ -346,30 +353,21 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
                 case Decl::Kind::TemplateTrait: {
                     auto templateTraitDecl = llvm::dyn_cast<TemplateTraitDecl>(checkDecl);
 
-                    if (!templateTraitDecl->contractsAreInstantiated) {
-                        processTemplateTraitDeclContracts(templateTraitDecl);
-                    }
-
-                    compareDeclTemplateArgsToParams(templateTraitDecl->contracts(),
-                                                    templatedType->templateArguments(),
+                    compareDeclTemplateArgsToParams(templatedType->templateArguments(),
                                                     templateTraitDecl->templateParameters(),
-                                                    &declIsMatch, &declIsExact, &declWhereContractsResult);
+                                                    &declIsMatch, &declIsExact);
 
                     // NOTE: Once we've reached this point the decl has been completely evaluated...
 
                     break;
                 }
                 case Decl::Kind::TypeAlias: {
+                    // TODO: I don't think we can call aliases here?
                     auto typeAliasDecl = llvm::dyn_cast<TypeAliasDecl>(checkDecl);
 
-//                    if (!typeAliasDecl->contractsAreInstantiated) {
-//                        // TODO: Instantiate contracts
-//                    }
-
-                    compareDeclTemplateArgsToParams({}, // TODO: typeAliasDecl->contracts(),
-                                                    templatedType->templateArguments(),
+                    compareDeclTemplateArgsToParams(templatedType->templateArguments(),
                                                     typeAliasDecl->templateParameters(),
-                                                    &declIsMatch, &declIsExact, &declWhereContractsResult);
+                                                    &declIsMatch, &declIsExact);
 
                     // NOTE: Once we've reached this point the decl has been completely evaluated...
 
@@ -378,105 +376,42 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
                 default:
                     declIsMatch = false;
                     declIsExact = false;
-                    declWhereContractsResult = WhereContractsResult::Failed;
                     printWarning("[INTERNAL] unknown template declaration found in `BaseResolver::resolveType`!",
                                  checkDecl->startPosition(), checkDecl->endPosition());
                     break;
             }
 
             if (declIsMatch) {
-                if (isExact) {
-                    if (whereContractsResult == WhereContractsResult::Passed) {
-                        // Only ambiguous if the new `decl` is exactly the same
-                        if (declIsExact && declWhereContractsResult == WhereContractsResult::Passed) {
-                            isAmbiguous = true;
-                        }
-                    } else if (whereContractsResult == WhereContractsResult::NoContracts) {
-                        // Only upgrade if the new `decl` is `Passed`
-                        if (declIsExact) {
-                            if (declWhereContractsResult == WhereContractsResult::Passed) {
-                                // Passed > no contracts
-                                isAmbiguous = false;
-                                foundTemplateDecl = checkDecl;
-                                isExact = true;
-                                whereContractsResult = WhereContractsResult::Passed;
-                            } else if (declWhereContractsResult == WhereContractsResult::NoContracts) {
-                                // The new decl is exactly the same as the old one we've already found...
-                                isAmbiguous = true;
-                            }
-                        }
-                    } else if (whereContractsResult == WhereContractsResult::Failed) {
-                        // If the previous exact match was failed then it was stored for error messages, we replace it
-                        isAmbiguous = false;
-                        foundTemplateDecl = checkDecl;
-                        isExact = declIsExact;
-                        whereContractsResult = declWhereContractsResult;
-                    }
+                if (declIsExact) {
+                    exactMatches.push_back(checkDecl);
                 } else {
-                    if (whereContractsResult == WhereContractsResult::Passed) {
-                        // Only ambiguous if the new `decl` is exactly the same
-                        if (declIsExact) {
-                            if (whereContractsResult != WhereContractsResult::Failed) {
-                                // If the new decl is exact and wasn't a failure we set it no matter what
-                                isAmbiguous = false;
-                                foundTemplateDecl = checkDecl;
-                                isExact = declIsExact;
-                                whereContractsResult = declWhereContractsResult;
-                            }
-                        } else {
-                            if (declWhereContractsResult == WhereContractsResult::Passed) {
-                                // The new decl is exactly the same as the old decl
-                                isAmbiguous = true;
-                            }
-                        }
-                    } else if (whereContractsResult == WhereContractsResult::NoContracts) {
-                        if (declWhereContractsResult == WhereContractsResult::Passed) {
-                            // If the contracts were passed then we set the decl even if it isn't an exact match
-                            // (since the one we've already found isn't an exact match either...
-                            isAmbiguous = false;
-                            foundTemplateDecl = checkDecl;
-                            isExact = declIsExact;
-                            whereContractsResult = declWhereContractsResult;
-                        } else if (declWhereContractsResult != WhereContractsResult::Failed) {
-                            if (declIsExact) {
-                                // If the new one didn't fail the contracts and is an exact match then we set the decl
-                                isAmbiguous = false;
-                                foundTemplateDecl = checkDecl;
-                                isExact = declIsExact;
-                                whereContractsResult = declWhereContractsResult;
-                            } else if (declWhereContractsResult == WhereContractsResult::NoContracts) {
-                                // If the new decl is also no contracts then it is exactly the same as the last one...
-                                isAmbiguous = true;
-                            }
-                        }
-                    } else if (whereContractsResult == WhereContractsResult::Failed) {
-                        // If the new decl didn't fail the contracts or the `foundTemplateDecl` is still null then we
-                        // set the decl. We set it here just to be used in error messages if it did fail
-                        if (declWhereContractsResult != WhereContractsResult::Failed || foundTemplateDecl == nullptr) {
-                            isAmbiguous = false;
-                            foundTemplateDecl = checkDecl;
-                            isExact = declIsExact;
-                            whereContractsResult = declWhereContractsResult;
-                        }
-                    }
+                    partialMatches.push_back(checkDecl);
                 }
             }
         }
 
-        if (foundTemplateDecl == nullptr) {
+        // If both lists are empty then we didn't find a valid template with the provided arguments
+        if (exactMatches.empty() && partialMatches.empty()) {
             printError("template type `" + templatedType->toString() + "` was not found for the provided arguments!",
                        templatedType->startPosition(), templatedType->endPosition());
         }
 
-        if (whereContractsResult == WhereContractsResult::Failed) {
-            // TODO: We need to improve this error message to say what contract failed...
-            printError("template arguments provided for type `" + templatedType->toString() + "` do not match required contracts!",
+        // If there is more than 1 exact match OR there are more than 1 partial match with no exact matches then there
+        // is an ambiguity issue
+        if (exactMatches.size() > 1 || (exactMatches.empty() && partialMatches.size() > 1)) {
+            printError("template type `" + templatedType->toString() + "` is ambiguous in the current context!",
                        templatedType->startPosition(), templatedType->endPosition());
         }
 
-        if (isAmbiguous) {
-            printError("template type `" + templatedType->toString() + "` is ambiguous in the current context!",
-                       templatedType->startPosition(), templatedType->endPosition());
+        Decl* foundTemplateDecl = nullptr;
+        bool isExact;
+
+        if (!exactMatches.empty()) {
+            foundTemplateDecl = exactMatches[0];
+            isExact = true;
+        } else {
+            foundTemplateDecl = partialMatches[0];
+            isExact = false;
         }
 
         if (!isExact) {
@@ -493,6 +428,15 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
         switch (foundTemplateDecl->getDeclKind()) {
             case Decl::Kind::TemplateStruct: {
                 auto templateStructDecl = llvm::dyn_cast<TemplateStructDecl>(foundTemplateDecl);
+
+                if (!templateStructDecl->contractsAreInstantiated) {
+                    processTemplateStructDeclContracts(templateStructDecl);
+                }
+
+                // Output an easy to read error message for any `where...` failures
+                errorOnWhereContractFailure(templatedType,
+                                            templateStructDecl->contracts(), templatedType->templateArguments(),
+                                            templateStructDecl->templateParameters());
 
                 if (!templateStructDecl->containedInTemplate &&
                     ConstExprHelper::templateArgumentsAreSolved(templatedType->templateArguments())) {
@@ -536,6 +480,15 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
             }
             case Decl::Kind::TemplateTrait: {
                 auto templateTraitDecl = llvm::dyn_cast<TemplateTraitDecl>(foundTemplateDecl);
+
+                if (!templateTraitDecl->contractsAreInstantiated) {
+                    processTemplateTraitDeclContracts(templateTraitDecl);
+                }
+
+                // Output an easy to read error message for any `where...` failures
+                errorOnWhereContractFailure(templatedType,
+                                            templateTraitDecl->contracts(), templatedType->templateArguments(),
+                                            templateTraitDecl->templateParameters());
 
                 if (!templateTraitDecl->containedInTemplate &&
                     ConstExprHelper::templateArgumentsAreSolved(templatedType->templateArguments())) {
@@ -754,21 +707,17 @@ gulc::Type* gulc::DeclInstantiator::resolveDependentType(std::vector<Decl*>& che
     }
 }
 
-void gulc::DeclInstantiator::compareDeclTemplateArgsToParams(const std::vector<Cont*>& contracts,
-                                                             const std::vector<Expr*>& args,
+void gulc::DeclInstantiator::compareDeclTemplateArgsToParams(const std::vector<Expr*>& args,
                                                              const std::vector<TemplateParameterDecl*>& params,
-                                                             bool* outIsMatch, bool* outIsExact,
-                                                             WhereContractsResult* outPassedWhereContracts) const {
+                                                             bool* outIsMatch, bool* outIsExact) const {
     if (params.size() < args.size()) {
         // If there are more template arguments than parameters then we skip this Decl...
         *outIsMatch = false;
         *outIsExact = false;
-        *outPassedWhereContracts = WhereContractsResult::Failed;
         return;
     }
 
     *outIsMatch = true;
-    *outPassedWhereContracts = WhereContractsResult::Failed;
     // TODO: Once we support implicit casts and default template parameter values we need to set this to false
     //       when we implicit cast or use a default template parameter.
     *outIsExact = true;
@@ -812,30 +761,31 @@ void gulc::DeclInstantiator::compareDeclTemplateArgsToParams(const std::vector<C
         }
     }
 
-    if (*outIsMatch) {
-        // If it was a match we now will check the contracts
-        // For this we default to `NoContracts` until we find a where contract
-        *outPassedWhereContracts = WhereContractsResult::NoContracts;
+    // NOTE: Once we've reached this point the decl has been completely evaluated...
+}
 
-        for (Cont* contract : contracts) {
-            if (llvm::isa<WhereCont>(contract)) {
-                if (*outPassedWhereContracts == WhereContractsResult::NoContracts) {
-                    *outPassedWhereContracts = WhereContractsResult::Passed;
-                }
+void gulc::DeclInstantiator::errorOnWhereContractFailure(Type const* errorMessageType,
+                                                         std::vector<Cont*> const& contracts,
+                                                         std::vector<Expr*> const& args,
+                                                         std::vector<TemplateParameterDecl*> const& params) {
+    for (Cont* contract : contracts) {
+        if (llvm::isa<WhereCont>(contract)) {
+            auto checkWhere = llvm::dyn_cast<WhereCont>(contract);
 
-                auto checkWhere = llvm::dyn_cast<WhereCont>(contract);
+            ContractUtil contractUtil(_filePaths[_currentFile->sourceFileID], &params, &args);
 
-                ContractUtil contractUtil(_filePaths[_currentFile->sourceFileID], &params, &args);
-
-                if (!contractUtil.checkWhereCont(checkWhere)) {
-                    *outPassedWhereContracts = WhereContractsResult::Failed;
-                    break;
-                }
+            if (!contractUtil.checkWhereCont(checkWhere)) {
+                // TODO: Once possible, we should output a better error message formatted as:
+                //       struct Example<T>
+                //           where T : Trait
+                //                 ^^^^^^^^^
+                //       type `i32` does not pass the annotated `where` contract for `Example<i32>`
+                printError("instantiation failed for type `" + errorMessageType->toString() + "`, "
+                           "`where " + checkWhere->condition->toString() + "` failed!",
+                           errorMessageType->startPosition(), errorMessageType->endPosition());
             }
         }
     }
-
-    // NOTE: Once we've reached this point the decl has been completely evaluated...
 }
 
 void gulc::DeclInstantiator::processContract(gulc::Cont* contract) {
@@ -881,7 +831,8 @@ void gulc::DeclInstantiator::processDecl(gulc::Decl* decl, bool isGlobal) {
             processEnumDecl(llvm::dyn_cast<EnumDecl>(decl));
             break;
         case Decl::Kind::Extension:
-            processExtensionDecl(llvm::dyn_cast<ExtensionDecl>(decl));
+            // Extensions are preprocessed
+//            processExtensionDecl(llvm::dyn_cast<ExtensionDecl>(decl));
             break;
         case Decl::Kind::CallOperator:
         case Decl::Kind::Constructor:
@@ -956,35 +907,38 @@ void gulc::DeclInstantiator::processEnumDecl(gulc::EnumDecl* enumDecl) {
 }
 
 void gulc::DeclInstantiator::processExtensionDecl(gulc::ExtensionDecl* extensionDecl) {
-    for (TemplateParameterDecl* templateParameter : extensionDecl->templateParameters()) {
-        processTemplateParameterDecl(templateParameter);
+    if (!resolveType(extensionDecl->typeToExtend)) {
+        printError("extension type `" + extensionDecl->typeToExtend->toString() + "` was not found!",
+                   extensionDecl->typeToExtend->startPosition(), extensionDecl->typeToExtend->endPosition());
     }
 
-    if (!extensionDecl->hasTemplateParameters()) {
-        if (!resolveType(extensionDecl->typeToExtend)) {
-            printError("extension type `" + extensionDecl->typeToExtend->toString() + "` was not found!",
-                       extensionDecl->typeToExtend->startPosition(), extensionDecl->typeToExtend->endPosition());
+    for (Type*& inheritedType : extensionDecl->inheritedTypes()) {
+        if (!resolveType(inheritedType)) {
+            printError("extension inherited type `" + inheritedType->toString() + "` was not found!",
+                       inheritedType->startPosition(), inheritedType->endPosition());
         }
 
-        for (Type*& inheritedType : extensionDecl->inheritedTypes()) {
-            if (!resolveType(inheritedType)) {
-                printError("extension inherited type `" + inheritedType->toString() + "` was not found!",
-                           inheritedType->startPosition(), inheritedType->endPosition());
-            }
+        Type* processType = inheritedType;
 
-            if (!llvm::isa<TraitType>(inheritedType)) {
-                printError("extensions can only inherit traits!",
-                           inheritedType->startPosition(), inheritedType->endPosition());
-            }
+        // We have to account for dependent types as there might be a niche scenario where they access a type within
+        // a template using the template parameters
+        // `extension<T> Example<T> : OtherTemplate<T>.TInnerTrait {}`
+        if (llvm::isa<DependentType>(processType)) {
+            processType = llvm::dyn_cast<DependentType>(processType)->dependent;
         }
 
-        for (Decl* ownedMember : extensionDecl->ownedMembers()) {
-            processDecl(ownedMember, false);
+        if (!llvm::isa<TraitType>(processType) && !llvm::isa<TemplateTraitType>(processType)) {
+            printError("extensions can only inherit traits!",
+                       inheritedType->startPosition(), inheritedType->endPosition());
         }
+    }
 
-        for (ConstructorDecl* constructor : extensionDecl->constructors()) {
-            processDecl(constructor);
-        }
+    for (Decl* ownedMember : extensionDecl->ownedMembers()) {
+        processDecl(ownedMember, false);
+    }
+
+    for (ConstructorDecl* constructor : extensionDecl->constructors()) {
+        processDecl(constructor);
     }
 }
 
@@ -1002,6 +956,11 @@ void gulc::DeclInstantiator::processFunctionDecl(gulc::FunctionDecl* functionDec
 }
 
 void gulc::DeclInstantiator::processNamespaceDecl(gulc::NamespaceDecl* namespaceDecl) {
+    // Preprocess extensions
+    for (ExtensionDecl* extension : namespaceDecl->scopeExtensions) {
+        processExtensionDecl(llvm::dyn_cast<ExtensionDecl>(extension));
+    }
+
     for (Decl* nestedDecl : namespaceDecl->nestedDecls()) {
         processDecl(nestedDecl);
     }
@@ -1685,6 +1644,150 @@ bool gulc::DeclInstantiator::structUsesStructTypeAsValue(gulc::StructDecl* struc
     return false;
 }
 
+void gulc::DeclInstantiator::processStmt(gulc::Stmt* stmt) {
+    switch (stmt->getStmtKind()) {
+        case Stmt::Kind::Break:
+            // There isn't anything we need to process with `break` here...
+            break;
+        case Stmt::Kind::Case:
+            processCaseStmt(llvm::dyn_cast<CaseStmt>(stmt));
+            break;
+        case Stmt::Kind::Catch:
+            processCatchStmt(llvm::dyn_cast<CatchStmt>(stmt));
+            break;
+        case Stmt::Kind::Compound:
+            processCompoundStmt(llvm::dyn_cast<CompoundStmt>(stmt));
+            break;
+        case Stmt::Kind::Continue:
+            // There isn't anything we need to process with `continue` here...
+            break;
+        case Stmt::Kind::Do:
+            processDoStmt(llvm::dyn_cast<DoStmt>(stmt));
+            break;
+        case Stmt::Kind::Fallthrough:
+            // There isn't anything we need to process with `fallthrough` here...
+            break;
+        case Stmt::Kind::For:
+            processForStmt(llvm::dyn_cast<ForStmt>(stmt));
+            break;
+        case Stmt::Kind::Goto:
+            // There isn't anything we need to process with `goto` here...
+            break;
+        case Stmt::Kind::If:
+            processIfStmt(llvm::dyn_cast<IfStmt>(stmt));
+            break;
+        case Stmt::Kind::Labeled:
+            processLabeledStmt(llvm::dyn_cast<LabeledStmt>(stmt));
+            break;
+        case Stmt::Kind::Return:
+            processReturnStmt(llvm::dyn_cast<ReturnStmt>(stmt));
+            break;
+        case Stmt::Kind::Switch:
+            processSwitchStmt(llvm::dyn_cast<SwitchStmt>(stmt));
+            break;
+        case Stmt::Kind::Try:
+            processTryStmt(llvm::dyn_cast<TryStmt>(stmt));
+            break;
+        case Stmt::Kind::While:
+            processWhileStmt(llvm::dyn_cast<WhileStmt>(stmt));
+            break;
+        default:
+            printError("[INTERNAL ERROR] unsupported `Stmt` found in `DeclInstantiator::processStmt`!",
+                       stmt->startPosition(), stmt->endPosition());
+    }
+}
+
+void gulc::DeclInstantiator::processCaseStmt(gulc::CaseStmt* caseStmt) {
+    processExpr(caseStmt->condition);
+    processStmt(caseStmt->trueStmt);
+}
+
+void gulc::DeclInstantiator::processCatchStmt(gulc::CatchStmt* catchStmt) {
+    // TODO: We need to make the catch variable accessible (it currently isn't included in the local variables list)
+    if (catchStmt->hasExceptionType()) {
+        if (!resolveType(catchStmt->exceptionType)) {
+            printError("catch type `" + catchStmt->exceptionType->toString() + "` was not found!",
+                       catchStmt->exceptionType->startPosition(), catchStmt->exceptionType->endPosition());
+        }
+    }
+
+    processCompoundStmt(catchStmt->body());
+}
+
+void gulc::DeclInstantiator::processCompoundStmt(gulc::CompoundStmt* compoundStmt) {
+    for (Stmt* statement : compoundStmt->statements) {
+        processStmt(statement);
+    }
+}
+
+void gulc::DeclInstantiator::processDoStmt(gulc::DoStmt* doStmt) {
+    processCompoundStmt(doStmt->body());
+
+    processExpr(doStmt->condition);
+}
+
+void gulc::DeclInstantiator::processForStmt(gulc::ForStmt* forStmt) {
+    if (forStmt->init != nullptr) {
+        processExpr(forStmt->init);
+    }
+
+    if (forStmt->condition != nullptr) {
+        processExpr(forStmt->condition);
+    }
+
+    if (forStmt->iteration != nullptr) {
+        processExpr(forStmt->iteration);
+    }
+
+    processCompoundStmt(forStmt->body());
+}
+
+void gulc::DeclInstantiator::processIfStmt(gulc::IfStmt* ifStmt) {
+    processExpr(ifStmt->condition);
+    processCompoundStmt(ifStmt->trueBody());
+
+    if (ifStmt->hasFalseBody()) {
+        // TODO: We need to validate this at some point to make sure it is either `if` or `compound`, nothing else is
+        //       allowed
+        processStmt(ifStmt->falseBody());
+    }
+}
+
+void gulc::DeclInstantiator::processLabeledStmt(gulc::LabeledStmt* labeledStmt) {
+    processStmt(labeledStmt->labeledStmt);
+}
+
+void gulc::DeclInstantiator::processReturnStmt(gulc::ReturnStmt* returnStmt) {
+    if (returnStmt->returnValue != nullptr) {
+        processExpr(returnStmt->returnValue);
+    }
+}
+
+void gulc::DeclInstantiator::processSwitchStmt(gulc::SwitchStmt* switchStmt) {
+    processExpr(switchStmt->condition);
+
+    for (Stmt* statement : switchStmt->statements) {
+        processStmt(statement);
+    }
+}
+
+void gulc::DeclInstantiator::processTryStmt(gulc::TryStmt* tryStmt) {
+    processCompoundStmt(tryStmt->body());
+
+    for (CatchStmt* catchStmt : tryStmt->catchStatements()) {
+        processCatchStmt(catchStmt);
+    }
+
+    if (tryStmt->hasFinallyStatement()) {
+        processCompoundStmt(tryStmt->finallyStatement());
+    }
+}
+
+void gulc::DeclInstantiator::processWhileStmt(gulc::WhileStmt* whileStmt) {
+    processExpr(whileStmt->condition);
+    processCompoundStmt(whileStmt->body());
+}
+
 void gulc::DeclInstantiator::processConstExpr(gulc::Expr* expr) {
     switch (expr->getExprKind()) {
         case Expr::Kind::CheckExtendsType:
@@ -1703,6 +1806,95 @@ void gulc::DeclInstantiator::processConstExpr(gulc::Expr* expr) {
     }
 }
 
+void gulc::DeclInstantiator::processExpr(gulc::Expr* expr) {
+    switch (expr->getExprKind()) {
+        case Expr::Kind::ArrayLiteral:
+            processArrayLiteralExpr(llvm::dyn_cast<ArrayLiteralExpr>(expr));
+            break;
+        case Expr::Kind::As:
+            processAsExpr(llvm::dyn_cast<AsExpr>(expr));
+            break;
+        case Expr::Kind::AssignmentOperator:
+            processAssignmentOperatorExpr(llvm::dyn_cast<AssignmentOperatorExpr>(expr));
+            break;
+        case Expr::Kind::CheckExtendsType:
+            processCheckExtendsTypeExpr(llvm::dyn_cast<CheckExtendsTypeExpr>(expr));
+            break;
+        case Expr::Kind::FunctionCall:
+            processFunctionCallExpr(llvm::dyn_cast<FunctionCallExpr>(expr));
+            break;
+        case Expr::Kind::Has:
+            processHasExpr(llvm::dyn_cast<HasExpr>(expr));
+            break;
+        case Expr::Kind::Identifier:
+            processIdentifierExpr(llvm::dyn_cast<IdentifierExpr>(expr));
+            break;
+        case Expr::Kind::IndexerCall:
+            processIndexerCallExpr(llvm::dyn_cast<IndexerCallExpr>(expr));
+            break;
+        case Expr::Kind::InfixOperator:
+            processInfixOperatorExpr(llvm::dyn_cast<InfixOperatorExpr>(expr));
+            break;
+        case Expr::Kind::Is:
+            processIsExpr(llvm::dyn_cast<IsExpr>(expr));
+            break;
+        case Expr::Kind::LabeledArgument:
+            printError("argument label found outside of function or indexer call!",
+                       expr->startPosition(), expr->endPosition());
+            break;
+        case Expr::Kind::MemberAccessCall:
+            processMemberAccessCallExpr(llvm::dyn_cast<MemberAccessCallExpr>(expr));
+            break;
+        case Expr::Kind::Paren:
+            processParenExpr(llvm::dyn_cast<ParenExpr>(expr));
+            break;
+        case Expr::Kind::PostfixOperator:
+            processPostfixOperatorExpr(llvm::dyn_cast<PostfixOperatorExpr>(expr));
+            break;
+        case Expr::Kind::PrefixOperator:
+            processPrefixOperatorExpr(llvm::dyn_cast<PrefixOperatorExpr>(expr));
+            break;
+        case Expr::Kind::TemplateConstRefExpr:
+            processTemplateConstRefExpr(llvm::dyn_cast<TemplateConstRefExpr>(expr));
+            break;
+        case Expr::Kind::Ternary:
+            processTernaryExpr(llvm::dyn_cast<TernaryExpr>(expr));
+            break;
+        case Expr::Kind::Type:
+            processTypeExpr(llvm::dyn_cast<TypeExpr>(expr));
+            break;
+        case Expr::Kind::ValueLiteral:
+            processValueLiteralExpr(llvm::dyn_cast<ValueLiteralExpr>(expr));
+            break;
+        case Expr::Kind::VariableDecl:
+            processVariableDeclExpr(llvm::dyn_cast<VariableDeclExpr>(expr));
+            break;
+        default:
+            printError("[INTERNAL ERROR] unsupported expression found in `DeclInstantiator::processExpr`!",
+                       expr->startPosition(), expr->endPosition());
+    }
+}
+
+void gulc::DeclInstantiator::processArrayLiteralExpr(gulc::ArrayLiteralExpr* arrayLiteralExpr) {
+    for (Expr* index : arrayLiteralExpr->indexes) {
+        processExpr(index);
+    }
+}
+
+void gulc::DeclInstantiator::processAsExpr(gulc::AsExpr* asExpr) {
+    processExpr(asExpr->expr);
+
+    if (!resolveType(asExpr->asType)) {
+        printError("type `" + asExpr->asType->toString() + "` was not found!",
+                   asExpr->asType->startPosition(), asExpr->asType->endPosition());
+    }
+}
+
+void gulc::DeclInstantiator::processAssignmentOperatorExpr(gulc::AssignmentOperatorExpr* assignmentOperatorExpr) {
+    processExpr(assignmentOperatorExpr->leftValue);
+    processExpr(assignmentOperatorExpr->rightValue);
+}
+
 void gulc::DeclInstantiator::processCheckExtendsTypeExpr(gulc::CheckExtendsTypeExpr* checkExtendsTypeExpr) {
     if (!resolveType(checkExtendsTypeExpr->checkType)) {
         printError("type `" + checkExtendsTypeExpr->checkType->toString() + "` was not found!",
@@ -1715,6 +1907,82 @@ void gulc::DeclInstantiator::processCheckExtendsTypeExpr(gulc::CheckExtendsTypeE
                    checkExtendsTypeExpr->extendsType->startPosition(),
                    checkExtendsTypeExpr->extendsType->endPosition());
     }
+}
+
+void gulc::DeclInstantiator::processFunctionCallExpr(gulc::FunctionCallExpr* functionCallExpr) {
+    processExpr(functionCallExpr->functionReference);
+
+    for (LabeledArgumentExpr* labeledArgument : functionCallExpr->arguments) {
+        processLabeledArgumentExpr(labeledArgument);
+    }
+}
+
+void gulc::DeclInstantiator::processHasExpr(gulc::HasExpr* hasExpr) {
+    processExpr(hasExpr->expr);
+
+    // TODO: Support `T has func example()`, `T has var test: i32`
+    if (!resolveType(hasExpr->trait)) {
+        printError("type `" + hasExpr->trait->toString() + "` was not found!",
+                   hasExpr->startPosition(), hasExpr->endPosition());
+    }
+}
+
+void gulc::DeclInstantiator::processIdentifierExpr(gulc::IdentifierExpr* identifierExpr) {
+    for (Expr* templateArgument : identifierExpr->templateArguments()) {
+        processExpr(templateArgument);
+    }
+}
+
+void gulc::DeclInstantiator::processIndexerCallExpr(gulc::IndexerCallExpr* indexerCallExpr) {
+    processExpr(indexerCallExpr->indexerReference);
+
+    for (LabeledArgumentExpr* labeledArgument : indexerCallExpr->arguments) {
+        processLabeledArgumentExpr(labeledArgument);
+    }
+}
+
+void gulc::DeclInstantiator::processInfixOperatorExpr(gulc::InfixOperatorExpr* infixOperatorExpr) {
+    processExpr(infixOperatorExpr->leftValue);
+    processExpr(infixOperatorExpr->rightValue);
+}
+
+void gulc::DeclInstantiator::processIsExpr(gulc::IsExpr* isExpr) {
+    processExpr(isExpr->expr);
+
+    if (!resolveType(isExpr->isType)) {
+        printError("type `" + isExpr->isType->toString() + "` was not found!",
+                   isExpr->isType->startPosition(), isExpr->isType->endPosition());
+    }
+}
+
+void gulc::DeclInstantiator::processLabeledArgumentExpr(gulc::LabeledArgumentExpr* labeledArgumentExpr) {
+    processExpr(labeledArgumentExpr->argument);
+}
+
+void gulc::DeclInstantiator::processMemberAccessCallExpr(gulc::MemberAccessCallExpr* memberAccessCallExpr) {
+    processExpr(memberAccessCallExpr->objectRef);
+}
+
+void gulc::DeclInstantiator::processParenExpr(gulc::ParenExpr* parenExpr) {
+    processExpr(parenExpr->nestedExpr);
+}
+
+void gulc::DeclInstantiator::processPostfixOperatorExpr(gulc::PostfixOperatorExpr* postfixOperatorExpr) {
+    processExpr(postfixOperatorExpr->nestedExpr);
+}
+
+void gulc::DeclInstantiator::processPrefixOperatorExpr(gulc::PrefixOperatorExpr* prefixOperatorExpr) {
+    processExpr(prefixOperatorExpr->nestedExpr);
+}
+
+void gulc::DeclInstantiator::processTemplateConstRefExpr(gulc::TemplateConstRefExpr* templateConstRefExpr) {
+    // TODO: Do we need to do anything here?
+}
+
+void gulc::DeclInstantiator::processTernaryExpr(gulc::TernaryExpr* ternaryExpr) {
+    processExpr(ternaryExpr->condition);
+    processExpr(ternaryExpr->trueExpr);
+    processExpr(ternaryExpr->falseExpr);
 }
 
 void gulc::DeclInstantiator::processTypeExpr(gulc::TypeExpr* typeExpr) {
@@ -1743,5 +2011,20 @@ void gulc::DeclInstantiator::processValueLiteralExpr(gulc::ValueLiteralExpr* val
                            valueLiteralExpr->startPosition(), valueLiteralExpr->endPosition());
                 break;
         }
+    }
+}
+
+void gulc::DeclInstantiator::processVariableDeclExpr(gulc::VariableDeclExpr* variableDeclExpr) {
+    if (variableDeclExpr->type != nullptr) {
+        if (!resolveType(variableDeclExpr->type)) {
+            printError("variable type `" + variableDeclExpr->type->toString() + "` was not found!",
+                       variableDeclExpr->type->startPosition(), variableDeclExpr->type->endPosition());
+        }
+    } else {
+        // TODO: Detect type from the initial value...
+    }
+
+    if (variableDeclExpr->initialValue != nullptr) {
+        processExpr(variableDeclExpr->initialValue);
     }
 }

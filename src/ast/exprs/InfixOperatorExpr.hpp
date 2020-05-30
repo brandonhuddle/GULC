@@ -94,7 +94,9 @@ namespace gulc {
         TextPosition endPosition() const override { return rightValue->endPosition(); }
 
         Expr* deepCopy() const override {
-            return new InfixOperatorExpr(_infixOperator, leftValue->deepCopy(), rightValue->deepCopy());
+            auto result = new InfixOperatorExpr(_infixOperator, leftValue->deepCopy(), rightValue->deepCopy());
+            result->valueType = valueType == nullptr ? nullptr : valueType->deepCopy();
+            return result;
         }
 
         std::string toString() const override {

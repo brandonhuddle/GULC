@@ -11,6 +11,7 @@
 #include <ast/types/UnresolvedNestedType.hpp>
 #include <ast/conts/WhereCont.hpp>
 #include <ast/types/DependentType.hpp>
+#include <make_reverse_iterator.hpp>
 #include "BasicTypeResolver.hpp"
 
 void gulc::BasicTypeResolver::processFiles(std::vector<ASTFile>& files) {
@@ -19,6 +20,10 @@ void gulc::BasicTypeResolver::processFiles(std::vector<ASTFile>& files) {
 
         for (Decl* decl : file.declarations) {
             processDecl(decl);
+
+            if (llvm::isa<ExtensionDecl>(decl)) {
+                _currentFile->scopeExtensions.push_back(llvm::dyn_cast<ExtensionDecl>(decl));
+            }
         }
     }
 }
@@ -40,7 +45,7 @@ void gulc::BasicTypeResolver::printWarning(std::string const& message, gulc::Tex
               << message << std::endl;
 }
 
-bool gulc::BasicTypeResolver::resolveType(gulc::Type*& type) const {
+bool gulc::BasicTypeResolver::resolveType(gulc::Type*& type) {
     bool isAmbiguous = false;
     bool result = TypeHelper::resolveType(type, _currentFile, _namespacePrototypes, _templateParameters,
                                           _containingDecls, &isAmbiguous);
@@ -57,7 +62,7 @@ bool gulc::BasicTypeResolver::resolveType(gulc::Type*& type) const {
     return result;
 }
 
-void gulc::BasicTypeResolver::processType(gulc::Type* type) const {
+void gulc::BasicTypeResolver::processType(gulc::Type* type) {
     if (llvm::isa<DependentType>(type)) {
         auto dependentType = llvm::dyn_cast<DependentType>(type);
 
@@ -97,7 +102,7 @@ void gulc::BasicTypeResolver::processType(gulc::Type* type) const {
     }
 }
 
-void gulc::BasicTypeResolver::processContracts(std::vector<Cont*>& contracts) const {
+void gulc::BasicTypeResolver::processContracts(std::vector<Cont*>& contracts) {
     for (Cont* contract : contracts) {
         switch (contract->getContKind()) {
             case Cont::Kind::Where: {
@@ -215,12 +220,6 @@ void gulc::BasicTypeResolver::processEnumDecl(gulc::EnumDecl* enumDecl) {
 }
 
 void gulc::BasicTypeResolver::processExtensionDecl(gulc::ExtensionDecl* extensionDecl) {
-    for (TemplateParameterDecl* templateParameter : extensionDecl->templateParameters()) {
-        processTemplateParameterDecl(templateParameter);
-    }
-
-    _templateParameters.push_back(&extensionDecl->templateParameters());
-
     processContracts(extensionDecl->contracts());
 
     if (!resolveType(extensionDecl->typeToExtend)) {
@@ -247,7 +246,6 @@ void gulc::BasicTypeResolver::processExtensionDecl(gulc::ExtensionDecl* extensio
     }
 
     _containingDecls.pop_back();
-    _templateParameters.pop_back();
 }
 
 void gulc::BasicTypeResolver::processFunctionDecl(gulc::FunctionDecl* functionDecl) {
@@ -265,7 +263,18 @@ void gulc::BasicTypeResolver::processFunctionDecl(gulc::FunctionDecl* functionDe
         }
     }
 
-    processStmt(functionDecl->body());
+    // Clear any old values
+    _labelIdentifiers.clear();
+
+    processCompoundStmt(functionDecl->body());
+
+    // Check if any labels were used but not found
+    for (auto const& checkLabel : _labelIdentifiers) {
+        if (!checkLabel.second.status) {
+            printError("label `" + checkLabel.first + "` was not found!",
+                       checkLabel.second.startPosition, checkLabel.second.endPosition);
+        }
+    }
 }
 
 void gulc::BasicTypeResolver::processNamespaceDecl(gulc::NamespaceDecl* namespaceDecl) {
@@ -273,12 +282,16 @@ void gulc::BasicTypeResolver::processNamespaceDecl(gulc::NamespaceDecl* namespac
 
     for (Decl* nestedDecl : namespaceDecl->nestedDecls()) {
         processDecl(nestedDecl);
+
+        if (llvm::isa<ExtensionDecl>(nestedDecl)) {
+            namespaceDecl->scopeExtensions.push_back(llvm::dyn_cast<ExtensionDecl>(nestedDecl));
+        }
     }
 
     _containingDecls.pop_back();
 }
 
-void gulc::BasicTypeResolver::processParameterDecl(gulc::ParameterDecl* parameterDecl) const {
+void gulc::BasicTypeResolver::processParameterDecl(gulc::ParameterDecl* parameterDecl) {
     if (!resolveType(parameterDecl->type)) {
         printError("function parameter type `" + parameterDecl->type->toString() + "` was not found!",
                    parameterDecl->startPosition(), parameterDecl->endPosition());
@@ -386,7 +399,7 @@ void gulc::BasicTypeResolver::processTemplateFunctionDecl(gulc::TemplateFunction
     _templateParameters.pop_back();
 }
 
-void gulc::BasicTypeResolver::processTemplateParameterDecl(gulc::TemplateParameterDecl* templateParameterDecl) const {
+void gulc::BasicTypeResolver::processTemplateParameterDecl(gulc::TemplateParameterDecl* templateParameterDecl) {
     // If the template parameter is a const then we have to process its underlying type
     if (templateParameterDecl->templateParameterKind() == TemplateParameterDecl::TemplateParameterKind::Const) {
         if (!resolveType(templateParameterDecl->constType)) {
@@ -463,7 +476,7 @@ void gulc::BasicTypeResolver::processTypeAliasDecl(gulc::TypeAliasDecl* typeAlia
     }
 }
 
-void gulc::BasicTypeResolver::processVariableDecl(gulc::VariableDecl* variableDecl, bool isGlobal) const {
+void gulc::BasicTypeResolver::processVariableDecl(gulc::VariableDecl* variableDecl, bool isGlobal) {
     if (isGlobal) {
         if (!variableDecl->isConstExpr() && !variableDecl->isStatic()) {
             printError("global variables must be marked `const` or `static`!",
@@ -486,8 +499,11 @@ void gulc::BasicTypeResolver::processVariableDecl(gulc::VariableDecl* variableDe
     }
 }
 
-void gulc::BasicTypeResolver::processStmt(gulc::Stmt* stmt) const {
+void gulc::BasicTypeResolver::processStmt(gulc::Stmt* stmt) {
     switch (stmt->getStmtKind()) {
+        case Stmt::Kind::Break:
+            processBreakStmt(llvm::dyn_cast<BreakStmt>(stmt));
+            break;
         case Stmt::Kind::Case:
             processCaseStmt(llvm::dyn_cast<CaseStmt>(stmt));
             break;
@@ -497,11 +513,17 @@ void gulc::BasicTypeResolver::processStmt(gulc::Stmt* stmt) const {
         case Stmt::Kind::Compound:
             processCompoundStmt(llvm::dyn_cast<CompoundStmt>(stmt));
             break;
+        case Stmt::Kind::Continue:
+            processContinueStmt(llvm::dyn_cast<ContinueStmt>(stmt));
+            break;
         case Stmt::Kind::Do:
             processDoStmt(llvm::dyn_cast<DoStmt>(stmt));
             break;
         case Stmt::Kind::For:
             processForStmt(llvm::dyn_cast<ForStmt>(stmt));
+            break;
+        case Stmt::Kind::Goto:
+            processGotoStmt(llvm::dyn_cast<GotoStmt>(stmt));
             break;
         case Stmt::Kind::If:
             processIfStmt(llvm::dyn_cast<IfStmt>(stmt));
@@ -532,7 +554,17 @@ void gulc::BasicTypeResolver::processStmt(gulc::Stmt* stmt) const {
     }
 }
 
-void gulc::BasicTypeResolver::processCaseStmt(gulc::CaseStmt* caseStmt) const {
+void gulc::BasicTypeResolver::processBreakStmt(gulc::BreakStmt* breakStmt) {
+    if (breakStmt->hasBreakLabel()) {
+        if (_labelIdentifiers.find(breakStmt->breakLabel().name()) == _labelIdentifiers.end()) {
+            _labelIdentifiers.insert({breakStmt->breakLabel().name(),
+                                      LabelStatus(false, breakStmt->breakLabel().startPosition(),
+                                                  breakStmt->breakLabel().endPosition())});
+        }
+    }
+}
+
+void gulc::BasicTypeResolver::processCaseStmt(gulc::CaseStmt* caseStmt) {
     if (!caseStmt->isDefault()) {
         processExpr(caseStmt->condition);
     }
@@ -540,7 +572,7 @@ void gulc::BasicTypeResolver::processCaseStmt(gulc::CaseStmt* caseStmt) const {
     processStmt(caseStmt->trueStmt);
 }
 
-void gulc::BasicTypeResolver::processCatchStmt(gulc::CatchStmt* catchStmt) const {
+void gulc::BasicTypeResolver::processCatchStmt(gulc::CatchStmt* catchStmt) {
     if (catchStmt->hasExceptionType()) {
         resolveType(catchStmt->exceptionType);
     }
@@ -548,18 +580,28 @@ void gulc::BasicTypeResolver::processCatchStmt(gulc::CatchStmt* catchStmt) const
     processStmt(catchStmt->body());
 }
 
-void gulc::BasicTypeResolver::processCompoundStmt(gulc::CompoundStmt* compoundStmt) const {
+void gulc::BasicTypeResolver::processCompoundStmt(gulc::CompoundStmt* compoundStmt) {
     for (Stmt* statement : compoundStmt->statements) {
         processStmt(statement);
     }
 }
 
-void gulc::BasicTypeResolver::processDoStmt(gulc::DoStmt* doStmt) const {
+void gulc::BasicTypeResolver::processContinueStmt(gulc::ContinueStmt* continueStmt) {
+    if (continueStmt->hasContinueLabel()) {
+        if (_labelIdentifiers.find(continueStmt->continueLabel().name()) == _labelIdentifiers.end()) {
+            _labelIdentifiers.insert({continueStmt->continueLabel().name(),
+                                      LabelStatus(false, continueStmt->continueLabel().startPosition(),
+                                                  continueStmt->continueLabel().endPosition())});
+        }
+    }
+}
+
+void gulc::BasicTypeResolver::processDoStmt(gulc::DoStmt* doStmt) {
     processStmt(doStmt->body());
     processExpr(doStmt->condition);
 }
 
-void gulc::BasicTypeResolver::processForStmt(gulc::ForStmt* forStmt) const {
+void gulc::BasicTypeResolver::processForStmt(gulc::ForStmt* forStmt) {
     if (forStmt->init != nullptr) {
         processExpr(forStmt->init);
     }
@@ -575,7 +617,15 @@ void gulc::BasicTypeResolver::processForStmt(gulc::ForStmt* forStmt) const {
     processStmt(forStmt->body());
 }
 
-void gulc::BasicTypeResolver::processIfStmt(gulc::IfStmt* ifStmt) const {
+void gulc::BasicTypeResolver::processGotoStmt(gulc::GotoStmt* gotoStmt) {
+    if (_labelIdentifiers.find(gotoStmt->label().name()) == _labelIdentifiers.end()) {
+        _labelIdentifiers.insert({gotoStmt->label().name(),
+                                  LabelStatus(false, gotoStmt->label().startPosition(),
+                                              gotoStmt->label().endPosition())});
+    }
+}
+
+void gulc::BasicTypeResolver::processIfStmt(gulc::IfStmt* ifStmt) {
     processExpr(ifStmt->condition);
     processStmt(ifStmt->trueBody());
 
@@ -584,17 +634,35 @@ void gulc::BasicTypeResolver::processIfStmt(gulc::IfStmt* ifStmt) const {
     }
 }
 
-void gulc::BasicTypeResolver::processLabeledStmt(gulc::LabeledStmt* labeledStmt) const {
-    processStmt(labeledStmt);
+void gulc::BasicTypeResolver::processLabeledStmt(gulc::LabeledStmt* labeledStmt) {
+    processStmt(labeledStmt->labeledStmt);
+
+    // Either store the status as already being true or change the status to true
+    if (_labelIdentifiers.find(labeledStmt->label().name()) == _labelIdentifiers.end()) {
+        _labelIdentifiers.insert({labeledStmt->label().name(),
+                                  LabelStatus(true, labeledStmt->label().startPosition(),
+                                              labeledStmt->label().endPosition())});
+    } else {
+        // If the status is already true we output an error saying the label name is used twice
+        if (_labelIdentifiers[labeledStmt->label().name()].status) {
+            printError("redefinition of label `" + labeledStmt->label().name() + "`!",
+                       _labelIdentifiers[labeledStmt->label().name()].startPosition,
+                       _labelIdentifiers[labeledStmt->label().name()].endPosition);
+        }
+
+        // We change the start and end positions as well for proper redefinition error messages
+        _labelIdentifiers[labeledStmt->label().name()] = LabelStatus(true, labeledStmt->label().startPosition(),
+                                                                     labeledStmt->label().endPosition());
+    }
 }
 
-void gulc::BasicTypeResolver::processReturnStmt(gulc::ReturnStmt* returnStmt) const {
+void gulc::BasicTypeResolver::processReturnStmt(gulc::ReturnStmt* returnStmt) {
     if (returnStmt->returnValue != nullptr) {
         processExpr(returnStmt->returnValue);
     }
 }
 
-void gulc::BasicTypeResolver::processSwitchStmt(gulc::SwitchStmt* switchStmt) const {
+void gulc::BasicTypeResolver::processSwitchStmt(gulc::SwitchStmt* switchStmt) {
     processExpr(switchStmt->condition);
 
     for (Stmt* statement : switchStmt->statements) {
@@ -602,7 +670,7 @@ void gulc::BasicTypeResolver::processSwitchStmt(gulc::SwitchStmt* switchStmt) co
     }
 }
 
-void gulc::BasicTypeResolver::processTryStmt(gulc::TryStmt* tryStmt) const {
+void gulc::BasicTypeResolver::processTryStmt(gulc::TryStmt* tryStmt) {
     processStmt(tryStmt->body());
 
     for (CatchStmt* catchStmt : tryStmt->catchStatements()) {
@@ -614,12 +682,12 @@ void gulc::BasicTypeResolver::processTryStmt(gulc::TryStmt* tryStmt) const {
     }
 }
 
-void gulc::BasicTypeResolver::processWhileStmt(gulc::WhileStmt* whileStmt) const {
+void gulc::BasicTypeResolver::processWhileStmt(gulc::WhileStmt* whileStmt) {
     processExpr(whileStmt->condition);
     processStmt(whileStmt->body());
 }
 
-void gulc::BasicTypeResolver::processTemplateArgumentExpr(gulc::Expr*& expr) const {
+void gulc::BasicTypeResolver::processTemplateArgumentExpr(gulc::Expr*& expr) {
     // TODO: Support more than just the `IdentifierExpr` (i.e. we need to support saying `std.math.vec2`
     if (llvm::isa<IdentifierExpr>(expr)) {
         // TODO: What happens if something is shadowing a type? Do we disallow `const` variables from being able to
@@ -649,7 +717,7 @@ void gulc::BasicTypeResolver::processTemplateArgumentExpr(gulc::Expr*& expr) con
     }
 }
 
-void gulc::BasicTypeResolver::processExpr(gulc::Expr* expr) const {
+void gulc::BasicTypeResolver::processExpr(gulc::Expr* expr) {
     switch (expr->getExprKind()) {
         case Expr::Kind::ArrayLiteral:
             processArrayLiteralExpr(llvm::dyn_cast<ArrayLiteralExpr>(expr));
@@ -716,23 +784,23 @@ void gulc::BasicTypeResolver::processExpr(gulc::Expr* expr) const {
     }
 }
 
-void gulc::BasicTypeResolver::processArrayLiteralExpr(gulc::ArrayLiteralExpr* arrayLiteralExpr) const {
+void gulc::BasicTypeResolver::processArrayLiteralExpr(gulc::ArrayLiteralExpr* arrayLiteralExpr) {
     for (Expr* index : arrayLiteralExpr->indexes) {
         processExpr(index);
     }
 }
 
-void gulc::BasicTypeResolver::processAsExpr(gulc::AsExpr* asExpr) const {
+void gulc::BasicTypeResolver::processAsExpr(gulc::AsExpr* asExpr) {
     processExpr(asExpr->expr);
     resolveType(asExpr->asType);
 }
 
-void gulc::BasicTypeResolver::processAssignmentOperatorExpr(gulc::AssignmentOperatorExpr* assignmentOperatorExpr) const {
+void gulc::BasicTypeResolver::processAssignmentOperatorExpr(gulc::AssignmentOperatorExpr* assignmentOperatorExpr) {
     processExpr(assignmentOperatorExpr->leftValue);
     processExpr(assignmentOperatorExpr->rightValue);
 }
 
-void gulc::BasicTypeResolver::processCheckExtendsTypeExpr(gulc::CheckExtendsTypeExpr* checkExtendsTypeExpr) const {
+void gulc::BasicTypeResolver::processCheckExtendsTypeExpr(gulc::CheckExtendsTypeExpr* checkExtendsTypeExpr) {
     if (!resolveType(checkExtendsTypeExpr->checkType)) {
         printError("type `" + checkExtendsTypeExpr->checkType->toString() + "` was not found!",
                    checkExtendsTypeExpr->checkType->startPosition(),
@@ -746,70 +814,70 @@ void gulc::BasicTypeResolver::processCheckExtendsTypeExpr(gulc::CheckExtendsType
     }
 }
 
-void gulc::BasicTypeResolver::processFunctionCallExpr(gulc::FunctionCallExpr* functionCallExpr) const {
+void gulc::BasicTypeResolver::processFunctionCallExpr(gulc::FunctionCallExpr* functionCallExpr) {
     processExpr(functionCallExpr->functionReference);
 
-    for (Expr* argument : functionCallExpr->arguments) {
-        processExpr(argument);
+    for (LabeledArgumentExpr* argument : functionCallExpr->arguments) {
+        processLabeledArgumentExpr(argument);
     }
 }
 
-void gulc::BasicTypeResolver::processHasExpr(gulc::HasExpr* hasExpr) const {
+void gulc::BasicTypeResolver::processHasExpr(gulc::HasExpr* hasExpr) {
     processExpr(hasExpr->expr);
     resolveType(hasExpr->trait);
 }
 
-void gulc::BasicTypeResolver::processIdentifierExpr(gulc::IdentifierExpr* identifierExpr) const {
+void gulc::BasicTypeResolver::processIdentifierExpr(gulc::IdentifierExpr* identifierExpr) {
     for (Expr* templateArgument : identifierExpr->templateArguments()) {
         processExpr(templateArgument);
     }
 }
 
-void gulc::BasicTypeResolver::processIndexerCallExpr(gulc::IndexerCallExpr* indexerCallExpr) const {
+void gulc::BasicTypeResolver::processIndexerCallExpr(gulc::IndexerCallExpr* indexerCallExpr) {
     processExpr(indexerCallExpr->indexerReference);
 
-    for (Expr* argument : indexerCallExpr->arguments) {
-        processExpr(argument);
+    for (LabeledArgumentExpr* argument : indexerCallExpr->arguments) {
+        processLabeledArgumentExpr(argument);
     }
 }
 
-void gulc::BasicTypeResolver::processInfixOperatorExpr(gulc::InfixOperatorExpr* infixOperatorExpr) const {
+void gulc::BasicTypeResolver::processInfixOperatorExpr(gulc::InfixOperatorExpr* infixOperatorExpr) {
     processExpr(infixOperatorExpr->leftValue);
     processExpr(infixOperatorExpr->rightValue);
 }
 
-void gulc::BasicTypeResolver::processIsExpr(gulc::IsExpr* isExpr) const {
+void gulc::BasicTypeResolver::processIsExpr(gulc::IsExpr* isExpr) {
     processExpr(isExpr->expr);
     resolveType(isExpr->isType);
 }
 
-void gulc::BasicTypeResolver::processLabeledArgumentExpr(gulc::LabeledArgumentExpr* labeledArgumentExpr) const {
+void gulc::BasicTypeResolver::processLabeledArgumentExpr(gulc::LabeledArgumentExpr* labeledArgumentExpr) {
     processExpr(labeledArgumentExpr->argument);
 }
 
-void gulc::BasicTypeResolver::processMemberAccessCallExpr(gulc::MemberAccessCallExpr* memberAccessCallExpr) const {
+void gulc::BasicTypeResolver::processMemberAccessCallExpr(gulc::MemberAccessCallExpr* memberAccessCallExpr) {
     processExpr(memberAccessCallExpr->objectRef);
 }
 
-void gulc::BasicTypeResolver::processParenExpr(gulc::ParenExpr* parenExpr) const {
+void gulc::BasicTypeResolver::processParenExpr(gulc::ParenExpr* parenExpr) {
     processExpr(parenExpr->nestedExpr);
 }
 
-void gulc::BasicTypeResolver::processPostfixOperatorExpr(gulc::PostfixOperatorExpr* postfixOperatorExpr) const {
+void gulc::BasicTypeResolver::processPostfixOperatorExpr(gulc::PostfixOperatorExpr* postfixOperatorExpr) {
     processExpr(postfixOperatorExpr->nestedExpr);
 }
 
-void gulc::BasicTypeResolver::processPrefixOperatorExpr(gulc::PrefixOperatorExpr* prefixOperatorExpr) const {
+void gulc::BasicTypeResolver::processPrefixOperatorExpr(gulc::PrefixOperatorExpr* prefixOperatorExpr) {
     processExpr(prefixOperatorExpr->nestedExpr);
 }
 
-void gulc::BasicTypeResolver::processTernaryExpr(gulc::TernaryExpr* ternaryExpr) const {
+void gulc::BasicTypeResolver::processTernaryExpr(gulc::TernaryExpr* ternaryExpr) {
     processExpr(ternaryExpr->condition);
     processExpr(ternaryExpr->trueExpr);
     processExpr(ternaryExpr->falseExpr);
 }
 
-void gulc::BasicTypeResolver::processTypeExpr(gulc::TypeExpr* typeExpr) const {
+void gulc::BasicTypeResolver::processTypeExpr(gulc::TypeExpr* typeExpr) {
     resolveType(typeExpr->type);
 }
 
@@ -817,7 +885,7 @@ void gulc::BasicTypeResolver::processValueLiteralExpr(gulc::ValueLiteralExpr* va
     // TODO: Is there anything we can do here? I don't think there is anything we can do until `DeclInstantiator`...
 }
 
-void gulc::BasicTypeResolver::processVariableDeclExpr(gulc::VariableDeclExpr* variableDeclExpr) const {
+void gulc::BasicTypeResolver::processVariableDeclExpr(gulc::VariableDeclExpr* variableDeclExpr) {
     if (variableDeclExpr->type != nullptr) {
         resolveType(variableDeclExpr->type);
     }

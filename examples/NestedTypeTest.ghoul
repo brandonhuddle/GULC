@@ -75,26 +75,6 @@ struct Example<T> {
     }
 }
 
-// Basic extension...
-extension Example {
-
-}
-
-// Template extension to apply to everything...
-extension<T> T {
-
-}
-
-// Extension that applies to a type named `Example` with it's own template arguments
-extension<T> Example<T> {
-
-}
-
-// Extension that applies to any pointers to the type `Example`
-extension *Example {
-
-}
-
 func worstTest() -> Example<i32>.TestStruct.DeepNestedTemplate<i64>.SuperDeepNestedType {
 
 }

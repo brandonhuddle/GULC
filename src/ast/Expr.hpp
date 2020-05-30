@@ -2,6 +2,7 @@
 #define GULC_EXPR_HPP
 
 #include "Stmt.hpp"
+#include "Type.hpp"
 #include <string>
 
 namespace gulc {
@@ -29,6 +30,7 @@ namespace gulc {
             As,
             AssignmentOperator,
             CheckExtendsType,
+            ConstructorCall,
             FunctionCall,
             Has,
             Identifier,
@@ -51,12 +53,20 @@ namespace gulc {
         virtual Expr* deepCopy() const = 0;
         virtual std::string toString() const = 0;
 
+        // This is the type for the current value (i.e. `12 + 12` would have the type `i32`, function calls would be
+        // the type of the function's return type)
+        Type* valueType;
+
+        ~Expr() override {
+            delete valueType;
+        }
+
     protected:
         Expr::Kind _exprKind;
 
         explicit Expr(Expr::Kind exprKind)
                 : __ExprStmtFix(Node::Kind::Expr, Stmt::Kind::Expr),
-                  _exprKind(exprKind) {}
+                  valueType(nullptr), _exprKind(exprKind) {}
 
         Stmt* deepCopyStmt() const override {
             return deepCopy();
