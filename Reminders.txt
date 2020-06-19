@@ -1,0 +1,1 @@
+For the GUI library add the ability to hold control, alt, and other modifiers to see a list of all keybinds that are supported by those keybinds. Having the ability to just hold control for a few seconds to see "copy", "paste", etc. would help with getting started with applications you've never used before.
