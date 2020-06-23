@@ -1,6 +1,7 @@
 #include <fstream>
 #include <sstream>
 #include <iostream>
+#include <cctype>
 #include <ast/exprs/ParenExpr.hpp>
 #include <ast/types/ReferenceType.hpp>
 #include <llvm/Support/Casting.h>

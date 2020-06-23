@@ -1,5 +1,6 @@
 #include <iostream>
 #include "Lexer.hpp"
+#include <cctype>
 
 using namespace gulc;
 

@@ -2,6 +2,7 @@
 #include "SignatureComparer.hpp"
 #include "TypeHelper.hpp"
 #include "TypeCompareUtil.hpp"
+#include <algorithm>
 
 using namespace gulc;
 

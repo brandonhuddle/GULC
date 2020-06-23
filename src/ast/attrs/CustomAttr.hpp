@@ -11,7 +11,7 @@ namespace gulc {
         // TODO: Requires `AttributeDecl`
 
         Attr* deepCopy() const override {
-
+            return nullptr;
         }
 
     };

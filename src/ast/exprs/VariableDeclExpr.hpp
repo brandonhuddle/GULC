@@ -22,8 +22,8 @@ namespace gulc {
         Identifier const& identifier() const { return _identifier; }
         bool isAssignable() const { return _isAssignable; }
 
-        TextPosition startPosition() const { return _startPosition; }
-        TextPosition endPosition() const { return _endPosition; }
+        TextPosition startPosition() const override { return _startPosition; }
+        TextPosition endPosition() const override { return _endPosition; }
 
         Expr* deepCopy() const override {
             Expr* copiedInitialValue = nullptr;

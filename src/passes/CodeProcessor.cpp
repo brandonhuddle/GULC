@@ -102,6 +102,7 @@ void gulc::CodeProcessor::processDecl(gulc::Decl* decl) {
 void gulc::CodeProcessor::processEnumDecl(gulc::EnumDecl* enumDecl) {
     // TODO: I think at this point processing for `EnumDecl` should be completed, right?
     //       All instantiations should be done in `DeclInstantiator` and validation finished in `DeclInstValidator`
+    //       Enums only work with const values as well so those should be solved before this point too.
 }
 
 void gulc::CodeProcessor::processExtensionDecl(gulc::ExtensionDecl* extensionDecl) {
@@ -126,31 +127,74 @@ void gulc::CodeProcessor::processFunctionDecl(gulc::FunctionDecl* functionDecl) 
 }
 
 void gulc::CodeProcessor::processNamespaceDecl(gulc::NamespaceDecl* namespaceDecl) {
-
+    for (Decl* nestedDecl : namespaceDecl->nestedDecls()) {
+        processDecl(nestedDecl);
+    }
 }
 
 void gulc::CodeProcessor::processParameterDecl(gulc::ParameterDecl* parameterDecl) {
-
+    // TODO: Parameters should be done by this point, right?
 }
 
 void gulc::CodeProcessor::processPropertyDecl(gulc::PropertyDecl* propertyDecl) {
+    for (PropertyGetDecl* getter : propertyDecl->getters()) {
+        processPropertyGetDecl(getter);
+    }
 
+    if (propertyDecl->hasSetter()) {
+        processPropertySetDecl(propertyDecl->setter());
+    }
+}
+
+void gulc::CodeProcessor::processPropertyGetDecl(gulc::PropertyGetDecl *propertyGetDecl) {
+    processFunctionDecl(propertyGetDecl);
+}
+
+void gulc::CodeProcessor::processPropertySetDecl(gulc::PropertySetDecl *propertySetDecl) {
+    processFunctionDecl(propertySetDecl);
 }
 
 void gulc::CodeProcessor::processStructDecl(gulc::StructDecl* structDecl) {
+    for (ConstructorDecl* constructor : structDecl->constructors()) {
+        processFunctionDecl(constructor);
+    }
 
+    if (structDecl->destructor != nullptr) {
+        processFunctionDecl(structDecl->destructor);
+    }
+
+    for (Decl* member : structDecl->ownedMembers()) {
+        processDecl(member);
+    }
 }
 
 void gulc::CodeProcessor::processSubscriptOperatorDecl(gulc::SubscriptOperatorDecl* subscriptOperatorDecl) {
+    // TODO: We're going to have to change how we do this a little. `SubscriptOperatorDecl` declares its own parameters
+    //       that will need to be accessible from the `get`s and `set`. `set` also defines its own parameter that will
+    //       need to be accounted for.
+    for (SubscriptOperatorGetDecl* getter : subscriptOperatorDecl->getters()) {
+        processSubscriptOperatorGetDecl(getter);
+    }
 
+    if (subscriptOperatorDecl->hasSetter()) {
+        processSubscriptOperatorSetDecl(subscriptOperatorDecl->setter());
+    }
+}
+
+void gulc::CodeProcessor::processSubscriptOperatorGetDecl(gulc::SubscriptOperatorGetDecl *subscriptOperatorGetDecl) {
+    processFunctionDecl(subscriptOperatorGetDecl);
+}
+
+void gulc::CodeProcessor::processSubscriptOperatorSetDecl(gulc::SubscriptOperatorSetDecl *subscriptOperatorSetDecl) {
+    processFunctionDecl(subscriptOperatorSetDecl);
 }
 
 void gulc::CodeProcessor::processTemplateFunctionDecl(gulc::TemplateFunctionDecl* templateFunctionDecl) {
-
+    // TODO: What would we do here?
 }
 
 void gulc::CodeProcessor::processTemplateStructDecl(gulc::TemplateStructDecl* templateStructDecl) {
-
+    // TODO: What would we do here?
 }
 
 void gulc::CodeProcessor::processTemplateTraitDecl(gulc::TemplateTraitDecl* templateTraitDecl) {
@@ -158,11 +202,16 @@ void gulc::CodeProcessor::processTemplateTraitDecl(gulc::TemplateTraitDecl* temp
 }
 
 void gulc::CodeProcessor::processTraitDecl(gulc::TraitDecl* traitDecl) {
-
+    for (Decl* member : traitDecl->ownedMembers()) {
+        processDecl(member);
+    }
 }
 
 void gulc::CodeProcessor::processVariableDecl(gulc::VariableDecl* variableDecl) {
-
+    // NOTE: For member variables we still need to process the initial value...
+    if (variableDecl->hasInitialValue()) {
+        processExpr(variableDecl->initialValue);
+    }
 }
 
 //=====================================================================================================================

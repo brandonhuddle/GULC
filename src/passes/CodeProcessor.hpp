@@ -115,8 +115,12 @@ namespace gulc {
         void processNamespaceDecl(NamespaceDecl* namespaceDecl);
         void processParameterDecl(ParameterDecl* parameterDecl);
         void processPropertyDecl(PropertyDecl* propertyDecl);
+        void processPropertyGetDecl(PropertyGetDecl* propertyGetDecl);
+        void processPropertySetDecl(PropertySetDecl* propertySetDecl);
         void processStructDecl(StructDecl* structDecl);
         void processSubscriptOperatorDecl(SubscriptOperatorDecl* subscriptOperatorDecl);
+        void processSubscriptOperatorGetDecl(SubscriptOperatorGetDecl* subscriptOperatorGetDecl);
+        void processSubscriptOperatorSetDecl(SubscriptOperatorSetDecl* subscriptOperatorSetDecl);
         void processTemplateFunctionDecl(TemplateFunctionDecl* templateFunctionDecl);
         void processTemplateStructDecl(TemplateStructDecl* templateStructDecl);
         void processTemplateTraitDecl(TemplateTraitDecl* templateTraitDecl);

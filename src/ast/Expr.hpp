@@ -50,7 +50,12 @@ namespace gulc {
         };
 
         Expr::Kind getExprKind() const { return _exprKind; }
+        // I'm tired of seeing clang complain about this not being marked `override` in every file.
+        // It isn't an override, it is SHADOWING. Annoying.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Winconsistent-missing-override"
         virtual Expr* deepCopy() const = 0;
+#pragma clang diagnostic pop
         virtual std::string toString() const = 0;
 
         // This is the type for the current value (i.e. `12 + 12` would have the type `i32`, function calls would be

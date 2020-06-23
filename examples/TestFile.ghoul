@@ -30,5 +30,5 @@ func main() -> i32 {
     goto test;
 
 test:
-    return;
+    return 12;
 }
