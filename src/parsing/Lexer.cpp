@@ -647,6 +647,7 @@ Token Lexer::parseToken(std::string& tokenText, TextPosition startPosition, bool
                  startPosition, TextPosition(_currentIndex, _currentLine, _currentColumn), hasLeadingWhitespace);
 
     if (std::isdigit(static_cast<unsigned char>(tokenText[0]))) {
+        result.metaType = TokenMetaType::VALUE;
         result.tokenType = TokenType::NUMBER;
         result.currentSymbol = tokenText;
         // Known Modifiers --------------------------------------------------------------------------------------------
