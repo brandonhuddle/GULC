@@ -785,8 +785,15 @@ EnumDecl* Parser::parseEnumDecl(std::vector<Attr*> attributes, Decl::Visibility 
 
     std::vector<EnumConstDecl*> enumConsts;
 
-    while (_lexer.peekType() != TokenType::RCURLY && _lexer.peekType() != TokenType::ENDOFFILE) {
+    // NOTE: We now use the Swift syntax for enum declarations
+    //       BUT we are still keeping them separate with the Swift and Rust style enums being `enum union` in Ghoul.
+    while (_lexer.peekType() == TokenType::CASE || _lexer.peekType() == TokenType::LSQUARE) {
         std::vector<Attr*> enumConstAttrs = parseAttrs();
+
+        if (!_lexer.consumeType(TokenType::CASE)) {
+            printError("expected `case` after attributes, found `" + _lexer.peekCurrentSymbol() + "`!",
+                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
+        }
 
         if (_lexer.peekType() != TokenType::SYMBOL && _lexer.peekType() != TokenType::ATSYMBOL) {
             printError("expected enum const identifier, found `" + _lexer.peekCurrentSymbol() + "`!",
@@ -806,14 +813,11 @@ EnumDecl* Parser::parseEnumDecl(std::vector<Attr*> attributes, Decl::Visibility 
         enumConsts.push_back(new EnumConstDecl(_fileID, enumConstAttrs, enumConstIdentifier,
                                                enumConstStartPosition, enumConstEndPosition,
                                                enumConstValue));
-
-        if (!_lexer.consumeType(TokenType::COMMA)) {
-            break;
-        }
     }
 
     if (!_lexer.consumeType(TokenType::RCURLY)) {
-        printError("expected closing `}` for enum, found `" + _lexer.peekCurrentSymbol() + "`!",
+        printError("expected closing `}` for enum, found `" + _lexer.peekCurrentSymbol() + "`! "
+                   "(did you forget a `case`?)",
                    _lexer.peekStartPosition(), _lexer.peekEndPosition());
     }
 
