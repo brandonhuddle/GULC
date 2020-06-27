@@ -3,6 +3,11 @@ project(gulc)
 
 set(CMAKE_CXX_STANDARD 17)
 
+if(APPLE)
+    # NOTE: `brew install llvm@6`
+    set(ENV{LLVM_DIR} "/usr/local/opt/llvm@6/lib/cmake")
+endif()
+
 find_package(LLVM REQUIRED CONFIG)
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
@@ -264,7 +269,7 @@ add_executable(gulc
         src/utilities/TypeHelper.hpp)
 
 # MSVC doesn't require the stdc++fs.
-if (NOT MSVC)
+if (NOT MSVC AND NOT APPLE)
     target_link_libraries(gulc stdc++fs)
 endif()
 

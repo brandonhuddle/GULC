@@ -575,10 +575,14 @@ Decl* Parser::parseDecl() {
             VariableDecl* result = parseVariableDecl(attributes, visibility, isConst, startPosition,
                                                      declModifiers);
 
-            if (!_lexer.consumeType(TokenType::SEMICOLON)) {
-                printError("expected closing `;` after variable declaration!",
-                           _lexer.peekStartPosition(), _lexer.peekEndPosition());
-            }
+            // Semicolons are now optional, we should do a validation check to make sure statements and declarations
+            // aren't all on the same line
+            _lexer.consumeType(TokenType::SEMICOLON);
+
+//            if (!_lexer.consumeType(TokenType::SEMICOLON)) {
+//                printError("expected closing `;` after variable declaration!",
+//                           _lexer.peekStartPosition(), _lexer.peekEndPosition());
+//            }
 
             return result;
         }
@@ -631,16 +635,13 @@ CallOperatorDecl* Parser::parseCallOperatorDecl(std::vector<Attr*> attributes, D
     std::vector<Cont*> contracts(parseConts());
     CompoundStmt* body = nullptr;
 
-    if (_lexer.consumeType(TokenType::SEMICOLON)) {
-        // If there is a semicolon then the function is marked as a `prototype`, mainly used for `trait` parsing
+    // Semicolons are now optional. Instead of checking for `;` to make it a prototype we now just check if there isn't
+    // an `{` at the end. If there isn't then it is a prototype and we continue parsing.
+    if (_lexer.peekType() != TokenType::LCURLY) {
+        // If there isn't `{` then the function is marked as a `prototype`, mainly used for `trait` parsing
         body = new CompoundStmt({}, {}, {});
         declModifiers |= DeclModifiers::Prototype;
     } else {
-        if (_lexer.peekType() != TokenType::LCURLY) {
-            printError("expected beginning `{` for call body, found `" + _lexer.peekCurrentSymbol() + "`!",
-                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
-        }
-
         body = parseCompoundStmt();
     }
 
@@ -690,16 +691,13 @@ ConstructorDecl* Parser::parseConstructorDecl(std::vector<Attr*> attributes, Dec
     std::vector<Cont*> contracts(parseConts());
     CompoundStmt* body = nullptr;
 
-    if (_lexer.consumeType(TokenType::SEMICOLON)) {
-        // If there is a semicolon then the function is marked as a `prototype`, mainly used for `trait` parsing
+    // Semicolons are now optional. Instead of checking for `;` to make it a prototype we now just check if there isn't
+    // an `{` at the end. If there isn't then it is a prototype and we continue parsing.
+    if (_lexer.peekType() != TokenType::LCURLY) {
+        // If there isn't `{` then the function is marked as a `prototype`, mainly used for `trait` parsing
         body = new CompoundStmt({}, {}, {});
         declModifiers |= DeclModifiers::Prototype;
     } else {
-        if (_lexer.peekType() != TokenType::LCURLY) {
-            printError("expected beginning `{` for init body, found `" + _lexer.peekCurrentSymbol() + "`!",
-                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
-        }
-
         body = parseCompoundStmt();
     }
 
@@ -738,16 +736,13 @@ DestructorDecl* Parser::parseDestructorDecl(std::vector<Attr*> attributes, Decl:
     std::vector<Cont*> contracts(parseConts());
     CompoundStmt* body = nullptr;
 
-    if (_lexer.consumeType(TokenType::SEMICOLON)) {
-        // If there is a semicolon then the function is marked as a `prototype`, mainly used for `trait` parsing
+    // Semicolons are now optional. Instead of checking for `;` to make it a prototype we now just check if there isn't
+    // an `{` at the end. If there isn't then it is a prototype and we continue parsing.
+    if (_lexer.peekType() != TokenType::LCURLY) {
+        // If there isn't `{` then the function is marked as a `prototype`, mainly used for `trait` parsing
         body = new CompoundStmt({}, {}, {});
         declModifiers |= DeclModifiers::Prototype;
     } else {
-        if (_lexer.peekType() != TokenType::LCURLY) {
-            printError("expected beginning `{` for deinit body, found `" + _lexer.peekCurrentSymbol() + "`!",
-                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
-        }
-
         body = parseCompoundStmt();
     }
 
@@ -929,16 +924,13 @@ FunctionDecl* Parser::parseFunctionDecl(std::vector<Attr*> attributes, Decl::Vis
     std::vector<Cont*> contracts(parseConts());
     CompoundStmt* body = nullptr;
 
-    if (_lexer.consumeType(TokenType::SEMICOLON)) {
-        // If there is a semicolon then the function is marked as a `prototype`, mainly used for `trait` parsing
+    // Semicolons are now optional. Instead of checking for `;` to make it a prototype we now just check if there isn't
+    // an `{` at the end. If there isn't then it is a prototype and we continue parsing.
+    if (_lexer.peekType() != TokenType::LCURLY) {
+        // If there isn't `{` then the function is marked as a `prototype`, mainly used for `trait` parsing
         body = new CompoundStmt({}, {}, {});
         declModifiers |= DeclModifiers::Prototype;
     } else {
-        if (_lexer.peekType() != TokenType::LCURLY) {
-            printError("expected beginning `{` for `func` declaration, found `" + _lexer.peekCurrentSymbol() + "`!",
-                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
-        }
-
         body = parseCompoundStmt();
     }
 
@@ -976,18 +968,14 @@ ImportDecl* Parser::parseImportDecl(std::vector<Attr*> attributes, TextPosition 
 
         Identifier importAlias = parseIdentifier();
 
-        if (!_lexer.consumeType(TokenType::SEMICOLON)) {
-            printError("expected `;` to end import, found `" + _lexer.peekCurrentSymbol() + "`!",
-                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
-        }
+        // Semicolons are now optional
+        _lexer.consumeType(TokenType::SEMICOLON);
 
         return new ImportDecl(_fileID, std::move(attributes), importStartPosition, importEndPosition,
                               importPath, asStartPosition, asEndPosition, importAlias);
     } else {
-        if (!_lexer.consumeType(TokenType::SEMICOLON)) {
-            printError("expected `;` to end import, found `" + _lexer.peekCurrentSymbol() + "`!",
-                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
-        }
+        // Semicolons are now optional
+        _lexer.consumeType(TokenType::SEMICOLON);
 
         return new ImportDecl(_fileID, std::move(attributes), importStartPosition, importEndPosition,
                               importPath);
@@ -1085,16 +1073,13 @@ OperatorDecl* Parser::parseOperatorDecl(std::vector<Attr*> attributes, Decl::Vis
     std::vector<Cont*> contracts(parseConts());
     CompoundStmt* body = nullptr;
 
-    if (_lexer.consumeType(TokenType::SEMICOLON)) {
-        // If there is a semicolon then the function is marked as a `prototype`, mainly used for `trait` parsing
+    // Semicolons are now optional. Instead of checking for `;` to make it a prototype we now just check if there isn't
+    // an `{` at the end. If there isn't then it is a prototype and we continue parsing.
+    if (_lexer.peekType() != TokenType::LCURLY) {
+        // If there isn't `{` then the function is marked as a `prototype`, mainly used for `trait` parsing
         body = new CompoundStmt({}, {}, {});
         declModifiers |= DeclModifiers::Prototype;
     } else {
-        if (_lexer.peekType() != TokenType::LCURLY) {
-            printError("expected beginning `{` for `operator` declaration, found `" + _lexer.peekCurrentSymbol() + "`!",
-                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
-        }
-
         body = parseCompoundStmt();
     }
 
@@ -1319,16 +1304,13 @@ PropertyDecl* Parser::parsePropertyDecl(std::vector<Attr*> attributes, Decl::Vis
             std::vector<Cont*> contracts = parseConts();
             CompoundStmt* getterBody = nullptr;
 
-            if (_lexer.consumeType(TokenType::SEMICOLON)) {
-                // If there is a semicolon then the function is marked as a `prototype`, mainly used for `trait` parsing
+            // Semicolons are now optional. Instead of checking for `;` to make it a prototype we now just check if there isn't
+            // an `{` at the end. If there isn't then it is a prototype and we continue parsing.
+            if (_lexer.peekType() != TokenType::LCURLY) {
+                // If there isn't `{` then the function is marked as a `prototype`, mainly used for `trait` parsing
                 getterBody = new CompoundStmt({}, {}, {});
                 declModifiers |= DeclModifiers::Prototype;
             } else {
-                if (_lexer.peekType() != TokenType::LCURLY) {
-                    printError("expected beginning `{` for property `get` body!",
-                               _lexer.peekStartPosition(), _lexer.peekEndPosition());
-                }
-
                 getterBody = parseCompoundStmt();
             }
 
@@ -1349,16 +1331,13 @@ PropertyDecl* Parser::parsePropertyDecl(std::vector<Attr*> attributes, Decl::Vis
             std::vector<Cont*> contracts = parseConts();
             CompoundStmt* setterBody = nullptr;
 
-            if (_lexer.consumeType(TokenType::SEMICOLON)) {
-                // If there is a semicolon then the function is marked as a `prototype`, mainly used for `trait` parsing
+            // Semicolons are now optional. Instead of checking for `;` to make it a prototype we now just check if there isn't
+            // an `{` at the end. If there isn't then it is a prototype and we continue parsing.
+            if (_lexer.peekType() != TokenType::LCURLY) {
+                // If there isn't `{` then the function is marked as a `prototype`, mainly used for `trait` parsing
                 setterBody = new CompoundStmt({}, {}, {});
                 declModifiers |= DeclModifiers::Prototype;
             } else {
-                if (_lexer.peekType() != TokenType::LCURLY) {
-                    printError("expected beginning `{` for property `set` body!",
-                               _lexer.peekStartPosition(), _lexer.peekEndPosition());
-                }
-
                 setterBody = parseCompoundStmt();
             }
 
@@ -1541,16 +1520,13 @@ SubscriptOperatorDecl* Parser::parseSubscriptOperator(std::vector<Attr*> attribu
             std::vector<Cont*> contracts = parseConts();
             CompoundStmt* getterBody = nullptr;
 
-            if (_lexer.consumeType(TokenType::SEMICOLON)) {
-                // If there is a semicolon then the function is marked as a `prototype`, mainly used for `trait` parsing
+            // Semicolons are now optional. Instead of checking for `;` to make it a prototype we now just check if there isn't
+            // an `{` at the end. If there isn't then it is a prototype and we continue parsing.
+            if (_lexer.peekType() != TokenType::LCURLY) {
+                // If there isn't `{` then the function is marked as a `prototype`, mainly used for `trait` parsing
                 getterBody = new CompoundStmt({}, {}, {});
                 declModifiers |= DeclModifiers::Prototype;
             } else {
-                if (_lexer.peekType() != TokenType::LCURLY) {
-                    printError("expected beginning `{` for subscript `get` body!",
-                               _lexer.peekStartPosition(), _lexer.peekEndPosition());
-                }
-
                 getterBody = parseCompoundStmt();
             }
 
@@ -1571,16 +1547,13 @@ SubscriptOperatorDecl* Parser::parseSubscriptOperator(std::vector<Attr*> attribu
             std::vector<Cont*> contracts = parseConts();
             CompoundStmt* setterBody = nullptr;
 
-            if (_lexer.consumeType(TokenType::SEMICOLON)) {
-                // If there is a semicolon then the function is marked as a `prototype`, mainly used for `trait` parsing
+            // Semicolons are now optional. Instead of checking for `;` to make it a prototype we now just check if there isn't
+            // an `{` at the end. If there isn't then it is a prototype and we continue parsing.
+            if (_lexer.peekType() != TokenType::LCURLY) {
+                // If there isn't `{` then the function is marked as a `prototype`, mainly used for `trait` parsing
                 setterBody = new CompoundStmt({}, {}, {});
                 declModifiers |= DeclModifiers::Prototype;
             } else {
-                if (_lexer.peekType() != TokenType::LCURLY) {
-                    printError("expected beginning `{` for subscript `set` body!",
-                               _lexer.peekStartPosition(), _lexer.peekEndPosition());
-                }
-
                 setterBody = parseCompoundStmt();
             }
 
@@ -1722,10 +1695,8 @@ TypeAliasDecl* Parser::parseTypeAliasDecl(std::vector<Attr*> attributes, Decl::V
 
     TextPosition endPosition = _lexer.peekEndPosition();
 
-    if (!_lexer.consumeType(TokenType::SEMICOLON)) {
-        printError("expected `;` to end `typealias`, found `" + _lexer.peekCurrentSymbol() + "`!",
-                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
-    }
+    // Semicolons are now optional
+    _lexer.consumeType(TokenType::SEMICOLON);
 
     return new TypeAliasDecl(_fileID, std::move(attributes), visibility, typeAliasType, aliasIdentifier,
                              templateParameters, typeValue, startPosition, endPosition);
@@ -1764,16 +1735,13 @@ TypeSuffixDecl* Parser::parseTypeSuffixDecl(std::vector<Attr*> attributes, Decl:
     std::vector<Cont*> contracts = parseConts();
     CompoundStmt* body = nullptr;
 
-    if (_lexer.consumeType(TokenType::SEMICOLON)) {
-        // If there is a semicolon then the function is marked as a `prototype`, mainly used for `trait` parsing
+    // Semicolons are now optional. Instead of checking for `;` to make it a prototype we now just check if there isn't
+    // an `{` at the end. If there isn't then it is a prototype and we continue parsing.
+    if (_lexer.peekType() != TokenType::LCURLY) {
+        // If there isn't `{` then the function is marked as a `prototype`, mainly used for `trait` parsing
         body = new CompoundStmt({}, {}, {});
         declModifiers |= DeclModifiers::Prototype;
     } else {
-        if (_lexer.peekType() != TokenType::LCURLY) {
-            printError("expected beginning `{` for `typesuffix` declaration, found `" + _lexer.peekCurrentSymbol() + "`!",
-                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
-        }
-
         body = parseCompoundStmt();
     }
 
@@ -1963,10 +1931,11 @@ Stmt* Parser::parseStmt() {
 
                 return new LabeledStmt(identifier, labeledStmt);
             } else {
-                if (!_lexer.consumeType(TokenType::SEMICOLON)) {
-                    printError("expected `;` after expression, found `" + _lexer.peekCurrentSymbol() + "`!",
-                               _lexer.peekStartPosition(), _lexer.peekEndPosition());
-                }
+                // Semicolons are now optional
+//                if (!_lexer.consumeType(TokenType::SEMICOLON)) {
+//                    printError("expected `;` after expression, found `" + _lexer.peekCurrentSymbol() + "`!",
+//                               _lexer.peekStartPosition(), _lexer.peekEndPosition());
+//                }
 
                 return resultExpr;
             }
@@ -1983,17 +1952,19 @@ BreakStmt* Parser::parseBreakStmt() {
     if (_lexer.peekType() == TokenType::SYMBOL) {
         Identifier breakLabel = parseIdentifier();
 
-        if (!_lexer.consumeType(TokenType::SEMICOLON)) {
-            printError("expected `;` after `break " + breakLabel.name() + "`, found `" + _lexer.peekCurrentSymbol() + "`!",
-                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
-        }
+        // Semicolons are now optional
+//        if (!_lexer.consumeType(TokenType::SEMICOLON)) {
+//            printError("expected `;` after `break " + breakLabel.name() + "`, found `" + _lexer.peekCurrentSymbol() + "`!",
+//                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
+//        }
 
         return new BreakStmt(startPosition, endPosition, breakLabel);
     } else {
-        if (!_lexer.consumeType(TokenType::SEMICOLON)) {
-            printError("expected `;` after `break`, found `" + _lexer.peekCurrentSymbol() + "`!",
-                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
-        }
+        // Semicolons are now optional
+//        if (!_lexer.consumeType(TokenType::SEMICOLON)) {
+//            printError("expected `;` after `break`, found `" + _lexer.peekCurrentSymbol() + "`!",
+//                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
+//        }
 
         return new BreakStmt(startPosition, endPosition);
     }
@@ -2061,7 +2032,17 @@ CompoundStmt* Parser::parseCompoundStmt() {
     }
 
     while (_lexer.peekType() != TokenType::RCURLY && _lexer.peekType() != TokenType::ENDOFFILE) {
-        statements.push_back(parseStmt());
+        bool precedingTokenWasSemicolon = _lexer.peekType() == TokenType::SEMICOLON;
+
+        // Remove all semicolons if there are any.
+        while (_lexer.consumeType(TokenType::SEMICOLON));
+
+        // Recheck before parsing (not doing that will trigger an error on `}`)
+        if (_lexer.peekType() != TokenType::RCURLY && _lexer.peekType() != TokenType::ENDOFFILE) {
+            // TODO: Use `precedingTokenWasSemicolon` to detect statements that are on the same line without being
+            //       separated by `;`. If there are any error out.
+            statements.push_back(parseStmt());
+        }
     }
 
     TextPosition endPosition = _lexer.peekEndPosition();
@@ -2083,17 +2064,19 @@ ContinueStmt* Parser::parseContinueStmt() {
     if (_lexer.peekType() == TokenType::SYMBOL) {
         Identifier continueLabel = parseIdentifier();
 
-        if (!_lexer.consumeType(TokenType::SEMICOLON)) {
-            printError("expected `;` after `continue " + continueLabel.name() + "`, found `" + _lexer.peekCurrentSymbol() + "`!",
-                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
-        }
+        // Semicolons are now optional
+//        if (!_lexer.consumeType(TokenType::SEMICOLON)) {
+//            printError("expected `;` after `continue " + continueLabel.name() + "`, found `" + _lexer.peekCurrentSymbol() + "`!",
+//                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
+//        }
 
         return new ContinueStmt(startPosition, endPosition, continueLabel);
     } else {
-        if (!_lexer.consumeType(TokenType::SEMICOLON)) {
-            printError("expected `;` after `continue`, found `" + _lexer.peekCurrentSymbol() + "`!",
-                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
-        }
+        // Semicolons are now optional
+//        if (!_lexer.consumeType(TokenType::SEMICOLON)) {
+//            printError("expected `;` after `continue`, found `" + _lexer.peekCurrentSymbol() + "`!",
+//                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
+//        }
 
         return new ContinueStmt(startPosition, endPosition);
     }
@@ -2117,10 +2100,11 @@ DoStmt* Parser::parseDoStmt() {
 
     Expr* condition = parseExpr();
 
-    if (!_lexer.consumeType(TokenType::SEMICOLON)) {
-        printError("expected `;` after `do...while` condition, found `" + _lexer.peekCurrentSymbol() + "`!",
-                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
-    }
+    // Semicolons are now optional
+//    if (!_lexer.consumeType(TokenType::SEMICOLON)) {
+//        printError("expected `;` after `do...while` condition, found `" + _lexer.peekCurrentSymbol() + "`!",
+//                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+//    }
 
     return new DoStmt(loopStmt, condition, doStartPosition, doEndPosition, whileStartPosition, whileEndPosition);
 }
@@ -2131,15 +2115,20 @@ FallthroughStmt* Parser::parseFallthroughStmt() {
 
     _lexer.consumeType(TokenType::FALLTHROUGH);
 
-    if (!_lexer.consumeType(TokenType::SEMICOLON)) {
-        printError("expected `;` after `fallthrough`, found `" + _lexer.peekCurrentSymbol() + "`!",
-                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
-    }
+    // Semicolons are now optional
+//    if (!_lexer.consumeType(TokenType::SEMICOLON)) {
+//        printError("expected `;` after `fallthrough`, found `" + _lexer.peekCurrentSymbol() + "`!",
+//                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+//    }
 
     return new FallthroughStmt(startPosition, endPosition);
 }
 
 ForStmt* Parser::parseForStmt() {
+    // NOTE: Semicolons can NOT be optional for the for loop
+    //       The loop HAS to be `;` instead of `,` to allow `for i: int = 0; i < length; ++i, ++j {}`
+    //       Once we support macros it will be recommended to use `foreach! i in 0..length {}` for the spooky
+    //       alternative.
     TextPosition startPosition = _lexer.peekStartPosition();
     TextPosition endPosition = _lexer.peekEndPosition();
 
@@ -2187,10 +2176,11 @@ GotoStmt* Parser::parseGotoStmt() {
 
     Identifier gotoLabel = parseIdentifier();
 
-    if (!_lexer.consumeType(TokenType::SEMICOLON)) {
-        printError("expected `;` after `goto " + gotoLabel.name() + "`, found `" + _lexer.peekCurrentSymbol() + "`!",
-                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
-    }
+    // Semicolons are now optional
+//    if (!_lexer.consumeType(TokenType::SEMICOLON)) {
+//        printError("expected `;` after `goto " + gotoLabel.name() + "`, found `" + _lexer.peekCurrentSymbol() + "`!",
+//                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+//    }
 
     return new GotoStmt(startPosition, endPosition, gotoLabel);
 }
@@ -2225,13 +2215,50 @@ ReturnStmt* Parser::parseReturnStmt() {
 
     _lexer.consumeType(TokenType::RETURN);
 
-    if (!_lexer.consumeType(TokenType::SEMICOLON)) {
-        Expr* returnValue = parseExpr();
+    // NOTE: If there is a `try` we have to validate there isn't `{` after
+    //       `return try test()` is allowed as a return value
+    //       `return try {}` translates to `return; try { ... } catch { ... }`
+    //       `return try {}` should be an error if the `return` and `try` are visually on the same line.
+    bool tryIsExpr = false;
+    TokenMetaType checkTokenMetaType = _lexer.peekMeta();
+    TokenType checkTokenType = _lexer.peekType();
 
-        if (!_lexer.consumeType(TokenType::SEMICOLON)) {
-            printError("expected `;` after `return ...`, found `" + _lexer.peekCurrentSymbol() + "`!",
-                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
-        }
+    if (checkTokenType == TokenType::TRY) {
+        // We create a checkpoint we will immediately return to after checking for `{`
+        LexerCheckpoint lexerCheckpoint(_lexer.createCheckpoint());
+
+        _lexer.consumeType(TokenType::TRY);
+
+        tryIsExpr = _lexer.peekType() != TokenType::LCURLY;
+
+        _lexer.returnToCheckpoint(lexerCheckpoint);
+    }
+
+    // Allowed after return:
+    //  VALUE
+    //
+    //  SIZEOF
+    //  ALIGNOF
+    //  OFFSETOF
+    //  NAMEOF
+    //  TRAITSOF
+    //  TRY
+    //  FUNC? TODO
+    //
+    //  OPERATOR
+    //
+    //  LSQUARE
+    //  LPAREN
+    //  ATSYMBOL
+
+    // We call `parseExpr` if the token after `return` is an operator, value ("a", 12, etc.), symbol,
+    // `sizeof`, `alignof`, `offsetof`, `nameof`, `traitsof`, `try ...` (NOT `try {`), `[`, `(` or `@`
+    if (checkTokenMetaType == TokenMetaType::VALUE || checkTokenMetaType == TokenMetaType::OPERATOR ||
+            checkTokenType == TokenType::SIZEOF || checkTokenType == TokenType::ALIGNOF ||
+            checkTokenType == TokenType::OFFSETOF || checkTokenType == TokenType::NAMEOF ||
+            checkTokenType == TokenType::TRAITSOF || tryIsExpr || checkTokenType == TokenType::LSQUARE ||
+            checkTokenType == TokenType::LPAREN || checkTokenType == TokenType::ATSYMBOL) {
+        Expr* returnValue = parseExpr();
 
         return new ReturnStmt(startPosition, endPosition, returnValue);
     } else {
@@ -3164,9 +3191,9 @@ ValueLiteralExpr* Parser::parseNumberLiteralExpr() {
         } else {
             if (base == 10 && std::isdigit(c)) {
                 resultNumber += c;
-            } else if (base == 16 && std::isdigit(c) ||
+            } else if (base == 16 && (std::isdigit(c) ||
                        (c == 'a' || c == 'A' || c == 'b' || c == 'B' || c == 'c' || c == 'C' || c == 'd' || c == 'D' ||
-                        c == 'e' || c == 'E' || c == 'f' || c == 'F')) {
+                        c == 'e' || c == 'E' || c == 'f' || c == 'F'))) {
                 resultNumber += c;
             } else if (base == 2 && (c == '0' || c == '1')) {
                 resultNumber += c;
