@@ -44,6 +44,56 @@ using namespace gulc;
 //       members and due to so many members being able to come from multiple types (and those types having members that
 //       can come from even more types and so on) we need to just fill `inheritedMembers`
 
+// TODO: We need to support having `func` and related within `EnumDecl` (sans `init`. We might need `deinit`,
+//       especially for `enum union`)
+//       Since we now require `enum` to use `case` for their const declarations we can safely and easily support parsing
+//       `func` and other declarations from within the `enum` instead of in an `extension`
+
+// TODO: We need to disable implicit string literal concatenation for `[ ... ]` array literals:
+//       [
+//           "This "
+//           "should error on the above line saying it expected `,`"
+//       ]
+//       This should be allowed everywhere else EXCEPT in an array literal. If you use parenthesis the error goes away
+//       [
+//           ("This "
+//           "is allowed sense it won't allow accidental concatenation")
+//       ]
+//       The reason we need to do this is because with us no longer needing `;` at the end of every line someone might
+//       THINK we allow implicit `,` in this scenario. This also wouldn't error out so they would THINK everything
+//       worked until runtime when they realize the array is now:
+//       [ "This should error on the above line saying it expected `,`" ]
+//       If we can avoid runtime errors I would like to as much as possible. So within `[ ... ]` array literals
+//       disallow implicit string concatenation UNLESS the strings are contained within `(...)`.
+
+// TODO: Remember to add bit-fields with `var example: 1` and any other numbers for proper bitfielding.
+
+// TODO: Should we rename `property` to `prop`? Since `function` -> `func` also `init`, `call`, etc. being 4 characters
+//       I just think `prop` looks better. We probably won't change `operator` since `oper` looks ugly and `op` is too
+//       short
+
+// TODO: Swift @FunctionBuilder? I really like the idea of `[HtmlBuilder] func() -> HtmlNode` to allow
+//           html {
+//               head(title: "Example") {
+//                   FavIcon("Icon.png")
+//               }
+//               body {
+//                   if true {
+//                       h3("Bool was true")
+//                           .background(color: .red)
+//                   } else {
+//                       h6("false")
+//                   }
+//               }
+//           }
+//       I think something like that would be AMAZING compared to ASP.NET razor
+//       We could also offer something like SwiftUI.
+//       It could also be used for making custom XML files, or even ideas not yet thought of.
+
+// TODO: MOST IMPORTANT, DO NOW =======================
+//       We NEED to add an `inheritedMembers` variable to `StructDecl` and others. We NEED that to be able to access
+//       all other types.
+
 int main() {
     Target target = Target::getHostTarget();
 

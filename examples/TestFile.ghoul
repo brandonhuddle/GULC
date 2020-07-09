@@ -35,10 +35,6 @@ func main() -> i32 {
 
     goto test
 
-    let x = 12
-    let y
-    let z = 3
-
 test:
     return 12
 }

@@ -1065,6 +1065,18 @@ void gulc::DeclInstantiator::processStructDeclInheritedTypes(gulc::StructDecl* s
                        structDecl->startPosition(), structDecl->endPosition());
         }
     }
+
+    // At this point we have the base struct and all other inherited types resolved so we can copy our base struct's
+    // inherited members list...
+    // TODO: We need to set `baseStruct` even when the base struct is a TemplateStructDecl!!!!!!!!!!===================
+    //       This will most likely cause issues we will have to handle properly...
+    if (structDecl->baseStruct != nullptr) {
+        structDecl->inheritedMembers = structDecl->baseStruct->inheritedMembers;
+
+        // TODO: Loop through the base struct's members and add them to the `inheritedMembers` list
+    }
+
+    // TODO: Should we loop our inherited traits and check to make sure we've implemented them?
 }
 
 void gulc::DeclInstantiator::processStructDecl(gulc::StructDecl* structDecl, bool calculateSizeAndVTable) {

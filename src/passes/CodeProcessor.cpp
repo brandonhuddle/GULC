@@ -103,9 +103,18 @@ void gulc::CodeProcessor::processEnumDecl(gulc::EnumDecl* enumDecl) {
     // TODO: I think at this point processing for `EnumDecl` should be completed, right?
     //       All instantiations should be done in `DeclInstantiator` and validation finished in `DeclInstValidator`
     //       Enums only work with const values as well so those should be solved before this point too.
+    // TODO: Once we support `func` within `enum` declarations we will need this.
+    Decl* oldContainer = _currentContainer;
+    _currentContainer = enumDecl;
+
+
+    _currentContainer = oldContainer;
 }
 
 void gulc::CodeProcessor::processExtensionDecl(gulc::ExtensionDecl* extensionDecl) {
+    Decl* oldContainer = _currentContainer;
+    _currentContainer = extensionDecl;
+
     for (Decl* ownedMember : extensionDecl->ownedMembers()) {
         processDecl(ownedMember);
     }
@@ -113,6 +122,8 @@ void gulc::CodeProcessor::processExtensionDecl(gulc::ExtensionDecl* extensionDec
     for (ConstructorDecl* constructor : extensionDecl->constructors()) {
         processDecl(constructor);
     }
+
+    _currentContainer = oldContainer;
 }
 
 void gulc::CodeProcessor::processFunctionDecl(gulc::FunctionDecl* functionDecl) {
@@ -127,9 +138,14 @@ void gulc::CodeProcessor::processFunctionDecl(gulc::FunctionDecl* functionDecl) 
 }
 
 void gulc::CodeProcessor::processNamespaceDecl(gulc::NamespaceDecl* namespaceDecl) {
+    Decl* oldContainer = _currentContainer;
+    _currentContainer = namespaceDecl;
+
     for (Decl* nestedDecl : namespaceDecl->nestedDecls()) {
         processDecl(nestedDecl);
     }
+
+    _currentContainer = oldContainer;
 }
 
 void gulc::CodeProcessor::processParameterDecl(gulc::ParameterDecl* parameterDecl) {
@@ -155,6 +171,9 @@ void gulc::CodeProcessor::processPropertySetDecl(gulc::PropertySetDecl *property
 }
 
 void gulc::CodeProcessor::processStructDecl(gulc::StructDecl* structDecl) {
+    Decl* oldContainer = _currentContainer;
+    _currentContainer = structDecl;
+
     for (ConstructorDecl* constructor : structDecl->constructors()) {
         processFunctionDecl(constructor);
     }
@@ -166,6 +185,8 @@ void gulc::CodeProcessor::processStructDecl(gulc::StructDecl* structDecl) {
     for (Decl* member : structDecl->ownedMembers()) {
         processDecl(member);
     }
+
+    _currentContainer = oldContainer;
 }
 
 void gulc::CodeProcessor::processSubscriptOperatorDecl(gulc::SubscriptOperatorDecl* subscriptOperatorDecl) {
@@ -194,17 +215,30 @@ void gulc::CodeProcessor::processTemplateFunctionDecl(gulc::TemplateFunctionDecl
 }
 
 void gulc::CodeProcessor::processTemplateStructDecl(gulc::TemplateStructDecl* templateStructDecl) {
+    Decl* oldContainer = _currentContainer;
+    _currentContainer = templateStructDecl;
+
     // TODO: What would we do here?
+
+    _currentContainer = oldContainer;
 }
 
 void gulc::CodeProcessor::processTemplateTraitDecl(gulc::TemplateTraitDecl* templateTraitDecl) {
+    Decl* oldContainer = _currentContainer;
+    _currentContainer = templateTraitDecl;
 
+    _currentContainer = oldContainer;
 }
 
 void gulc::CodeProcessor::processTraitDecl(gulc::TraitDecl* traitDecl) {
+    Decl* oldContainer = _currentContainer;
+    _currentContainer = traitDecl;
+
     for (Decl* member : traitDecl->ownedMembers()) {
         processDecl(member);
     }
+
+    _currentContainer = oldContainer;
 }
 
 void gulc::CodeProcessor::processVariableDecl(gulc::VariableDecl* variableDecl) {
@@ -318,7 +352,9 @@ void gulc::CodeProcessor::processLabeledStmt(gulc::LabeledStmt* labeledStmt) {
 }
 
 void gulc::CodeProcessor::processReturnStmt(gulc::ReturnStmt* returnStmt) {
-
+    if (returnStmt->returnValue != nullptr) {
+        processExpr(returnStmt->returnValue);
+    }
 }
 
 void gulc::CodeProcessor::processSwitchStmt(gulc::SwitchStmt* switchStmt) {
@@ -456,6 +492,8 @@ void gulc::CodeProcessor::processFunctionCallExpr(gulc::FunctionCallExpr* functi
             for (VariableDeclExpr* checkLocalVariable : _localVariables) {
                 if (findName == checkLocalVariable->identifier().name()) {
                     // TODO: Create a `RefLocalVariableExpr` and exit all loops, delete the old `functionReference`
+                    printError("using the `()` operator on local variables not yet supported!",
+                               functionCallExpr->startPosition(), functionCallExpr->endPosition());
                     break;
                 }
             }
@@ -464,6 +502,8 @@ void gulc::CodeProcessor::processFunctionCallExpr(gulc::FunctionCallExpr* functi
                 for (ParameterDecl* checkParameter : *_currentParameters) {
                     if (findName == checkParameter->identifier().name()) {
                         // TODO: Create a `RefParameterExpr` and exit all loops, delete the old `functionReference`
+                        printError("using the `()` operator on parameters not yet supported!",
+                                   functionCallExpr->startPosition(), functionCallExpr->endPosition());
                         break;
                     }
                 }
@@ -497,7 +537,8 @@ void gulc::CodeProcessor::processFunctionCallExpr(gulc::FunctionCallExpr* functi
                             if (fillListOfMatchingCallOperators(checkTemplateParameter->constType,
                                                                 functionCallExpr->arguments, matches)) {
                                 // TODO: Check the list of call matches
-//asdf
+                                printError("using the `()` operator on template const arguments not yet supported!",
+                                           functionCallExpr->startPosition(), functionCallExpr->endPosition());
                             }
                         }
                         break;
@@ -507,6 +548,8 @@ void gulc::CodeProcessor::processFunctionCallExpr(gulc::FunctionCallExpr* functi
         }
 
         // TODO: Search members of our current containers
+
+
         // TODO: Search the current file if we make it this far
         // TODO: Search the imports if we haven't found anything yet, double check to make sure there aren't any
         //       ambiguous calls
@@ -653,6 +696,50 @@ bool gulc::CodeProcessor::fillListOfMatchingCallOperators(gulc::Type* fromType,
     // TODO: Check inherited members...
 
     return matchFound;
+}
+
+bool gulc::CodeProcessor::fillListOfMatchingFunctors(gulc::Decl* fromContainer, IdentifierExpr* identifierExpr,
+                                                     const std::vector<LabeledArgumentExpr*>& arguments,
+                                                     std::vector<MatchingDecl> &matchingDecls) {
+    if (llvm::isa<EnumDecl>(fromContainer)) {
+        // TODO: Support `EnumDecl`
+        printError("[INTERNAL] searching `EnumDecl` as a container is not yet supported!",
+                   fromContainer->startPosition(), fromContainer->endPosition());
+    } else if (llvm::isa<ExtensionDecl>(fromContainer)) {
+        // TODO: Support `ExtensionDecl`? I think so? For when we're processing a function within an extension?
+        printError("[INTERNAL] searching `ExtensionDecl` as a container is not yet supported!",
+                   fromContainer->startPosition(), fromContainer->endPosition());
+    } else if (llvm::isa<NamespaceDecl>(fromContainer)) {
+        auto namespaceContainer = llvm::dyn_cast<NamespaceDecl>(fromContainer);
+
+        // TODO: Support `NamespaceDecl`
+    } else if (llvm::isa<StructDecl>(fromContainer)) {
+        auto structContainer = llvm::dyn_cast<StructDecl>(fromContainer);
+
+        // TODO: Support `StructDecl`
+        for (Decl* checkDecl : structContainer->ownedMembers()) {
+
+        }
+
+        // TODO: Add support for an `inheritedMembers` member and search that
+    } else if (llvm::isa<TemplateStructDecl>(fromContainer)) {
+        // TODO: Support `TemplateStructDecl`
+        printError("[INTERNAL] searching `TemplateStructDecl` as a container is not yet supported!",
+                   fromContainer->startPosition(), fromContainer->endPosition());
+    } else if (llvm::isa<TemplateTraitDecl>(fromContainer)) {
+        // TODO: Support `TemplateTraitDecl`
+        printError("[INTERNAL] searching `TemplateTraitDecl` as a container is not yet supported!",
+                   fromContainer->startPosition(), fromContainer->endPosition());
+    } else if (llvm::isa<TraitDecl>(fromContainer)) {
+        auto traitContainer = llvm::dyn_cast<TraitDecl>(fromContainer);
+
+        // TODO: Support `TraitDecl`
+    } else {
+        printError("[INTERNAL] unsupported container Decl found in `CodeProcessor::fillListOfMatchingFunctors`!",
+                   fromContainer->startPosition(), fromContainer->endPosition());
+    }
+
+    return false;
 }
 
 void gulc::CodeProcessor::processHasExpr(gulc::HasExpr* hasExpr) {

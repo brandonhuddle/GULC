@@ -71,7 +71,7 @@ namespace gulc {
         CodeProcessor(gulc::Target const& target, std::vector<std::string> const& filePaths,
                       std::vector<NamespaceDecl*>& namespacePrototypes)
                 : _target(target), _filePaths(filePaths), _namespacePrototypes(namespacePrototypes), _currentFile(),
-                  _currentParameters(nullptr) {}
+                  _currentContainer(nullptr), _currentParameters(nullptr) {}
 
         void processFiles(std::vector<ASTFile>& files);
 
@@ -100,6 +100,9 @@ namespace gulc {
         std::vector<std::string> const& _filePaths;
         std::vector<NamespaceDecl*>& _namespacePrototypes;
         ASTFile* _currentFile;
+        // The current container decl (NOTE: This is one of `NamespaceDecl`, `StructDecl`, etc. this is NOT the
+        // current `Decl` being processed such as `FunctionDecl` etc.)
+        Decl* _currentContainer;
 
         std::vector<std::vector<TemplateParameterDecl*>*> _allTemplateParameters;
         std::vector<ParameterDecl*>* _currentParameters;
@@ -154,6 +157,9 @@ namespace gulc {
                                             std::vector<MatchingDecl>& matchingDecls);
         bool fillListOfMatchingCallOperators(Type* fromType, std::vector<LabeledArgumentExpr*> const& arguments,
                                              std::vector<MatchingDecl>& matchingDecls);
+        bool fillListOfMatchingFunctors(Decl* fromContainer, IdentifierExpr* identifierExpr,
+                                        std::vector<LabeledArgumentExpr*> const& arguments,
+                                        std::vector<MatchingDecl>& matchingDecls);
         void processHasExpr(HasExpr* hasExpr);
         void processIdentifierExpr(IdentifierExpr* identifierExpr);
         void processIndexerCallExpr(IndexerCallExpr* indexerCallExpr);
