@@ -95,6 +95,8 @@ namespace gulc {
             delete _body;
         }
 
+        bool isInstantiated = false;
+
     protected:
         FunctionDecl(Decl::Kind declKind, unsigned int sourceFileID, std::vector<Attr*> attributes,
                      Decl::Visibility visibility, bool isConstExpr, Identifier identifier,

@@ -84,6 +84,8 @@ add_executable(gulc
         src/ast/decls/SubscriptOperatorSetDecl.hpp
         src/ast/decls/TemplateFunctionDecl.cpp
         src/ast/decls/TemplateFunctionDecl.hpp
+        src/ast/decls/TemplateFunctionInstDecl.cpp
+        src/ast/decls/TemplateFunctionInstDecl.hpp
         src/ast/decls/TemplateParameterDecl.cpp
         src/ast/decls/TemplateParameterDecl.hpp
         src/ast/decls/TemplateStructDecl.cpp
@@ -117,12 +119,16 @@ add_executable(gulc
         src/ast/types/EnumType.hpp
         src/ast/types/FlatArrayType.cpp
         src/ast/types/FlatArrayType.hpp
-        src/ast/types/UnresolvedNestedType.cpp
-        src/ast/types/UnresolvedNestedType.hpp
+        src/ast/types/FunctionPointerType.cpp
+        src/ast/types/FunctionPointerType.hpp
+        src/ast/types/LabeledType.cpp
+        src/ast/types/LabeledType.hpp
         src/ast/types/PointerType.cpp
         src/ast/types/PointerType.hpp
         src/ast/types/ReferenceType.cpp
         src/ast/types/ReferenceType.hpp
+        src/ast/types/SelfType.cpp
+        src/ast/types/SelfType.hpp
         src/ast/types/StructType.cpp
         src/ast/types/StructType.hpp
         src/ast/types/TemplatedType.cpp
@@ -135,6 +141,8 @@ add_executable(gulc
         src/ast/types/TemplateTypenameRefType.hpp
         src/ast/types/TraitType.cpp
         src/ast/types/TraitType.hpp
+        src/ast/types/UnresolvedNestedType.cpp
+        src/ast/types/UnresolvedNestedType.hpp
         src/ast/types/UnresolvedType.cpp
         src/ast/types/UnresolvedType.hpp
         src/ast/types/VTableType.cpp
@@ -148,32 +156,64 @@ add_executable(gulc
         src/ast/exprs/AsExpr.hpp
         src/ast/exprs/AssignmentOperatorExpr.cpp
         src/ast/exprs/AssignmentOperatorExpr.hpp
+        src/ast/exprs/CallOperatorReferenceExpr.cpp
+        src/ast/exprs/CallOperatorReferenceExpr.hpp
         src/ast/exprs/CheckExtendsTypeExpr.cpp
         src/ast/exprs/CheckExtendsTypeExpr.hpp
         src/ast/exprs/ConstructorCallExpr.cpp
         src/ast/exprs/ConstructorCallExpr.hpp
+        src/ast/exprs/ConstructorReferenceExpr.cpp
+        src/ast/exprs/ConstructorReferenceExpr.hpp
+        src/ast/exprs/CurrentSelfExpr.cpp
+        src/ast/exprs/CurrentSelfExpr.hpp
         src/ast/exprs/FunctionCallExpr.cpp
         src/ast/exprs/FunctionCallExpr.hpp
+        src/ast/exprs/FunctionReferenceExpr.cpp
+        src/ast/exprs/FunctionReferenceExpr.hpp
+        src/ast/exprs/EnumConstRefExpr.cpp
+        src/ast/exprs/EnumConstRefExpr.hpp
         src/ast/exprs/HasExpr.cpp
         src/ast/exprs/HasExpr.hpp
         src/ast/exprs/IdentifierExpr.cpp
         src/ast/exprs/IdentifierExpr.hpp
-        src/ast/exprs/IndexerCallExpr.cpp
-        src/ast/exprs/IndexerCallExpr.hpp
+        src/ast/exprs/ImplicitCastExpr.cpp
+        src/ast/exprs/ImplicitCastExpr.hpp
         src/ast/exprs/InfixOperatorExpr.cpp
         src/ast/exprs/InfixOperatorExpr.hpp
         src/ast/exprs/IsExpr.cpp
         src/ast/exprs/IsExpr.hpp
         src/ast/exprs/LabeledArgumentExpr.cpp
         src/ast/exprs/LabeledArgumentExpr.hpp
+        src/ast/exprs/LocalVariableRefExpr.cpp
+        src/ast/exprs/LocalVariableRefExpr.hpp
         src/ast/exprs/MemberAccessCallExpr.cpp
         src/ast/exprs/MemberAccessCallExpr.hpp
+        src/ast/exprs/MemberFunctionCallExpr.cpp
+        src/ast/exprs/MemberFunctionCallExpr.hpp
+        src/ast/exprs/MemberPostfixOperatorCallExpr.cpp
+        src/ast/exprs/MemberPostfixOperatorCallExpr.hpp
+        src/ast/exprs/MemberPrefixOperatorCallExpr.cpp
+        src/ast/exprs/MemberPrefixOperatorCallExpr.hpp
+        src/ast/exprs/MemberPropertyRefExpr.cpp
+        src/ast/exprs/MemberPropertyRefExpr.hpp
+        src/ast/exprs/MemberSubscriptCallExpr.cpp
+        src/ast/exprs/MemberSubscriptCallExpr.hpp
+        src/ast/exprs/MemberVariableRefExpr.cpp
+        src/ast/exprs/MemberVariableRefExpr.hpp
+        src/ast/exprs/ParameterRefExpr.cpp
+        src/ast/exprs/ParameterRefExpr.hpp
         src/ast/exprs/ParenExpr.cpp
         src/ast/exprs/ParenExpr.hpp
         src/ast/exprs/PostfixOperatorExpr.cpp
         src/ast/exprs/PostfixOperatorExpr.hpp
         src/ast/exprs/PrefixOperatorExpr.cpp
         src/ast/exprs/PrefixOperatorExpr.hpp
+        src/ast/exprs/PropertyRefExpr.cpp
+        src/ast/exprs/PropertyRefExpr.hpp
+        src/ast/exprs/SubscriptCallExpr.cpp
+        src/ast/exprs/SubscriptCallExpr.hpp
+        src/ast/exprs/SubscriptRefExpr.cpp
+        src/ast/exprs/SubscriptRefExpr.hpp
         src/ast/exprs/TemplateConstRefExpr.cpp
         src/ast/exprs/TemplateConstRefExpr.hpp
         src/ast/exprs/TernaryExpr.cpp
@@ -184,6 +224,10 @@ add_executable(gulc
         src/ast/exprs/ValueLiteralExpr.hpp
         src/ast/exprs/VariableDeclExpr.cpp
         src/ast/exprs/VariableDeclExpr.hpp
+        src/ast/exprs/VariableRefExpr.cpp
+        src/ast/exprs/VariableRefExpr.hpp
+        src/ast/exprs/VTableFunctionReferenceExpr.cpp
+        src/ast/exprs/VTableFunctionReferenceExpr.hpp
 
         src/ast/Stmt.cpp
         src/ast/Stmt.hpp
@@ -255,6 +299,10 @@ add_executable(gulc
         src/utilities/ConstExprHelper.hpp
         src/utilities/ContractUtil.cpp
         src/utilities/ContractUtil.hpp
+        src/utilities/FunctorUtil.cpp
+        src/utilities/FunctorUtil.hpp
+        src/utilities/InheritUtil.cpp
+        src/utilities/InheritUtil.hpp
         src/utilities/SignatureComparer.cpp
         src/utilities/SignatureComparer.hpp
         src/utilities/SizeofUtil.cpp

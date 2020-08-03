@@ -67,7 +67,10 @@ namespace gulc {
 
     class PrefixOperatorExpr : public Expr {
     public:
-        static bool classof(const Expr* expr) { return expr->getExprKind() == Expr::Kind::PrefixOperator; }
+        static bool classof(const Expr* expr) {
+            auto exprKind = expr->getExprKind();
+            return exprKind == Expr::Kind::PrefixOperator || exprKind == Expr::Kind::MemberPrefixOperatorCall;
+        }
 
         Expr* nestedExpr;
 
@@ -75,9 +78,8 @@ namespace gulc {
 
         PrefixOperatorExpr(PrefixOperators prefixOperator, Expr* nestedExpr,
                            TextPosition operatorStartPosition, TextPosition operatorEndPosition)
-                : Expr(Expr::Kind::PrefixOperator),
-                  nestedExpr(nestedExpr), _operatorStartPosition(operatorStartPosition),
-                  _operatorEndPosition(operatorEndPosition), _prefixOperator(prefixOperator) {}
+                : PrefixOperatorExpr(Expr::Kind::PrefixOperator, prefixOperator, nestedExpr,
+                                     operatorStartPosition, operatorEndPosition) {}
 
         TextPosition startPosition() const override { return _operatorStartPosition; }
         TextPosition endPosition() const override { return nestedExpr->endPosition(); }
@@ -101,6 +103,12 @@ namespace gulc {
         TextPosition _operatorStartPosition;
         TextPosition _operatorEndPosition;
         PrefixOperators _prefixOperator;
+
+        PrefixOperatorExpr(Expr::Kind exprKind, PrefixOperators prefixOperator, Expr* nestedExpr,
+                           TextPosition operatorStartPosition, TextPosition operatorEndPosition)
+                : Expr(exprKind),
+                  nestedExpr(nestedExpr), _operatorStartPosition(operatorStartPosition),
+                  _operatorEndPosition(operatorEndPosition), _prefixOperator(prefixOperator) {}
 
     };
 }

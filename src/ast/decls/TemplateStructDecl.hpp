@@ -33,12 +33,12 @@ namespace gulc {
                                      std::move(templateParameters), {}) {}
 
         /**
-         * Get an instantiation of the template for the provided template arguments
+         * Get an instantiation of the template for the provided template parameters
          *
          * NOTE: The instantiation is NOT guaranteed to be completely constructed.
          * NOTE: `templateArguments` MUST have default values included
          *
-         * @param templateArguments - arguments for the template
+         * @param templateArguments - parameters for the template
          * @param result - the found struct instantiation
          *
          * @return true for new TemplateStructInstDecl, false for existing

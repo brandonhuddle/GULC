@@ -7,10 +7,10 @@
 namespace gulc {
     class TemplateConstRefExpr : public Expr {
     public:
-        static bool classof(const Expr* expr) { return expr->getExprKind() == Expr::Kind::TemplateConstRefExpr; }
+        static bool classof(const Expr* expr) { return expr->getExprKind() == Expr::Kind::TemplateConstRef; }
 
         explicit TemplateConstRefExpr(TemplateParameterDecl* templateParameter)
-                : Expr(Expr::Kind::TemplateConstRefExpr), _templateParameter(templateParameter) {}
+                : Expr(Expr::Kind::TemplateConstRef), _templateParameter(templateParameter) {}
 
         TemplateParameterDecl* templateParameter() { return _templateParameter; }
 

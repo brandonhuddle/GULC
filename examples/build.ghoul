@@ -1,0 +1,74 @@
+// This file is just me playing around with the idea of making the Ghoul build system be entirely Ghoul syntax.
+// I still want to be able to build C, C++, etc. through the build system but I think having the build system tightly
+// integrate with the language could offer a lot of flexibility. Plus it would mean any IDE that already supports Ghoul
+// syntax immediately supports the build system through the exact same code. It could potentially make Ghoul easier to
+// work with as a programmer since you only have the single language to use and learn.
+// Build would ultimately be `ghoul build`, `ghoul build debug`, `ghoul build --arch=arm`, etc.
+import std.build
+
+// `build` returns a list of projects to be built. Usually you will only return one but sometimes you may need more.
+func build() -> []Project {
+    // NOTE: For the `build.ghoul` you'll have the option to not include `std`. The `build.ghoul` can still use `std`
+    //       while building a project that doesn't use `std` (like building a Ghoul kernel. It won't link the `std` but
+    //       the `kernel/build.ghoul` may still `import std.io` etc.
+    let dependencies: []Dependency = [
+        findDependency("std"),
+        // `gitDependency` will automatically clone the git repo and build the project for you for inclusion.
+        gitDependency("https://gitlab.com/example/example.git"),
+    ]
+
+    let source: []SourceFile = [
+        "src/main.ghoul"
+    ]
+
+    // OR
+
+    let source: []SourceFile = search(directory: "src", recursive: true)
+
+    let macros: []Macro = [
+        // I'm unsure of this syntax. But I like the idea of macros having to be predeclared for the whole project
+        // rather than included through `import`. That simplifies the build process tremendously and discourages misuse
+        // of the macro system
+        findMacro("std.foreach")
+    ]
+
+    // Projects will be built in order. It should be possible to have one project rely on the other (e.g. for building
+    // both a library AND an executable that uses the library)
+    // There should also be multiple project types that handle all different scenarios. One big scenario that I've
+    // always needed is proper handling of resource files. CMake does make it possible to copy resources (e.g. PNG,
+    // text, etc.) it also makes it possible to compile other languages that aren't currently supported like
+    // GLSL -> SPIR-V but it doesn't detect changes very well. If you change a PNG or a normal text file it doesn't
+    // handle proper detection of the change and won't copy the file until a normal source file changes. I hate that.
+    // Ghoul's build system should both handle the changes to ANY tracked file and should be flexible and controllable
+    // enough to add ANY language properly into the system. I should be able to write my own way of handling GLSL with
+    // proper diff-checking and recompilation.
+    return [
+        // Custom built GLSL project handling
+        CustomGlslProject(
+            name: "MainMenuShaders",
+            dependencies: [],
+            source: [ ... ]
+        ),
+        GhoulProject(
+            name: "Example"
+            type: .executable,
+            version: Version(1, 0, 0, 1)
+            dependencies: dependencies,
+            source: source,
+            macros: macros,
+            // This specifies a project by name that will be included in change detection. Even if `Example` is
+            // specified explicitly as the project to build we will check with `MainMenuShaders` to see if it needs
+            // rebuilt before building `Example`
+            reliesOn: [ "MainMenuShaders" ]
+        )
+    ]
+}
+
+// Ultimately the way I would like `build.ghoul` to work is as if you're building a project to compile your project.
+// In 99.99% of scenarios it'll be nothing more than a normal "return single GhoulProject with my source and deps"
+// But in that 0.01% of cases it will allow for fully custom build processes that can themselves be libraries.
+// You should be able to release your own `GitDependency` Ghoul library for building with `git` dependencies
+// Or maybe even a `MercurialDependency` or really any type of library for just the build system. One downside to CMake
+// is you usually end up writing your own `*.cmake` file to handle niche scenarios in building. I would like to replace
+// that with a simple `ghoul install builder GitDependency.lib` to have the `GitDependency` support for the current
+// project. And `ghoul install --global build GitDependency.lib` to have `GitDependency` support in ANY project.

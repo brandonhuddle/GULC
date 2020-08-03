@@ -14,8 +14,9 @@
 #include <ast/types/DependentType.hpp>
 #include "TemplateCopyUtil.hpp"
 
-void gulc::TemplateCopyUtil::instantiateTemplateStructCopy(std::vector<TemplateParameterDecl*> const* oldTemplateParameters,
-                                                           TemplateStructDecl* templateStruct) {
+void gulc::TemplateCopyUtil::instantiateTemplateStructCopy(
+        std::vector<TemplateParameterDecl*> const* oldTemplateParameters,
+        TemplateStructDecl* templateStruct) {
     this->oldTemplateParameters = oldTemplateParameters;
     this->newTemplateParameters = &templateStruct->templateParameters();
 
@@ -44,8 +45,9 @@ void gulc::TemplateCopyUtil::instantiateTemplateStructCopy(std::vector<TemplateP
     }
 }
 
-void gulc::TemplateCopyUtil::instantiateTemplateTraitCopy(std::vector<TemplateParameterDecl*> const* oldTemplateParameters,
-                                                          TemplateTraitDecl* templateTrait) {
+void gulc::TemplateCopyUtil::instantiateTemplateTraitCopy(
+        std::vector<TemplateParameterDecl*> const* oldTemplateParameters,
+        TemplateTraitDecl* templateTrait) {
     this->oldTemplateParameters = oldTemplateParameters;
     this->newTemplateParameters = &templateTrait->templateParameters();
 
@@ -64,6 +66,32 @@ void gulc::TemplateCopyUtil::instantiateTemplateTraitCopy(std::vector<TemplatePa
     for (Decl* ownedMember : templateTrait->ownedMembers()) {
         instantiateDecl(ownedMember);
     }
+}
+
+void gulc::TemplateCopyUtil::instantiateTemplateFunctionCopy(
+        std::vector<TemplateParameterDecl*> const* oldTemplateParameters,
+        gulc::TemplateFunctionDecl* templateFunction) {
+    this->oldTemplateParameters = oldTemplateParameters;
+    this->newTemplateParameters = &templateFunction->templateParameters();
+
+    for (Attr* attribute : templateFunction->attributes()) {
+        instantiateAttr(attribute);
+    }
+
+    for (Cont* contract : templateFunction->contracts()) {
+        instantiateCont(contract);
+    }
+
+    for (ParameterDecl* parameter : templateFunction->parameters()) {
+        instantiateParameterDecl(parameter);
+    }
+
+    if (templateFunction->returnType != nullptr) {
+        instantiateType(templateFunction->returnType);
+    }
+
+    // NOTE: Template functions CANNOT be `extern` so we don't check if it is.
+    instantiateStmt(templateFunction->body());
 }
 
 void gulc::TemplateCopyUtil::instantiateAttr(gulc::Attr* attr) const {
@@ -303,9 +331,6 @@ void gulc::TemplateCopyUtil::instantiateExpr(gulc::Expr* expr) const {
         case Expr::Kind::Identifier:
             instantiateIdentifierExpr(llvm::dyn_cast<IdentifierExpr>(expr));
             break;
-        case Expr::Kind::IndexerCall:
-            instantiateIndexerCallExpr(llvm::dyn_cast<IndexerCallExpr>(expr));
-            break;
         case Expr::Kind::InfixOperator:
             instantiateInfixOperatorExpr(llvm::dyn_cast<InfixOperatorExpr>(expr));
             break;
@@ -326,6 +351,9 @@ void gulc::TemplateCopyUtil::instantiateExpr(gulc::Expr* expr) const {
             break;
         case Expr::Kind::PrefixOperator:
             instantiatePrefixOperatorExpr(llvm::dyn_cast<PrefixOperatorExpr>(expr));
+            break;
+        case Expr::Kind::SubscriptCall:
+            instantiateSubscriptCallExpr(llvm::dyn_cast<SubscriptCallExpr>(expr));
             break;
         case Expr::Kind::Ternary:
             instantiateTernaryExpr(llvm::dyn_cast<TernaryExpr>(expr));
@@ -663,14 +691,6 @@ void gulc::TemplateCopyUtil::instantiateIdentifierExpr(gulc::IdentifierExpr* ide
     }
 }
 
-void gulc::TemplateCopyUtil::instantiateIndexerCallExpr(gulc::IndexerCallExpr* indexerCallExpr) const {
-    instantiateExpr(indexerCallExpr->indexerReference);
-
-    for (Expr* argument : indexerCallExpr->arguments) {
-        instantiateExpr(argument);
-    }
-}
-
 void gulc::TemplateCopyUtil::instantiateInfixOperatorExpr(gulc::InfixOperatorExpr* infixOperatorExpr) const {
     instantiateExpr(infixOperatorExpr->leftValue);
     instantiateExpr(infixOperatorExpr->rightValue);
@@ -700,6 +720,14 @@ void gulc::TemplateCopyUtil::instantiatePostfixOperatorExpr(gulc::PostfixOperato
 
 void gulc::TemplateCopyUtil::instantiatePrefixOperatorExpr(gulc::PrefixOperatorExpr* prefixOperatorExpr) const {
     instantiateExpr(prefixOperatorExpr->nestedExpr);
+}
+
+void gulc::TemplateCopyUtil::instantiateSubscriptCallExpr(gulc::SubscriptCallExpr* subscriptCallExpr) const {
+    instantiateExpr(subscriptCallExpr->subscriptReference);
+
+    for (Expr* argument : subscriptCallExpr->arguments) {
+        instantiateExpr(argument);
+    }
 }
 
 void gulc::TemplateCopyUtil::instantiateTernaryExpr(gulc::TernaryExpr* ternaryExpr) const {

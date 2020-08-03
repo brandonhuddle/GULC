@@ -130,9 +130,8 @@ Token Lexer::lexOneToken() {
 
     for (; _currentIndex < _sourceCode.length(); ++_currentIndex, ++_currentColumn) {
         if (_sourceCode[_currentIndex] == '\r' || _sourceCode[_currentIndex] == '\n') {
-
-            result.hasLeadingWhitespace = true;
             PARSE_AND_RETURN_IF_TOKEN_TEXT_NOT_EMPTY();
+            result.hasLeadingWhitespace = true;
 
             ++_currentLine;
             _currentColumn = 1;
@@ -144,8 +143,8 @@ Token Lexer::lexOneToken() {
                 ++_currentIndex;
             }
         } else if (std::isspace(static_cast<unsigned char>(_sourceCode[_currentIndex]))) {
-            result.hasLeadingWhitespace = true;
             PARSE_AND_RETURN_IF_TOKEN_TEXT_NOT_EMPTY();
+            result.hasLeadingWhitespace = true;
         } else {
             switch (_sourceCode[_currentIndex]) {
                 case '"': {
@@ -896,10 +895,10 @@ Token Lexer::parseToken(std::string& tokenText, TextPosition startPosition, bool
         result.metaType = TokenMetaType::KEYWORD;
         result.tokenType = TokenType::FUNC;
         result.currentSymbol = "func";
-    } else if (tokenText == "property") {
+    } else if (tokenText == "prop") {
         result.metaType = TokenMetaType::KEYWORD;
-        result.tokenType = TokenType::PROPERTY;
-        result.currentSymbol = "property";
+        result.tokenType = TokenType::PROP;
+        result.currentSymbol = "prop";
     } else if (tokenText == "let") {
         result.metaType = TokenMetaType::KEYWORD;
         result.tokenType = TokenType::LET;

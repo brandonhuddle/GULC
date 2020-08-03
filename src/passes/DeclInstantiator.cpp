@@ -25,6 +25,7 @@
 #include <ast/types/DependentType.hpp>
 #include <ast/types/EnumType.hpp>
 #include <make_reverse_iterator.hpp>
+#include <utilities/InheritUtil.hpp>
 
 void gulc::DeclInstantiator::processFiles(std::vector<ASTFile>& files) {
     _files = &files;
@@ -41,38 +42,180 @@ void gulc::DeclInstantiator::processFiles(std::vector<ASTFile>& files) {
             processDecl(decl);
         }
 
-        while (!_delayInstantiationDecls.empty()) {
-            Decl* delayedInstantiation = _delayInstantiationDecls.front();
-            _delayInstantiationDecls.pop();
-
-            switch (delayedInstantiation->getDeclKind()) {
-                case Decl::Kind::TemplateStructInst: {
-                    auto templateStructInstDecl = llvm::dyn_cast<TemplateStructInstDecl>(delayedInstantiation);
-
-                    if (!templateStructInstDecl->isInstantiated) {
-                        processTemplateStructInstDecl(templateStructInstDecl);
-                    }
-
-                    break;
-                }
-                case Decl::Kind::TemplateTraitInst: {
-                    auto templateTraitInstDecl = llvm::dyn_cast<TemplateTraitInstDecl>(delayedInstantiation);
-
-                    if (!templateTraitInstDecl->isInstantiated) {
-                        processTemplateTraitInstDecl(templateTraitInstDecl);
-                    }
-
-                    break;
-                }
-                default:
-                    printError("[INTERNAL ERROR] unknown decl found in the delayed instantiation list!",
-                               delayedInstantiation->startPosition(), delayedInstantiation->endPosition());
-                    break;
-            }
-        }
-
-        _delayInstantiationDeclsSet.clear();
+        handleDelayedInstantiationDecls();
     }
+}
+
+gulc::TemplateStructInstDecl* gulc::DeclInstantiator::instantiateTemplateStruct(ASTFile* file,
+                                                                                gulc::TemplateStructDecl* templateStructDecl,
+                                                                                std::vector<Expr*>& templateArguments,
+                                                                                std::string const& errorMessageName,
+                                                                                TextPosition errorStartPosition,
+                                                                                TextPosition errorEndPosition) {
+    _currentFile = file;
+
+    if (!templateStructDecl->contractsAreInstantiated) {
+        processTemplateStructDeclContracts(templateStructDecl);
+    }
+
+    if (!templateStructDecl->isInstantiated) {
+        printError("[INTERNAL] template `" + templateStructDecl->identifier().name() + "` is not instantiated, cannot create instantiations from it!",
+                   errorStartPosition, errorEndPosition);
+    }
+
+    if (templateStructDecl->containedInTemplate) {
+        printError("[INTERNAL] template `" + errorMessageName + "` is contained within a template, this cannot be instantiated!",
+                   errorStartPosition, errorEndPosition);
+    }
+
+    if (!ConstExprHelper::templateArgumentsAreSolved(templateArguments)) {
+        printError("[INTERNAL] template `" + errorMessageName + "` does NOT have solved template parameters!",
+                   errorStartPosition, errorEndPosition);
+    }
+
+    // Output an easy to read error message for any `where...` failures
+    errorOnWhereContractFailure(templateStructDecl->contracts(), templateArguments,
+                                templateStructDecl->templateParameters(), errorMessageName,
+                                errorStartPosition, errorEndPosition);
+
+    TemplateStructInstDecl* templateStructInstDecl = nullptr;
+    templateStructDecl->getInstantiation(templateArguments, &templateStructInstDecl);
+
+    // NOTE: It is possible the template instantiation has already been instantiated.
+    if (!templateStructInstDecl->isInstantiated) {
+        processTemplateStructInstDecl(templateStructInstDecl);
+    }
+
+    handleDelayedInstantiationDecls();
+
+    return templateStructInstDecl;
+}
+
+gulc::TemplateTraitInstDecl* gulc::DeclInstantiator::instantiateTemplateTrait(ASTFile* file,
+                                                                              gulc::TemplateTraitDecl* templateTraitDecl,
+                                                                              std::vector<Expr*>& templateArguments,
+                                                                              std::string const& errorMessageName,
+                                                                              TextPosition errorStartPosition,
+                                                                              TextPosition errorEndPosition) {
+    _currentFile = file;
+
+    if (!templateTraitDecl->contractsAreInstantiated) {
+        processTemplateTraitDeclContracts(templateTraitDecl);
+    }
+
+    if (!templateTraitDecl->isInstantiated) {
+        printError("[INTERNAL] template `" + templateTraitDecl->identifier().name() + "` is not instantiated, cannot create instantiations from it!",
+                   errorStartPosition, errorEndPosition);
+    }
+
+    if (templateTraitDecl->containedInTemplate) {
+        printError("[INTERNAL] template `" + errorMessageName + "` is contained within a template, this cannot be instantiated!",
+                   errorStartPosition, errorEndPosition);
+    }
+
+    if (!ConstExprHelper::templateArgumentsAreSolved(templateArguments)) {
+        printError("[INTERNAL] template `" + errorMessageName + "` does NOT have solved template parameters!",
+                   errorStartPosition, errorEndPosition);
+    }
+
+    // Output an easy to read error message for any `where...` failures
+    errorOnWhereContractFailure(templateTraitDecl->contracts(), templateArguments,
+                                templateTraitDecl->templateParameters(), errorMessageName,
+                                errorStartPosition, errorEndPosition);
+
+    TemplateTraitInstDecl* templateTraitInstDecl = nullptr;
+    templateTraitDecl->getInstantiation(templateArguments, &templateTraitInstDecl);
+
+    // NOTE: It is possible the template instantiation has already been instantiated.
+    if (!templateTraitInstDecl->isInstantiated) {
+        processTemplateTraitInstDecl(templateTraitInstDecl);
+    }
+
+    handleDelayedInstantiationDecls();
+
+    return templateTraitInstDecl;
+}
+
+gulc::TemplateFunctionInstDecl* gulc::DeclInstantiator::instantiateTemplateFunction(ASTFile* file,
+                                                                                    gulc::TemplateFunctionDecl* templateFunctionDecl,
+                                                                                    std::vector<Expr*>& templateArguments,
+                                                                                    std::string const& errorMessageName,
+                                                                                    TextPosition errorStartPosition,
+                                                                                    TextPosition errorEndPosition) {
+    _currentFile = file;
+
+    if (!templateFunctionDecl->contractsAreInstantiated) {
+        processTemplateFunctionDeclContracts(templateFunctionDecl);
+    }
+
+    // TODO: Do we need to handle this? I don't think this function will ever be called in a scenario where the
+    //       template hasn't already been instantiated since this function should only be called AFTER
+    //       `DeclInstantiator` has already finished
+//    if (!templateFunctionDecl->isInstantiated) {
+//        printError("[INTERNAL] template `" + templateFunctionDecl->identifier().name() + "` is not instantiated, cannot create instantiations from it!",
+//                   errorStartPosition, errorEndPosition);
+//    }
+
+    if (templateFunctionDecl->containedInTemplate) {
+        printError("[INTERNAL] template `" + errorMessageName + "` is contained within a template, this cannot be instantiated!",
+                   errorStartPosition, errorEndPosition);
+    }
+
+    if (!ConstExprHelper::templateArgumentsAreSolved(templateArguments)) {
+        printError("[INTERNAL] template `" + errorMessageName + "` does NOT have solved template parameters!",
+                   errorStartPosition, errorEndPosition);
+    }
+
+    // Output an easy to read error message for any `where...` failures
+    errorOnWhereContractFailure(templateFunctionDecl->contracts(), templateArguments,
+                                templateFunctionDecl->templateParameters(), errorMessageName,
+                                errorStartPosition, errorEndPosition);
+
+    TemplateFunctionInstDecl* templateFunctionInstDecl = nullptr;
+    templateFunctionDecl->getInstantiation(templateArguments, &templateFunctionInstDecl);
+
+    // NOTE: It is possible the template instantiation has already been instantiated.
+    if (!templateFunctionInstDecl->isInstantiated) {
+        processTemplateFunctionInstDecl(templateFunctionInstDecl);
+    }
+
+    handleDelayedInstantiationDecls();
+
+    return templateFunctionInstDecl;
+}
+
+void gulc::DeclInstantiator::handleDelayedInstantiationDecls() {
+    while (!_delayInstantiationDecls.empty()) {
+        Decl* delayedInstantiation = _delayInstantiationDecls.front();
+        _delayInstantiationDecls.pop();
+
+        switch (delayedInstantiation->getDeclKind()) {
+            case Decl::Kind::TemplateStructInst: {
+                auto templateStructInstDecl = llvm::dyn_cast<TemplateStructInstDecl>(delayedInstantiation);
+
+                if (!templateStructInstDecl->isInstantiated) {
+                    processTemplateStructInstDecl(templateStructInstDecl);
+                }
+
+                break;
+            }
+            case Decl::Kind::TemplateTraitInst: {
+                auto templateTraitInstDecl = llvm::dyn_cast<TemplateTraitInstDecl>(delayedInstantiation);
+
+                if (!templateTraitInstDecl->isInstantiated) {
+                    processTemplateTraitInstDecl(templateTraitInstDecl);
+                }
+
+                break;
+            }
+            default:
+                printError("[INTERNAL ERROR] unknown decl found in the delayed instantiation list!",
+                           delayedInstantiation->startPosition(), delayedInstantiation->endPosition());
+                break;
+        }
+    }
+
+    _delayInstantiationDeclsSet.clear();
 }
 
 void gulc::DeclInstantiator::printError(std::string const& message, gulc::TextPosition startPosition,
@@ -157,7 +300,7 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
     } else if (llvm::dyn_cast<UnresolvedNestedType>(type)) {
         auto nestedType = llvm::dyn_cast<UnresolvedNestedType>(type);
 
-        // Process the template arguments and try to resolve any potential types in the list...
+        // Process the template parameters and try to resolve any potential types in the list...
         for (Expr*& templateArgument : nestedType->templateArguments()) {
             processConstExpr(templateArgument);
         }
@@ -175,7 +318,7 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
                     auto structType = llvm::dyn_cast<StructType>(nestedType->container);
 
                     if (TypeHelper::resolveTypeWithinDecl(fakeUnresolvedType, structType->decl())) {
-                        // Clear the template arguments from `nestedType` and delete it, it was resolved.
+                        // Clear the template parameters from `nestedType` and delete it, it was resolved.
                         nestedType->templateArguments().clear();
                         delete type;
                         type = fakeUnresolvedType;
@@ -185,7 +328,7 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
                         // won't get fully resolved)
                         return resolveType(type, delayInstantiation);
                     } else {
-                        // Clear the template arguments from `fakeUnresolvedType` and delete it, it wasn't resolved
+                        // Clear the template parameters from `fakeUnresolvedType` and delete it, it wasn't resolved
                         llvm::dyn_cast<UnresolvedType>(fakeUnresolvedType)->templateArguments.clear();
                         delete fakeUnresolvedType;
                     }
@@ -196,7 +339,7 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
                     auto traitType = llvm::dyn_cast<TraitType>(nestedType->container);
 
                     if (TypeHelper::resolveTypeWithinDecl(fakeUnresolvedType, traitType->decl())) {
-                        // Clear the template arguments from `nestedType` and delete it, it was resolved.
+                        // Clear the template parameters from `nestedType` and delete it, it was resolved.
                         nestedType->templateArguments().clear();
                         delete type;
                         type = fakeUnresolvedType;
@@ -206,7 +349,7 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
                         // won't get fully resolved)
                         return resolveType(type, delayInstantiation);
                     } else {
-                        // Clear the template arguments from `fakeUnresolvedType` and delete it, it wasn't resolved
+                        // Clear the template parameters from `fakeUnresolvedType` and delete it, it wasn't resolved
                         llvm::dyn_cast<UnresolvedType>(fakeUnresolvedType)->templateArguments.clear();
                         delete fakeUnresolvedType;
                     }
@@ -226,7 +369,7 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
 
                         // We steal the container
                         nestedType->container = nullptr;
-                        // We steal the arguments
+                        // We steal the parameters
                         nestedType->templateArguments().clear();
                         delete nestedType;
 
@@ -248,7 +391,7 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
 
                         // We steal the container
                         nestedType->container = nullptr;
-                        // We steal the arguments
+                        // We steal the parameters
                         nestedType->templateArguments().clear();
                         delete nestedType;
 
@@ -291,7 +434,7 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
 
                         // We steal the container
                         nestedType->container = nullptr;
-                        // We steal the arguments
+                        // We steal the parameters
                         nestedType->templateArguments().clear();
                         delete nestedType;
 
@@ -319,7 +462,7 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
     } else if (llvm::isa<TemplatedType>(type)) {
         auto templatedType = llvm::dyn_cast<TemplatedType>(type);
 
-        // Process the template arguments and try to resolve any potential types in the list...
+        // Process the template parameters and try to resolve any potential types in the list...
         for (Expr*& templateArgument : templatedType->templateArguments()) {
             processConstExpr(templateArgument);
         }
@@ -390,9 +533,9 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
             }
         }
 
-        // If both lists are empty then we didn't find a valid template with the provided arguments
+        // If both lists are empty then we didn't find a valid template with the provided parameters
         if (exactMatches.empty() && partialMatches.empty()) {
-            printError("template type `" + templatedType->toString() + "` was not found for the provided arguments!",
+            printError("template type `" + templatedType->toString() + "` was not found for the provided parameters!",
                        templatedType->startPosition(), templatedType->endPosition());
         }
 
@@ -415,8 +558,8 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
         }
 
         if (!isExact) {
-            // TODO: Once default arguments are supported on template types we will have to support grabbing the
-            //       template type data and putting it into our arguments list...
+            // TODO: Once default parameters are supported on template types we will have to support grabbing the
+            //       template type data and putting it into our parameters list...
             printError("[INTERNAL] non-exact match found for template type, this is not yet handled!",
                        templatedType->startPosition(), templatedType->endPosition());
         }
@@ -434,9 +577,10 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
                 }
 
                 // Output an easy to read error message for any `where...` failures
-                errorOnWhereContractFailure(templatedType,
-                                            templateStructDecl->contracts(), templatedType->templateArguments(),
-                                            templateStructDecl->templateParameters());
+                errorOnWhereContractFailure(templateStructDecl->contracts(), templatedType->templateArguments(),
+                                            templateStructDecl->templateParameters(),
+                                            templatedType->toString(),
+                                            templatedType->startPosition(), templatedType->endPosition());
 
                 if (!templateStructDecl->containedInTemplate &&
                     ConstExprHelper::templateArgumentsAreSolved(templatedType->templateArguments())) {
@@ -459,7 +603,7 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
                     delete type;
                     type = newType;
                 } else {
-                    // The template arguments weren't solved, we will return a `TemplateStructType` instead...
+                    // The template parameters weren't solved, we will return a `TemplateStructType` instead...
                     Type* newType = new TemplateStructType(templatedType->qualifier(),
                                                            templatedType->templateArguments(), templateStructDecl,
                                                            templatedType->startPosition(),
@@ -470,7 +614,7 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
                         newType = new DependentType(templatedType->qualifier(), containerTemplateType, newType);
                     }
 
-                    // We steal the template arguments
+                    // We steal the template parameters
                     templatedType->templateArguments().clear();
                     delete type;
                     type = newType;
@@ -486,9 +630,9 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
                 }
 
                 // Output an easy to read error message for any `where...` failures
-                errorOnWhereContractFailure(templatedType,
-                                            templateTraitDecl->contracts(), templatedType->templateArguments(),
-                                            templateTraitDecl->templateParameters());
+                errorOnWhereContractFailure(templateTraitDecl->contracts(), templatedType->templateArguments(),
+                                            templateTraitDecl->templateParameters(), templatedType->toString(),
+                                            templatedType->startPosition(), templatedType->endPosition());
 
                 if (!templateTraitDecl->containedInTemplate &&
                     ConstExprHelper::templateArgumentsAreSolved(templatedType->templateArguments())) {
@@ -511,7 +655,7 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
                     delete type;
                     type = newType;
                 } else {
-                    // The template arguments weren't solved, we will return a `TemplateTraitType` instead...
+                    // The template parameters weren't solved, we will return a `TemplateTraitType` instead...
                     Type* newType = new TemplateTraitType(templatedType->qualifier(),
                                                           templatedType->templateArguments(), templateTraitDecl,
                                                           templatedType->startPosition(),
@@ -522,7 +666,7 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
                         newType = new DependentType(templatedType->qualifier(), containerTemplateType, newType);
                     }
 
-                    // We steal the template arguments
+                    // We steal the template parameters
                     templatedType->templateArguments().clear();
                     delete type;
                     type = newType;
@@ -711,7 +855,7 @@ void gulc::DeclInstantiator::compareDeclTemplateArgsToParams(const std::vector<E
                                                              const std::vector<TemplateParameterDecl*>& params,
                                                              bool* outIsMatch, bool* outIsExact) const {
     if (params.size() < args.size()) {
-        // If there are more template arguments than parameters then we skip this Decl...
+        // If there are more template parameters than parameters then we skip this Decl...
         *outIsMatch = false;
         *outIsExact = false;
         return;
@@ -754,7 +898,7 @@ void gulc::DeclInstantiator::compareDeclTemplateArgsToParams(const std::vector<E
                         break;
                     }
                 } else {
-                    printError("unsupported expression in template arguments list!",
+                    printError("unsupported expression in template parameters list!",
                                args[i]->startPosition(), args[i]->endPosition());
                 }
             }
@@ -764,10 +908,12 @@ void gulc::DeclInstantiator::compareDeclTemplateArgsToParams(const std::vector<E
     // NOTE: Once we've reached this point the decl has been completely evaluated...
 }
 
-void gulc::DeclInstantiator::errorOnWhereContractFailure(Type const* errorMessageType,
-                                                         std::vector<Cont*> const& contracts,
+void gulc::DeclInstantiator::errorOnWhereContractFailure(std::vector<Cont*> const& contracts,
                                                          std::vector<Expr*> const& args,
-                                                         std::vector<TemplateParameterDecl*> const& params) {
+                                                         std::vector<TemplateParameterDecl*> const& params,
+                                                         std::string const& errorMessageName,
+                                                         TextPosition errorStartPosition,
+                                                         TextPosition errorEndPosition) {
     for (Cont* contract : contracts) {
         if (llvm::isa<WhereCont>(contract)) {
             auto checkWhere = llvm::dyn_cast<WhereCont>(contract);
@@ -780,9 +926,9 @@ void gulc::DeclInstantiator::errorOnWhereContractFailure(Type const* errorMessag
                 //           where T : Trait
                 //                 ^^^^^^^^^
                 //       type `i32` does not pass the annotated `where` contract for `Example<i32>`
-                printError("instantiation failed for type `" + errorMessageType->toString() + "`, "
+                printError("instantiation failed for template `" + errorMessageName + "`, "
                            "`where " + checkWhere->condition->toString() + "` failed!",
-                           errorMessageType->startPosition(), errorMessageType->endPosition());
+                           errorStartPosition, errorEndPosition);
             }
         }
     }
@@ -953,6 +1099,8 @@ void gulc::DeclInstantiator::processFunctionDecl(gulc::FunctionDecl* functionDec
                        functionDecl->returnType->startPosition(), functionDecl->returnType->endPosition());
         }
     }
+
+    functionDecl->isInstantiated = true;
 }
 
 void gulc::DeclInstantiator::processNamespaceDecl(gulc::NamespaceDecl* namespaceDecl) {
@@ -1071,12 +1219,45 @@ void gulc::DeclInstantiator::processStructDeclInheritedTypes(gulc::StructDecl* s
     // TODO: We need to set `baseStruct` even when the base struct is a TemplateStructDecl!!!!!!!!!!===================
     //       This will most likely cause issues we will have to handle properly...
     if (structDecl->baseStruct != nullptr) {
-        structDecl->inheritedMembers = structDecl->baseStruct->inheritedMembers;
-
-        // TODO: Loop through the base struct's members and add them to the `inheritedMembers` list
+        // TODO: We need to loop the base `allMembers` and check to make sure they're visible to `structDecl`
+        structDecl->allMembers = structDecl->baseStruct->allMembers;
     }
 
-    // TODO: Should we loop our inherited traits and check to make sure we've implemented them?
+    for (Decl* ownedMember : structDecl->ownedMembers()) {
+        // We loop through our `inheritedMembers` list and either replace a `Decl` if it is shadowed/overridden
+        // OR if the shadow/override wasn't found we append the `baseMember`
+        bool wasOverrideOrShadow = false;
+
+        // NOTE: We don't have to handle redeclarations here, that is handled in another pass.
+        for (std::size_t i = 0; i < structDecl->allMembers.size(); ++i) {
+            Decl* checkInherited = structDecl->allMembers[i];
+
+            if (InheritUtil::overridesOrShadows(ownedMember, checkInherited)) {
+                structDecl->allMembers[i] = ownedMember;
+                // Perfect example or where named loops would be great... just `continue baseMemberLoop`
+                wasOverrideOrShadow = true;
+                break;
+            }
+        }
+
+        if (!wasOverrideOrShadow) {
+            structDecl->allMembers.push_back(ownedMember);
+        }
+    }
+
+    // TODO: We need to loop our traits and add any predefined implementations to our `inheritedMembers`
+    //       If we've implemented them ourselves then they will be ignored. If not, they'll be callable.
+    // TODO: We need to trait default implementations within traits the same way we do templates. If we actually use
+    //       the default implementation then we need to automatically re-implement it where `typeof self` == current struct
+    for (Type* checkBase : structDecl->inheritedTypes()) {
+        if (llvm::isa<TraitType>(checkBase)) {
+            auto checkTrait = llvm::dyn_cast<TraitType>(checkBase);
+
+            // TODO: Finish traits once we've started creating auto-specialized functions for default implementations
+            //       NOTE: I think we can actually ignore adding them to the `inheritedMembers` list. Default
+            //             implementations should be added to the `ownedMembers` once specialized to the struct.
+        }
+    }
 }
 
 void gulc::DeclInstantiator::processStructDecl(gulc::StructDecl* structDecl, bool calculateSizeAndVTable) {
@@ -1318,6 +1499,27 @@ void gulc::DeclInstantiator::processTemplateFunctionDecl(gulc::TemplateFunctionD
 //    _workingDecls.pop_back();
 }
 
+void gulc::DeclInstantiator::processTemplateFunctionDeclContracts(gulc::TemplateFunctionDecl* templateFunctionDecl) {
+    templateFunctionDecl->contractsAreInstantiated = true;
+
+    for (Cont*& contract : templateFunctionDecl->contracts()) {
+        processContract(contract);
+
+        if (llvm::isa<WhereCont>(contract)) {
+            descriptTemplateParameterForWhereCont(llvm::dyn_cast<WhereCont>(contract));
+        }
+    }
+}
+
+void gulc::DeclInstantiator::processTemplateFunctionInstDecl(gulc::TemplateFunctionInstDecl* templateFunctionInstDecl) {
+    // The struct could already have been instantiated. We skip any that have already been processed...
+    if (templateFunctionInstDecl->isInstantiated) {
+        return;
+    }
+
+    processFunctionDecl(templateFunctionInstDecl);
+}
+
 void gulc::DeclInstantiator::processTemplateParameterDecl(gulc::TemplateParameterDecl* templateParameterDecl) {
     // If the template parameter is a const then we have to process its underlying type
     if (templateParameterDecl->templateParameterKind() == TemplateParameterDecl::TemplateParameterKind::Const) {
@@ -1451,6 +1653,68 @@ void gulc::DeclInstantiator::processTraitDeclInheritedTypes(gulc::TraitDecl* tra
         } else {
             printError("traits can only extend other traits! (`" + inheritedType->toString() + "` is not a trait!)",
                        inheritedType->startPosition(), inheritedType->endPosition());
+        }
+    }
+
+    for (Type* inheritedType : traitDecl->inheritedTypes()) {
+        if (llvm::isa<TraitType>(inheritedType)) {
+            auto inheritedTraitType = llvm::dyn_cast<TraitType>(inheritedType);
+            auto inheritedTrait = inheritedTraitType->decl();
+
+            // TODO: Loop members and add to the inherited members list
+            // TODO: How will we handle shadows? Do we just consider them to be the same function here?
+            //       I would LIKE to be able to do something like:
+            //           func ToString::toString() -> string { return Self::toString(self) }
+            //           func OtherTrait::toString() -> string { return Self::toString(self) }
+            //           func toString() -> string { return "real `toString`" }
+            //       As a way to allow users to fix their ambiguous inheritance AND as a potential way to both
+            //       implement a virtual function while also overloading it:
+            //           override func Stmt::getKind() -> Stmt::Kind { ... }
+            //           @shadows(Stmt::getKind) // NOTE: The `shadows` attribute is WIP and just here for fun.
+            //           virtual func getKind() -> Expr::Kind { ... }
+            //       The above is something that would benefit the current compiler but requires a middle-man class to
+            //       allow within C++. It is very niche but would be a great feature to have.
+            // The trait must already have it's inherited members list filled so we will just loop them to create ours
+            for (Decl* baseMember : inheritedTrait->allMembers) {
+                // NOTE: Traits cannot define `virtual` members so they can only shadow.
+                bool wasShadowed = false;
+
+                for (std::size_t i = 0; i < traitDecl->allMembers.size(); ++i) {
+                    Decl* checkInherited = traitDecl->allMembers[i];
+
+                    if (InheritUtil::overridesOrShadows(baseMember, checkInherited)) {
+                        traitDecl->allMembers[i] = baseMember;
+                        // Perfect example or where named loops would be great... just `continue baseMemberLoop`
+                        wasShadowed = true;
+                        break;
+                    }
+                }
+
+                if (!wasShadowed) {
+                    traitDecl->allMembers.push_back(baseMember);
+                }
+            }
+        }
+    }
+
+    for (Decl* ownedMember : traitDecl->ownedMembers()) {
+        // NOTE: Traits cannot define `virtual` members so they can only shadow.
+        bool wasShadowed = false;
+
+        // NOTE: Redelcaration will be handled in another pass, we don't need to check that here.
+        for (std::size_t i = 0; i < traitDecl->allMembers.size(); ++i) {
+            Decl* checkInherited = traitDecl->allMembers[i];
+
+            if (InheritUtil::overridesOrShadows(ownedMember, checkInherited)) {
+                traitDecl->allMembers[i] = ownedMember;
+                // Perfect example or where named loops would be great... just `continue baseMemberLoop`
+                wasShadowed = true;
+                break;
+            }
+        }
+
+        if (!wasShadowed) {
+            traitDecl->allMembers.push_back(ownedMember);
         }
     }
 }
@@ -1841,9 +2105,6 @@ void gulc::DeclInstantiator::processExpr(gulc::Expr* expr) {
         case Expr::Kind::Identifier:
             processIdentifierExpr(llvm::dyn_cast<IdentifierExpr>(expr));
             break;
-        case Expr::Kind::IndexerCall:
-            processIndexerCallExpr(llvm::dyn_cast<IndexerCallExpr>(expr));
-            break;
         case Expr::Kind::InfixOperator:
             processInfixOperatorExpr(llvm::dyn_cast<InfixOperatorExpr>(expr));
             break;
@@ -1851,7 +2112,7 @@ void gulc::DeclInstantiator::processExpr(gulc::Expr* expr) {
             processIsExpr(llvm::dyn_cast<IsExpr>(expr));
             break;
         case Expr::Kind::LabeledArgument:
-            printError("argument label found outside of function or indexer call!",
+            printError("argument label found outside of function or subscript call!",
                        expr->startPosition(), expr->endPosition());
             break;
         case Expr::Kind::MemberAccessCall:
@@ -1866,7 +2127,10 @@ void gulc::DeclInstantiator::processExpr(gulc::Expr* expr) {
         case Expr::Kind::PrefixOperator:
             processPrefixOperatorExpr(llvm::dyn_cast<PrefixOperatorExpr>(expr));
             break;
-        case Expr::Kind::TemplateConstRefExpr:
+        case Expr::Kind::SubscriptCall:
+            processSubscriptCallExpr(llvm::dyn_cast<SubscriptCallExpr>(expr));
+            break;
+        case Expr::Kind::TemplateConstRef:
             processTemplateConstRefExpr(llvm::dyn_cast<TemplateConstRefExpr>(expr));
             break;
         case Expr::Kind::Ternary:
@@ -1945,14 +2209,6 @@ void gulc::DeclInstantiator::processIdentifierExpr(gulc::IdentifierExpr* identif
     }
 }
 
-void gulc::DeclInstantiator::processIndexerCallExpr(gulc::IndexerCallExpr* indexerCallExpr) {
-    processExpr(indexerCallExpr->indexerReference);
-
-    for (LabeledArgumentExpr* labeledArgument : indexerCallExpr->arguments) {
-        processLabeledArgumentExpr(labeledArgument);
-    }
-}
-
 void gulc::DeclInstantiator::processInfixOperatorExpr(gulc::InfixOperatorExpr* infixOperatorExpr) {
     processExpr(infixOperatorExpr->leftValue);
     processExpr(infixOperatorExpr->rightValue);
@@ -1985,6 +2241,14 @@ void gulc::DeclInstantiator::processPostfixOperatorExpr(gulc::PostfixOperatorExp
 
 void gulc::DeclInstantiator::processPrefixOperatorExpr(gulc::PrefixOperatorExpr* prefixOperatorExpr) {
     processExpr(prefixOperatorExpr->nestedExpr);
+}
+
+void gulc::DeclInstantiator::processSubscriptCallExpr(gulc::SubscriptCallExpr* subscriptCallExpr) {
+    processExpr(subscriptCallExpr->subscriptReference);
+
+    for (LabeledArgumentExpr* labeledArgument : subscriptCallExpr->arguments) {
+        processLabeledArgumentExpr(labeledArgument);
+    }
 }
 
 void gulc::DeclInstantiator::processTemplateConstRefExpr(gulc::TemplateConstRefExpr* templateConstRefExpr) {

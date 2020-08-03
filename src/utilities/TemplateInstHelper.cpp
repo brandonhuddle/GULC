@@ -25,7 +25,7 @@ void gulc::TemplateInstHelper::instantiateTemplateStructInstDecl(gulc::TemplateS
     _templateParameters = &parentTemplateStruct->templateParameters();
     _templateArguments = &templateStructInstDecl->templateArguments();
 
-    // We instantiate the arguments here just in case any of them are default values that reference other template
+    // We instantiate the parameters here just in case any of them are default values that reference other template
     // parameters
     for (Expr* templateArgument : templateStructInstDecl->templateArguments()) {
         instantiateExpr(templateArgument);
@@ -84,7 +84,7 @@ void gulc::TemplateInstHelper::instantiateTemplateTraitInstDecl(gulc::TemplateTr
     _templateParameters = &parentTemplateTrait->templateParameters();
     _templateArguments = &templateTraitInstDecl->templateArguments();
 
-    // We instantiate the arguments here just in case any of them are default values that reference other template
+    // We instantiate the parameters here just in case any of them are default values that reference other template
     // parameters
     for (Expr* templateArgument : templateTraitInstDecl->templateArguments()) {
         instantiateExpr(templateArgument);
@@ -127,13 +127,48 @@ void gulc::TemplateInstHelper::instantiateTemplateTraitInstDecl(gulc::TemplateTr
     }
 }
 
+void gulc::TemplateInstHelper::instantiateTemplateFunctionInstDecl(gulc::TemplateFunctionDecl* parentTemplateFunction,
+                                                                   gulc::TemplateFunctionInstDecl* templateFunctionInstDecl) {
+    _processBodyStmts = true;
+
+    _templateParameters = &parentTemplateFunction->templateParameters();
+    _templateArguments = &templateFunctionInstDecl->templateArguments();
+
+    // We instantiate the parameters here just in case any of them are default values that reference other template
+    // parameters
+    for (Expr* templateArgument : templateFunctionInstDecl->templateArguments()) {
+        instantiateExpr(templateArgument);
+    }
+
+    // TODO: Is there anything we need to do differently if this is contained within a template? I don't think it is
+    //       possible to reach this point within a template?
+
+    for (Attr* attribute : templateFunctionInstDecl->attributes()) {
+        instantiateAttr(attribute);
+    }
+
+    for (Cont* contract : templateFunctionInstDecl->contracts()) {
+        instantiateCont(contract);
+    }
+
+    for (ParameterDecl* parameter : templateFunctionInstDecl->parameters()) {
+        instantiateParameterDecl(parameter);
+    }
+
+    if (templateFunctionInstDecl->returnType != nullptr) {
+        instantiateType(templateFunctionInstDecl->returnType);
+    }
+
+    instantiateStmt(templateFunctionInstDecl->body());
+}
+
 void gulc::TemplateInstHelper::instantiateType(gulc::Type*& type,
                                                std::vector<TemplateParameterDecl*>* templateParameters,
                                                std::vector<Expr*>* templateArguments) {
     _templateParameters = templateParameters;
     _templateArguments = templateArguments;
 
-    // We instantiate the arguments here just in case any of them are default values that reference other template
+    // We instantiate the parameters here just in case any of them are default values that reference other template
     // parameters
     for (Expr* templateArgument : *templateArguments) {
         instantiateExpr(templateArgument);
@@ -388,9 +423,6 @@ void gulc::TemplateInstHelper::instantiateExpr(gulc::Expr* expr) const {
         case Expr::Kind::Identifier:
             instantiateIdentifierExpr(llvm::dyn_cast<IdentifierExpr>(expr));
             break;
-        case Expr::Kind::IndexerCall:
-            instantiateIndexerCallExpr(llvm::dyn_cast<IndexerCallExpr>(expr));
-            break;
         case Expr::Kind::InfixOperator:
             instantiateInfixOperatorExpr(llvm::dyn_cast<InfixOperatorExpr>(expr));
             break;
@@ -411,6 +443,9 @@ void gulc::TemplateInstHelper::instantiateExpr(gulc::Expr* expr) const {
             break;
         case Expr::Kind::PrefixOperator:
             instantiatePrefixOperatorExpr(llvm::dyn_cast<PrefixOperatorExpr>(expr));
+            break;
+        case Expr::Kind::SubscriptCall:
+            instantiateSubscriptCallExpr(llvm::dyn_cast<SubscriptCallExpr>(expr));
             break;
         case Expr::Kind::Ternary:
             instantiateTernaryExpr(llvm::dyn_cast<TernaryExpr>(expr));
@@ -593,7 +628,7 @@ void gulc::TemplateInstHelper::instantiateTemplateStructDecl(gulc::TemplateStruc
 
     Type* oldContainerTemplateType = _currentContainerTemplateType;
 
-    // Create the list of template arguments from the template parameters
+    // Create the list of template parameters from the template parameters
     std::vector<Expr*> containerTemplateArguments;
     containerTemplateArguments.reserve(templateStructDecl->templateParameters().size());
 
@@ -671,7 +706,7 @@ void gulc::TemplateInstHelper::instantiateTemplateTraitDecl(gulc::TemplateTraitD
 
     Type* oldContainerTemplateType = _currentContainerTemplateType;
 
-    // Create the list of template arguments from the template parameters
+    // Create the list of template parameters from the template parameters
     std::vector<Expr*> containerTemplateArguments;
     containerTemplateArguments.reserve(templateTraitDecl->templateParameters().size());
 
@@ -913,14 +948,6 @@ void gulc::TemplateInstHelper::instantiateIdentifierExpr(gulc::IdentifierExpr* i
     }
 }
 
-void gulc::TemplateInstHelper::instantiateIndexerCallExpr(gulc::IndexerCallExpr* indexerCallExpr) const {
-    instantiateExpr(indexerCallExpr->indexerReference);
-
-    for (Expr* argument : indexerCallExpr->arguments) {
-        instantiateExpr(argument);
-    }
-}
-
 void gulc::TemplateInstHelper::instantiateInfixOperatorExpr(gulc::InfixOperatorExpr* infixOperatorExpr) const {
     instantiateExpr(infixOperatorExpr->leftValue);
     instantiateExpr(infixOperatorExpr->rightValue);
@@ -950,6 +977,14 @@ void gulc::TemplateInstHelper::instantiatePostfixOperatorExpr(gulc::PostfixOpera
 
 void gulc::TemplateInstHelper::instantiatePrefixOperatorExpr(gulc::PrefixOperatorExpr* prefixOperatorExpr) const {
     instantiateExpr(prefixOperatorExpr->nestedExpr);
+}
+
+void gulc::TemplateInstHelper::instantiateSubscriptCallExpr(gulc::SubscriptCallExpr* subscriptCallExpr) const {
+    instantiateExpr(subscriptCallExpr->subscriptReference);
+
+    for (Expr* argument : subscriptCallExpr->arguments) {
+        instantiateExpr(argument);
+    }
 }
 
 void gulc::TemplateInstHelper::instantiateTernaryExpr(gulc::TernaryExpr* ternaryExpr) const {

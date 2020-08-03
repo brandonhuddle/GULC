@@ -13,7 +13,7 @@
 #include <ast/exprs/PrefixOperatorExpr.hpp>
 #include <ast/exprs/PostfixOperatorExpr.hpp>
 #include <ast/exprs/FunctionCallExpr.hpp>
-#include <ast/exprs/IndexerCallExpr.hpp>
+#include <ast/exprs/SubscriptCallExpr.hpp>
 #include <ast/exprs/MemberAccessCallExpr.hpp>
 #include <ast/exprs/VariableDeclExpr.hpp>
 #include <ast/attrs/UnresolvedAttr.hpp>
@@ -137,7 +137,7 @@ Attr* Parser::parseAttr() {
         }
     }
 
-    // If the next token is an `(` we immediately consume it and then parse the arguments
+    // If the next token is an `(` we immediately consume it and then parse the parameters
     // NOTE: Attributes can be called without parenthesis. `[attribute]`, `[move]`, `[move()]`, etc. are all allowed
     if (_lexer.consumeType(TokenType::LPAREN)) {
         while (_lexer.peekType() != TokenType::RPAREN && _lexer.peekType() != TokenType::ENDOFFILE) {
@@ -152,7 +152,7 @@ Attr* Parser::parseAttr() {
         endPosition = _lexer.peekToken().endPosition;
 
         if (!_lexer.consumeType(TokenType::RPAREN)) {
-            printError("expected ending `)` after attribute arguments! (found '" + _lexer.peekToken().currentSymbol + "')",
+            printError("expected ending `)` after attribute parameters! (found '" + _lexer.peekToken().currentSymbol + "')",
                        _lexer.peekToken().startPosition, _lexer.peekToken().endPosition);
         }
     }
@@ -539,12 +539,12 @@ Decl* Parser::parseDecl() {
         case TokenType::DEINIT:
             return parseDestructorDecl(attributes, visibility, isConst, declModifiers, startPosition);
         case TokenType::CALL:
-            // NOTE: Functors/functionoids cannot have templates arguments. This would potentially lead to confusing
+            // NOTE: Functors/functionoids cannot have templates parameters. This would potentially lead to confusing
             //       syntax
             return parseCallOperatorDecl(attributes, visibility, isConst, declModifiers, startPosition);
         case TokenType::SUBSCRIPT:
             return parseSubscriptOperator(attributes, visibility, isConst, startPosition, declModifiers);
-        case TokenType::PROPERTY:
+        case TokenType::PROP:
             // NOTE: Properties shouldn't be able to be templates, throwing random `variable.prop<int> = 21` looks weird
             return parsePropertyDecl(attributes, visibility, isConst, declModifiers, startPosition);
         case TokenType::OPERATOR:
@@ -612,7 +612,7 @@ CallOperatorDecl* Parser::parseCallOperatorDecl(std::vector<Attr*> attributes, D
     }
 
     if (_lexer.peekType() == TokenType::LESS) {
-        printError("unexpected `<` found after `call`, expected `(`! (note: `call` cannot have template arguments!)",
+        printError("unexpected `<` found after `call`, expected `(`! (note: `call` cannot have template parameters!)",
                    _lexer.peekStartPosition(), _lexer.peekEndPosition());
     }
 
@@ -676,7 +676,7 @@ ConstructorDecl* Parser::parseConstructorDecl(std::vector<Attr*> attributes, Dec
     }
 
     if (_lexer.peekType() == TokenType::LESS) {
-        printError("unexpected `<` found after `init`, expected `(`! (note: `init` cannot have template arguments!)",
+        printError("unexpected `<` found after `init`, expected `(`! (note: `init` cannot have template parameters!)",
                    _lexer.peekStartPosition(), _lexer.peekEndPosition());
     }
 
@@ -717,7 +717,7 @@ DestructorDecl* Parser::parseDestructorDecl(std::vector<Attr*> attributes, Decl:
     }
 
     if (_lexer.peekType() == TokenType::LESS) {
-        printError("unexpected `<` found after `deinit`, expected `(`! (note: `deinit` cannot have template arguments!)",
+        printError("unexpected `<` found after `deinit`, expected `(`! (note: `deinit` cannot have template parameters!)",
                    _lexer.peekStartPosition(), _lexer.peekEndPosition());
     }
 
@@ -1253,8 +1253,8 @@ std::vector<ParameterDecl*> Parser::parseParameters(TextPosition* paramsEndPosit
 
 PropertyDecl* Parser::parsePropertyDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
                                         DeclModifiers declModifiers, TextPosition startPosition) {
-    if (!_lexer.consumeType(TokenType::PROPERTY)) {
-        printError("expected `property`, found `" + _lexer.peekCurrentSymbol() + "`!",
+    if (!_lexer.consumeType(TokenType::PROP)) {
+        printError("expected `prop`, found `" + _lexer.peekCurrentSymbol() + "`!",
                    _lexer.peekStartPosition(), _lexer.peekEndPosition());
     }
 
@@ -1881,7 +1881,7 @@ WhereCont* Parser::parseWhereCont() {
         IdentifierExpr* checkTypeExpr = llvm::dyn_cast<IdentifierExpr>(condition);
         Type* checkType = new UnresolvedType(Type::Qualifier::Unassigned, {}, checkTypeExpr->identifier(),
                                              checkTypeExpr->templateArguments());
-        // We're stealing the template arguments so we have to clear the list to make sure they don't get freed.
+        // We're stealing the template parameters so we have to clear the list to make sure they don't get freed.
         checkTypeExpr->templateArguments().clear();
         delete checkTypeExpr;
 
@@ -2964,12 +2964,12 @@ Expr* Parser::parseCallPostfixOrMemberAccess() {
                 TextPosition endPosition = _lexer.peekToken().endPosition;
 
                 if (!_lexer.consumeType(TokenType::RSQUARE)) {
-                    printError("expected ending ']' for indexer call! (found '" + _lexer.peekToken().currentSymbol + "')",
+                    printError("expected ending ']' for subscript call! (found '" + _lexer.peekToken().currentSymbol + "')",
                                _lexer.peekToken().startPosition, _lexer.peekToken().endPosition);
                     return nullptr;
                 }
 
-                result = new IndexerCallExpr(result, arguments, result->startPosition(), endPosition);
+                result = new SubscriptCallExpr(result, arguments, result->startPosition(), endPosition);
                 continue;
             }
             case TokenType::PERIOD: {
@@ -2999,7 +2999,7 @@ std::vector<LabeledArgumentExpr*> Parser::parseCallArguments(TokenType closeToke
     std::vector<LabeledArgumentExpr*> arguments{};
 
     while (_lexer.peekType() != closeToken && _lexer.peekType() != TokenType::ENDOFFILE) {
-        // When parsing arguments we usually require argument labels (like Swift)
+        // When parsing parameters we usually require argument labels (like Swift)
         // Examples:
         //     example(left: 2, right: new! Window());
         //     attempt(try: function(), onFail: failure());
@@ -3027,7 +3027,7 @@ std::vector<LabeledArgumentExpr*> Parser::parseCallArguments(TokenType closeToke
                     auto identifierExpr = llvm::dyn_cast<IdentifierExpr>(parsedExpr);
                     Identifier argumentLabel = identifierExpr->identifier();
 
-                    // TODO: Make sure `identifierExpr` doesn't have template arguments
+                    // TODO: Make sure `identifierExpr` doesn't have template parameters
                     delete identifierExpr;
 
                     arguments.push_back(new LabeledArgumentExpr(argumentLabel, parseExpr()));
@@ -3132,7 +3132,7 @@ IdentifierExpr* Parser::parseIdentifierExpr() {
 
         _lexer.setRightShiftState(oldRightShiftEnabledValue);
 
-        // If there there wasn't a valid template type syntax then we delete the arguments.
+        // If there there wasn't a valid template type syntax then we delete the parameters.
         if (canceled && !templateArguments.empty()) {
             for (Expr* templateArgument : templateArguments) {
                 delete templateArgument;
@@ -3184,53 +3184,61 @@ ValueLiteralExpr* Parser::parseNumberLiteralExpr() {
 
     std::string resultNumber;
     std::string resultSuffix;
-    bool fillSuffix = false;
-    int base = 10;
 
-    for (std::size_t i = 0; i < numberValue.size(); ++i) {
-        char c = numberValue[i];
+    // NOTE: We also DO NOT allow `1.0 f`, only `1.0f`
+    if (_lexer.peekHasLeadingWhitespace()) {
+        resultNumber = numberValue;
+    } else {
+        bool fillSuffix = false;
+        int base = 10;
 
-        if (fillSuffix) {
-            resultSuffix += c;
-        } else {
-            if (base == 10 && std::isdigit(c)) {
-                resultNumber += c;
-            } else if (base == 16 && (std::isdigit(c) ||
-                       (c == 'a' || c == 'A' || c == 'b' || c == 'B' || c == 'c' || c == 'C' || c == 'd' || c == 'D' ||
-                        c == 'e' || c == 'E' || c == 'f' || c == 'F'))) {
-                resultNumber += c;
-            } else if (base == 2 && (c == '0' || c == '1')) {
-                resultNumber += c;
-            } else if (base == 8 &&
-                       (c == '0' || c == '1' || c == '2' || c == '3' || c == '4' || c == '5' || c == '6' || c == '7')) {
-                resultNumber += c;
-            } else if (i == 1 && numberValue[0] == '0') {
-                // Handle `0x...`, `0b...`, `0o...`
-                switch (c) {
-                    case 'x':
-                        // Hex
-                        base = 16;
-                        resultNumber += c;
-                        break;
-                    case 'b':
-                        // Binary
-                        base = 2;
-                        resultNumber += c;
-                        break;
-                    case 'o':
-                        // Octal
-                        base = 8;
-                        resultNumber += c;
-                        break;
-                    default:
-                        // Suffix
-                        fillSuffix = true;
-                        resultSuffix += c;
-                        break;
-                }
-            } else {
-                fillSuffix = true;
+        for (std::size_t i = 0; i < numberValue.size(); ++i) {
+            char c = numberValue[i];
+
+            if (fillSuffix) {
                 resultSuffix += c;
+            } else {
+                if (base == 10 && std::isdigit(c)) {
+                    resultNumber += c;
+                } else if (base == 16 && (std::isdigit(c) ||
+                                          (c == 'a' || c == 'A' || c == 'b' || c == 'B' || c == 'c' || c == 'C' ||
+                                           c == 'd' || c == 'D' ||
+                                           c == 'e' || c == 'E' || c == 'f' || c == 'F'))) {
+                    resultNumber += c;
+                } else if (base == 2 && (c == '0' || c == '1')) {
+                    resultNumber += c;
+                } else if (base == 8 &&
+                           (c == '0' || c == '1' || c == '2' || c == '3' || c == '4' || c == '5' || c == '6' ||
+                            c == '7')) {
+                    resultNumber += c;
+                } else if (i == 1 && numberValue[0] == '0') {
+                    // Handle `0x...`, `0b...`, `0o...`
+                    switch (c) {
+                        case 'x':
+                            // Hex
+                            base = 16;
+                            resultNumber += c;
+                            break;
+                        case 'b':
+                            // Binary
+                            base = 2;
+                            resultNumber += c;
+                            break;
+                        case 'o':
+                            // Octal
+                            base = 8;
+                            resultNumber += c;
+                            break;
+                        default:
+                            // Suffix
+                            fillSuffix = true;
+                            resultSuffix += c;
+                            break;
+                    }
+                } else {
+                    fillSuffix = true;
+                    resultSuffix += c;
+                }
             }
         }
     }

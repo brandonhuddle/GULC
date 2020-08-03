@@ -34,6 +34,8 @@ namespace gulc {
                                            TemplateStructDecl* templateStruct);
         void instantiateTemplateTraitCopy(std::vector<TemplateParameterDecl*> const* oldTemplateParameters,
                                           TemplateTraitDecl* templateTrait);
+        void instantiateTemplateFunctionCopy(std::vector<TemplateParameterDecl*> const* oldTemplateParameters,
+                                             TemplateFunctionDecl* templateFunction);
 
     protected:
         std::vector<TemplateParameterDecl*> const* oldTemplateParameters;
@@ -93,7 +95,6 @@ namespace gulc {
         void instantiateFunctionCallExpr(FunctionCallExpr* functionCallExpr) const;
         void instantiateHasExpr(HasExpr* hasExpr) const;
         void instantiateIdentifierExpr(IdentifierExpr* identifierExpr) const;
-        void instantiateIndexerCallExpr(IndexerCallExpr* indexerCallExpr) const;
         void instantiateInfixOperatorExpr(InfixOperatorExpr* infixOperatorExpr) const;
         void instantiateIsExpr(IsExpr* isExpr) const;
         void instantiateLabeledArgumentExpr(LabeledArgumentExpr* labeledArgumentExpr) const;
@@ -101,6 +102,7 @@ namespace gulc {
         void instantiateParenExpr(ParenExpr* parenExpr) const;
         void instantiatePostfixOperatorExpr(PostfixOperatorExpr* postfixOperatorExpr) const;
         void instantiatePrefixOperatorExpr(PrefixOperatorExpr* prefixOperatorExpr) const;
+        void instantiateSubscriptCallExpr(SubscriptCallExpr* subscriptCallExpr) const;
         void instantiateTernaryExpr(TernaryExpr* ternaryExpr) const;
         void instantiateTypeExpr(TypeExpr* typeExpr) const;
 //        void instantiateValueLiteralExpr(ValueLiteralExpr* valueLiteralExpr) const;

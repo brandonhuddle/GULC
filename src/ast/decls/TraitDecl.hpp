@@ -7,6 +7,27 @@
 #include <set>
 
 namespace gulc {
+    // TODO: For traits we'll have to decide how we want to handle their actual implementation. With a trait you're
+    //       allowed to provide default implementations like so:
+    //           trait ToString {
+    //               func toString() { return "trait `ToString` not properly implemented!"; }
+    //           }
+    //       For this, we will have to allow `toString` to have a `this` reference like any member function. We need to
+    //       decide if we want to automatically create a specialized version of `ToString::toString()` for anything
+    //       that implements it of if we want to only create the generic one and implicitly cast to trait `ToString`
+    //       when the function is called.
+    //       I think we should go the route of automatic specialization. There's no need to cast to `ToString` unless
+    //       it is explicitly required, casting in the background is an extra cost (since we have to construct a vtable)
+    //       For us to fully decide on how we do this we need to know the layout for a trait type. I think the below
+    //       could be a good starting point:
+    //           struct BackendTraitLayout<T> {
+    //               var ptr: *mut T
+    //               var vtable: *func(_: &T)
+    //           }
+    //       The `vtable` is constructed for the trait using the implementations from `T`
+    //       We pass `ptr` as `self` to any of the vtable functions unchanged. `(*vtable)(ptr, ...)`
+    //       We will need to know the lifetime of `ptr` for this to be considered `safe`, if we don't it would be
+    //       possible to store references to stack pointers that will be overwritten.
     class TraitDecl : public Decl {
     public:
         static bool classof(const Decl* decl) {
@@ -89,6 +110,10 @@ namespace gulc {
         // within templates. Without this we would need to manually search the `container` backwards looking for any
         // templates for every single type that resolves to a Decl
         Type* containerTemplateType;
+        // List of all known members including our inherited members
+        // NOTE: None of these pointers are owned by us so we don't free them
+        // TODO: How will we handle shadows? Should we just consider them to be the same function?
+        std::vector<Decl*> allMembers;
 
         // This is used to know if this trait has passed through `DeclInstantiator`
         bool isInstantiated = false;

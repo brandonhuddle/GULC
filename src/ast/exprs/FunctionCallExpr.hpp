@@ -9,7 +9,11 @@
 namespace gulc {
     class FunctionCallExpr : public Expr {
     public:
-        static bool classof(const Expr* expr) { return expr->getExprKind() == Expr::Kind::FunctionCall; }
+        static bool classof(const Expr* expr) {
+            auto kind = expr->getExprKind();
+
+            return kind == Expr::Kind::FunctionCall || kind == Expr::Kind::MemberFunctionCall;
+        }
 
         Expr* functionReference;
         std::vector<LabeledArgumentExpr*> arguments;
@@ -17,9 +21,8 @@ namespace gulc {
 
         FunctionCallExpr(Expr* functionReference, std::vector<LabeledArgumentExpr*> arguments,
                          TextPosition startPosition, TextPosition endPosition)
-                : Expr(Expr::Kind::FunctionCall),
-                  functionReference(functionReference), arguments(std::move(arguments)),
-                  _startPosition(startPosition), _endPosition(endPosition) {}
+                : FunctionCallExpr(Expr::Kind::FunctionCall, functionReference, std::move(arguments),
+                                   startPosition, endPosition) {}
 
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }
@@ -61,6 +64,12 @@ namespace gulc {
     protected:
         TextPosition _startPosition;
         TextPosition _endPosition;
+
+        FunctionCallExpr(Expr::Kind kind, Expr* functionReference, std::vector<LabeledArgumentExpr*> arguments,
+                         TextPosition startPosition, TextPosition endPosition)
+                : Expr(kind),
+                  functionReference(functionReference), arguments(std::move(arguments)),
+                  _startPosition(startPosition), _endPosition(endPosition) {}
 
     };
 }

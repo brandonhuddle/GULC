@@ -1,0 +1,57 @@
+// I think we should switch to `@attribute` instead of `[attribute]`. It would be more readable (since [...] is for
+// arrays), it would be more "normal" since most other languages use `@` instead of `[]` (Swift, Java, Kotlin, etc.),
+// and could be used for implementing macros as well.
+
+@xmlRoot("i forget the namespace... been a few years.")
+struct AmazonEnvelope {
+    @xmlElement("elem-name")
+    var element1: string
+
+    @xmlAttribute
+    var attr1: string
+}
+
+func main(args: []string) {
+    // `@new` is a macro to create `Window` and automatically box it into a `box<Window>` type
+    let window: box Window = @new Window("Window Title")
+    let allWindows: []Window = [ window ]
+
+    // `@for` is a macro that adds a range based for-loop. It allows `for <element> in <iterator/enumerable> { ... }`
+    @for window in allWindows {
+        window->show()
+    }
+
+    // It also works on the same range operators as Swift
+    @for i in 0..<2 {
+        // Will print:
+        //     0
+        //     1
+    }
+
+    @for i in 0...2 {
+        // Will print:
+        //     0
+        //     1
+        //     2
+    }
+
+    // Initially I was planning on stealing the rust syntax for:
+    new! Window("Window Title")
+    for! window in allWindows { ... }
+    for! i in 0..<2 { ... }
+    for! i in 0...2 { ... }
+
+    // But the downside to the above is it is MUCH harder to allow build in keywords
+    // (like the @for, it is easy compared to implementing `for!`)
+    // It could also be easier to confuse what `for! ...` means...
+}
+
+// Maybe we could instead make attributes use `#...` but I think that might end up being confusing to some people...
+#xmlRoot("...")
+struct AmazonEnvelope {
+    #xmlElement
+    var element: string
+    #xmlAttribute
+    var attribute: string
+
+}

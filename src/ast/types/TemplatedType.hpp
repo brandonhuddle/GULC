@@ -12,7 +12,7 @@ namespace gulc {
      * using compounded traits, we're unable to fully solve
      *
      * To fully support the type system we have to have this type. It holds a collection of potential structs, traits,
-     * etc. and the template arguments. Then later on we try to resolve this type again (once the arguments have been
+     * etc. and the template parameters. Then later on we try to resolve this type again (once the parameters have been
      * completely resolved and it is possible to know what the solution is)
      */
     class TemplatedType : public Type {
@@ -66,9 +66,9 @@ namespace gulc {
         }
 
     protected:
-        // We store a list of declarations that partially match the template arguments
+        // We store a list of declarations that partially match the template parameters
         // (basically these have template parameter lists with the same number of required parameters as there are
-        // arguments provided)
+        // parameters provided)
         std::vector<Decl*> _matchingTemplateDecls;
         std::vector<Expr*> _templateArguments;
         TextPosition _startPosition;

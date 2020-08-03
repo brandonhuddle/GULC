@@ -12,6 +12,9 @@
 #include <ast/conts/WhereCont.hpp>
 #include <ast/types/DependentType.hpp>
 #include <make_reverse_iterator.hpp>
+#include <ast/types/SelfType.hpp>
+#include <ast/types/EnumType.hpp>
+#include <ast/types/StructType.hpp>
 #include "BasicTypeResolver.hpp"
 
 void gulc::BasicTypeResolver::processFiles(std::vector<ASTFile>& files) {
@@ -62,7 +65,7 @@ bool gulc::BasicTypeResolver::resolveType(gulc::Type*& type) {
     return result;
 }
 
-void gulc::BasicTypeResolver::processType(gulc::Type* type) {
+void gulc::BasicTypeResolver::processType(gulc::Type*& type) {
     if (llvm::isa<DependentType>(type)) {
         auto dependentType = llvm::dyn_cast<DependentType>(type);
 
@@ -98,6 +101,38 @@ void gulc::BasicTypeResolver::processType(gulc::Type* type) {
 
         for (Expr*& argument : templatedType->templateArguments()) {
             processTemplateArgumentExpr(argument);
+        }
+    } else if (llvm::isa<SelfType>(type)) {
+        if (!_containingDecls.empty()) {
+            // Replace `Self` with the actual type if possible.
+            switch (_containingDecls[_containingDecls.size() - 1]->getDeclKind()) {
+                case Decl::Kind::Enum: {
+                    auto enumDecl = llvm::dyn_cast<EnumDecl>(_containingDecls[_containingDecls.size() - 1]);
+                    auto enumType = new EnumType(Type::Qualifier::Unassigned, enumDecl,
+                                                 type->startPosition(), type->endPosition());
+                    delete type;
+                    type = enumType;
+                    break;
+                }
+                case Decl::Kind::Struct: {
+                    auto structDecl = llvm::dyn_cast<StructDecl>(_containingDecls[_containingDecls.size() - 1]);
+                    auto structType = new StructType(Type::Qualifier::Unassigned, structDecl,
+                                                     type->startPosition(), type->endPosition());
+                    delete type;
+                    type = structType;
+                    break;
+                }
+                case Decl::Kind::Trait: {
+                    auto traitDecl = llvm::dyn_cast<TraitDecl>(_containingDecls[_containingDecls.size() - 1]);
+                    auto traitType = new TraitType(Type::Qualifier::Unassigned, traitDecl,
+                                                   type->startPosition(), type->endPosition());
+                    delete type;
+                    type = traitType;
+                    break;
+                }
+                default:
+                    break;
+            }
         }
     }
 }
@@ -437,7 +472,10 @@ void gulc::BasicTypeResolver::processTraitDecl(gulc::TraitDecl* traitDecl) {
     processContracts(traitDecl->contracts());
 
     for (Type*& inheritedType : traitDecl->inheritedTypes()) {
-        resolveType(inheritedType);
+        if (!resolveType(inheritedType)) {
+            printError("trait inherited type `" + inheritedType->toString() + "` was not found!",
+                       inheritedType->startPosition(), inheritedType->endPosition());
+        }
     }
 
     _containingDecls.push_back(traitDecl);
@@ -469,7 +507,10 @@ void gulc::BasicTypeResolver::processTypeAliasDecl(gulc::TypeAliasDecl* typeAlia
         _templateParameters.push_back(&typeAliasDecl->templateParameters());
     }
 
-    resolveType(typeAliasDecl->typeValue);
+    if (!resolveType(typeAliasDecl->typeValue)) {
+        printError("alias type `" + typeAliasDecl->typeValue->toString() + "` was not found!",
+                   typeAliasDecl->typeValue->startPosition(), typeAliasDecl->typeValue->endPosition());
+    }
 
     if (typeAliasDecl->hasTemplateParameters()) {
         _templateParameters.pop_back();
@@ -574,7 +615,10 @@ void gulc::BasicTypeResolver::processCaseStmt(gulc::CaseStmt* caseStmt) {
 
 void gulc::BasicTypeResolver::processCatchStmt(gulc::CatchStmt* catchStmt) {
     if (catchStmt->hasExceptionType()) {
-        resolveType(catchStmt->exceptionType);
+        if (!resolveType(catchStmt->exceptionType)) {
+            printError("catch type `" + catchStmt->exceptionType->toString() = "` was not found!",
+                       catchStmt->exceptionType->startPosition(), catchStmt->exceptionType->endPosition());
+        }
     }
 
     processStmt(catchStmt->body());
@@ -708,7 +752,7 @@ void gulc::BasicTypeResolver::processTemplateArgumentExpr(gulc::Expr*& expr) {
             delete identifierExpr;
         } else {
             // TODO: When the type isn't found we should delete `tmpType` and look for a potential `const var`
-            //       (but only if there aren't template arguments...)
+            //       (but only if there aren't template parameters...)
             printError("type `" + identifierExpr->identifier().name() + "` was not found!",
                        identifierExpr->startPosition(), identifierExpr->endPosition());
         }
@@ -740,9 +784,6 @@ void gulc::BasicTypeResolver::processExpr(gulc::Expr* expr) {
         case Expr::Kind::Identifier:
             processIdentifierExpr(llvm::dyn_cast<IdentifierExpr>(expr));
             break;
-        case Expr::Kind::IndexerCall:
-            processIndexerCallExpr(llvm::dyn_cast<IndexerCallExpr>(expr));
-            break;
         case Expr::Kind::InfixOperator:
             processInfixOperatorExpr(llvm::dyn_cast<InfixOperatorExpr>(expr));
             break;
@@ -763,6 +804,9 @@ void gulc::BasicTypeResolver::processExpr(gulc::Expr* expr) {
             break;
         case Expr::Kind::PrefixOperator:
             processPrefixOperatorExpr(llvm::dyn_cast<PrefixOperatorExpr>(expr));
+            break;
+        case Expr::Kind::SubscriptCall:
+            processSubscriptCallExpr(llvm::dyn_cast<SubscriptCallExpr>(expr));
             break;
         case Expr::Kind::Ternary:
             processTernaryExpr(llvm::dyn_cast<TernaryExpr>(expr));
@@ -792,7 +836,11 @@ void gulc::BasicTypeResolver::processArrayLiteralExpr(gulc::ArrayLiteralExpr* ar
 
 void gulc::BasicTypeResolver::processAsExpr(gulc::AsExpr* asExpr) {
     processExpr(asExpr->expr);
-    resolveType(asExpr->asType);
+
+    if (!resolveType(asExpr->asType)) {
+        printError("as type `" + asExpr->asType->toString() + "` was not found!",
+                   asExpr->asType->startPosition(), asExpr->asType->endPosition());
+    }
 }
 
 void gulc::BasicTypeResolver::processAssignmentOperatorExpr(gulc::AssignmentOperatorExpr* assignmentOperatorExpr) {
@@ -824,20 +872,16 @@ void gulc::BasicTypeResolver::processFunctionCallExpr(gulc::FunctionCallExpr* fu
 
 void gulc::BasicTypeResolver::processHasExpr(gulc::HasExpr* hasExpr) {
     processExpr(hasExpr->expr);
-    resolveType(hasExpr->trait);
+
+    if (!resolveType(hasExpr->trait)) {
+        printError("has type `" + hasExpr->trait->toString() + "` was not found!",
+                   hasExpr->startPosition(), hasExpr->endPosition());
+    }
 }
 
 void gulc::BasicTypeResolver::processIdentifierExpr(gulc::IdentifierExpr* identifierExpr) {
     for (Expr* templateArgument : identifierExpr->templateArguments()) {
         processExpr(templateArgument);
-    }
-}
-
-void gulc::BasicTypeResolver::processIndexerCallExpr(gulc::IndexerCallExpr* indexerCallExpr) {
-    processExpr(indexerCallExpr->indexerReference);
-
-    for (LabeledArgumentExpr* argument : indexerCallExpr->arguments) {
-        processLabeledArgumentExpr(argument);
     }
 }
 
@@ -848,7 +892,11 @@ void gulc::BasicTypeResolver::processInfixOperatorExpr(gulc::InfixOperatorExpr* 
 
 void gulc::BasicTypeResolver::processIsExpr(gulc::IsExpr* isExpr) {
     processExpr(isExpr->expr);
-    resolveType(isExpr->isType);
+
+    if (!resolveType(isExpr->isType)) {
+        printError("is type `" + isExpr->isType->toString() + "` was not found!",
+                   isExpr->isType->startPosition(), isExpr->isType->endPosition());
+    }
 }
 
 void gulc::BasicTypeResolver::processLabeledArgumentExpr(gulc::LabeledArgumentExpr* labeledArgumentExpr) {
@@ -871,6 +919,14 @@ void gulc::BasicTypeResolver::processPrefixOperatorExpr(gulc::PrefixOperatorExpr
     processExpr(prefixOperatorExpr->nestedExpr);
 }
 
+void gulc::BasicTypeResolver::processSubscriptCallExpr(gulc::SubscriptCallExpr* subscriptCallExpr) {
+    processExpr(subscriptCallExpr->subscriptReference);
+
+    for (LabeledArgumentExpr* argument : subscriptCallExpr->arguments) {
+        processLabeledArgumentExpr(argument);
+    }
+}
+
 void gulc::BasicTypeResolver::processTernaryExpr(gulc::TernaryExpr* ternaryExpr) {
     processExpr(ternaryExpr->condition);
     processExpr(ternaryExpr->trueExpr);
@@ -878,7 +934,10 @@ void gulc::BasicTypeResolver::processTernaryExpr(gulc::TernaryExpr* ternaryExpr)
 }
 
 void gulc::BasicTypeResolver::processTypeExpr(gulc::TypeExpr* typeExpr) {
-    resolveType(typeExpr->type);
+    if (!resolveType(typeExpr->type)) {
+        printError("type `" + typeExpr->toString() + "` was not found!",
+                   typeExpr->startPosition(), typeExpr->endPosition());
+    }
 }
 
 void gulc::BasicTypeResolver::processValueLiteralExpr(gulc::ValueLiteralExpr* valueLiteralExpr) const {
@@ -887,7 +946,10 @@ void gulc::BasicTypeResolver::processValueLiteralExpr(gulc::ValueLiteralExpr* va
 
 void gulc::BasicTypeResolver::processVariableDeclExpr(gulc::VariableDeclExpr* variableDeclExpr) {
     if (variableDeclExpr->type != nullptr) {
-        resolveType(variableDeclExpr->type);
+        if (!resolveType(variableDeclExpr->type)) {
+            printError("local variable type `" + variableDeclExpr->type->toString() + "` was not found!",
+                       variableDeclExpr->type->startPosition(), variableDeclExpr->type->endPosition());
+        }
     }
 
     if (variableDeclExpr->initialValue != nullptr) {

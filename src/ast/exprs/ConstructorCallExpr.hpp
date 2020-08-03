@@ -2,25 +2,21 @@
 #define GULC_CONSTRUCTORCALLEXPR_HPP
 
 #include <vector>
-#include <ast/Expr.hpp>
+#include <ast/exprs/FunctionCallExpr.hpp>
 #include <llvm/Support/Casting.h>
 #include <ast/decls/ConstructorDecl.hpp>
 #include "LabeledArgumentExpr.hpp"
+#include "ConstructorReferenceExpr.hpp"
 
 namespace gulc {
-    class ConstructorCallExpr : public Expr {
+    class ConstructorCallExpr : public FunctionCallExpr {
     public:
         static bool classof(const Expr* expr) { return expr->getExprKind() == Expr::Kind::ConstructorCall; }
 
-        ConstructorDecl* constructorReference;
-        std::vector<LabeledArgumentExpr*> arguments;
-        bool hasArguments() const { return !arguments.empty(); }
-
-        ConstructorCallExpr(ConstructorDecl* constructorReference, std::vector<LabeledArgumentExpr*> arguments,
+        ConstructorCallExpr(ConstructorReferenceExpr* constructorReference, std::vector<LabeledArgumentExpr*> arguments,
                             TextPosition startPosition, TextPosition endPosition)
-                : Expr(Expr::Kind::ConstructorCall),
-                  constructorReference(constructorReference), arguments(std::move(arguments)),
-                  _startPosition(startPosition), _endPosition(endPosition) {}
+                : FunctionCallExpr(Expr::Kind::ConstructorCall, constructorReference, std::move(arguments),
+                                   startPosition, endPosition) {}
 
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }
@@ -28,12 +24,17 @@ namespace gulc {
         Expr* deepCopy() const override {
             std::vector<LabeledArgumentExpr*> copiedArguments;
             copiedArguments.reserve(arguments.size());
+            ConstructorReferenceExpr* copiedConstructorReference = nullptr;
 
             for (Expr* argument : arguments) {
                 copiedArguments.push_back(llvm::dyn_cast<LabeledArgumentExpr>(argument->deepCopy()));
             }
 
-            auto result = new ConstructorCallExpr(constructorReference, copiedArguments,
+            if (functionReference != nullptr && llvm::isa<ConstructorReferenceExpr>(functionReference)) {
+                copiedConstructorReference = llvm::dyn_cast<ConstructorReferenceExpr>(functionReference->deepCopy());
+            }
+
+            auto result = new ConstructorCallExpr(copiedConstructorReference, copiedArguments,
                                                   _startPosition, _endPosition);
             result->valueType = valueType == nullptr ? nullptr : valueType->deepCopy();
             return result;
@@ -48,13 +49,7 @@ namespace gulc {
                 argumentsString += arguments[i]->toString();
             }
 
-            return constructorReference->container->identifier().name() + "(" + argumentsString + ")";
-        }
-
-        ~ConstructorCallExpr() override {
-            for (LabeledArgumentExpr* argument : arguments) {
-                delete argument;
-            }
+            return functionReference->toString() + "(" + argumentsString + ")";
         }
 
     protected:

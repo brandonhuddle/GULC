@@ -10,7 +10,8 @@
 #include <ast/types/TemplateTraitType.hpp>
 #include "TypeCompareUtil.hpp"
 
-bool gulc::TypeCompareUtil::compareAreSame(const gulc::Type* left, const gulc::Type* right) {
+bool gulc::TypeCompareUtil::compareAreSame(const gulc::Type* left, const gulc::Type* right,
+                                           TemplateComparePlan templateComparePlan) {
     // TODO: THis might be better as an option? There may be some scenarios where we want to know if the types are the
     //       same WITHOUT qualifiers (or even same without top-level qualifiers)
     if (left->qualifier() != right->qualifier() ||
@@ -23,7 +24,7 @@ bool gulc::TypeCompareUtil::compareAreSame(const gulc::Type* left, const gulc::T
             auto leftAlias = llvm::dyn_cast<AliasType>(left);
             auto rightAlias = llvm::dyn_cast<AliasType>(right);
 
-            return compareAreSame(leftAlias->decl()->typeValue, rightAlias->decl()->typeValue);
+            return compareAreSame(leftAlias->decl()->typeValue, rightAlias->decl()->typeValue, templateComparePlan);
         }
         case Type::Kind::BuiltIn: {
             auto leftBuiltIn = llvm::dyn_cast<BuiltInType>(left);
@@ -47,13 +48,13 @@ bool gulc::TypeCompareUtil::compareAreSame(const gulc::Type* left, const gulc::T
             auto leftPointer = llvm::dyn_cast<PointerType>(left);
             auto rightPointer = llvm::dyn_cast<PointerType>(right);
 
-            return compareAreSame(leftPointer->nestedType, rightPointer->nestedType);
+            return compareAreSame(leftPointer->nestedType, rightPointer->nestedType, templateComparePlan);
         }
         case Type::Kind::Reference: {
             auto leftReference = llvm::dyn_cast<ReferenceType>(left);
             auto rightReference = llvm::dyn_cast<ReferenceType>(right);
 
-            return compareAreSame(leftReference->nestedType, rightReference->nestedType);
+            return compareAreSame(leftReference->nestedType, rightReference->nestedType, templateComparePlan);
         }
         case Type::Kind::Struct: {
             auto leftStruct = llvm::dyn_cast<StructType>(left);
@@ -63,17 +64,23 @@ bool gulc::TypeCompareUtil::compareAreSame(const gulc::Type* left, const gulc::T
         }
         case Type::Kind::Templated: {
             // TODO: How will we account for this? Should we just return false? Fatal Error?
-            //       We COULD compare this by checking if the lists of potential Decls are the same and the arguments
+            //       We COULD compare this by checking if the lists of potential Decls are the same and the parameters
             //       are the same BUT this could miss types that are the same and might not be worth the effort
             //       (it would be easier to just enforce this function not being usable with `Templated`)
             std::cerr << "FATAL ERROR: Uninstantiated template types CANNOT be compared!" << std::endl;
             std::exit(1);
         }
         case Type::Kind::TemplateTypenameRef: {
-            auto leftTemplateTypenameRef = llvm::dyn_cast<TemplateTypenameRefType>(left);
-            auto rightTemplateTypenameRef = llvm::dyn_cast<TemplateTypenameRefType>(right);
+            if (templateComparePlan == TemplateComparePlan::CompareExact) {
+                auto leftTemplateTypenameRef = llvm::dyn_cast<TemplateTypenameRefType>(left);
+                auto rightTemplateTypenameRef = llvm::dyn_cast<TemplateTypenameRefType>(right);
 
-            return leftTemplateTypenameRef->refTemplateParameter() == rightTemplateTypenameRef->refTemplateParameter();
+                return leftTemplateTypenameRef->refTemplateParameter() ==
+                       rightTemplateTypenameRef->refTemplateParameter();
+            } else {
+                // Both are templates so we return true in this scenario
+                return true;
+            }
         }
         case Type::Kind::Trait: {
             auto leftTrait = llvm::dyn_cast<TraitType>(left);

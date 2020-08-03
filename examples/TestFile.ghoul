@@ -19,22 +19,25 @@ struct vec3 {
         self.x = x
         self.y = y
         self.z = z
+
+        let test: Self = self
     }
 }
 
 struct TemplateTest<T> {
+    init() {
 
+    }
 }
 
 func main() -> i32 {
     let testVec: vec3 = vec3(x: 0, y: 12, z: 44)
-    // For this to work we will have to be able to resolve `Expr` to types AND handle template instantiations
-    // post-DeclInstantiator. If we added `: TemplateTest<i32>` we COULD handle before `DeclInstantiator` but this
-    // needs to be supported after. Especially if we want to support `const if` (similar to D-lang `static if`)
     let templateTest = TemplateTest<i32>()
+    let testFloat: f32 = 12.0
+    let testInt: i32 = 44
 
     goto test
 
 test:
-    return 12
+    return testInt
 }

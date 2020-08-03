@@ -5,6 +5,8 @@
 #include <vector>
 #include <ast/decls/TemplateParameterDecl.hpp>
 #include <parsing/ASTFile.hpp>
+#include <ast/types/FunctionPointerType.hpp>
+#include <ast/decls/FunctionDecl.hpp>
 
 namespace gulc {
     class TypeHelper {
@@ -14,6 +16,8 @@ namespace gulc {
                                 std::vector<std::vector<TemplateParameterDecl*>*> const& templateParameters,
                                 std::vector<gulc::Decl*> const& containingDecls, bool* outIsAmbiguous);
         static bool typeIsConstExpr(Type* resolvedType);
+
+        static FunctionPointerType* getFunctionPointerTypeFromDecl(FunctionDecl* functionDecl);
 
         // TODO: Note that `type` must be `UnresolvedType`
         static bool resolveTypeWithinDecl(Type*& type, Decl* container);

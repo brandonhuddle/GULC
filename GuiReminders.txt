@@ -1,0 +1,30 @@
+For the GUI library add the ability to hold control, alt, and other modifiers to see a list of all keybinds that are
+supported by those keybinds. Having the ability to just hold control for a few seconds to see "copy", "paste", etc.
+would help with getting started with applications you've never used before.
+
+Also, there should be a built in way to search for a command you're looking for.
+Examples:
+ * You're wanting to find out how to `Save` a document? Click the search button in the top right and search `Save`, it
+   should then open up all context menus and highlight the `Save` button to show you exactly what you're looking for
+ * You're wanting to find the `Plugins` window for an IDE (something that is always so annoying for myself) you search
+   `Plugins` and it will give two options: show you where to find the `Plugins` button within the menus or open the
+   `Plugins` window.
+
+Modern UIs are becoming less and less intuitive as time goes on. We should try to make as much of this added by default
+as possible while still being extendable and modular. Make default but make easily deletable.
+
+The GUI library ALSO needs to be modular and easily extendable/deletable. The most annoying things I've had to deal
+with when working with GUI libraries has been the constant specialization, guards, and legacy cruft. Some examples of
+things to NOT do:
+ * Android ActionBar that cannot be easily worked with, moved, or extended past the limited design without a full
+   rewrite. The `ActionBar`/`NavigationBar` should actually be a `NavigationView` that contains the nav bar and the
+   underlying view (provided as an argument). The `NavigationView` should be replaceable easily through either traits
+   or a common base class. It should also account for having buttons on the left and right while the center is a normal
+   `View` container that is stenciled to its size. You should be able to put anything into the center of the navigation
+   bar (textbox, normal label, an image, etc.)
+ * iOS TabItem that only allows very specific 1 label and 1 image configuration. Especially with SwiftUI the tab items
+   are some of the most unthoughout and annoying components to work with. Tab items should be nothing but view
+   containers. If I want to put 12 images into the tab item I should be able to. If I want to put the text above the
+   image I should be able to. Also, any styling I can do outside of the tab item I should be able to do inside the tab
+   item. The fact that I can stencil and outline an image in SwiftUI anywhere EXCEPT INSIDE A TABITEM is a great
+   example of how unthoughtout the item is.

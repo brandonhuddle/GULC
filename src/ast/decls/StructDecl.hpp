@@ -144,9 +144,9 @@ namespace gulc {
         // This is the base struct found in the `inheritedTypes` list (if a base struct was found)
         // We don't own this so we don't free it
         StructDecl* baseStruct;
-        // List of all known inherited members
+        // List of all known members including our inherited members
         // NOTE: None of these pointers are owned by us so we don't free them
-        std::vector<Decl*> inheritedMembers;
+        std::vector<Decl*> allMembers;
         // This is used to know if this struct has passed through `DeclInstantiator`
         bool isInstantiated = false;
         // Inherited types MIGHT need to be initialized before the entire struct, to account for that we have a

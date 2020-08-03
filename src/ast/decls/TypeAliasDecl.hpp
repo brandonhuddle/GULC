@@ -43,7 +43,7 @@ namespace gulc {
         TextPosition endPosition() const override { return _endPosition; }
 
         Type* getInstantiation(std::vector<Expr*> const& templateArguments) {
-            // While checking the arguments are valid we will also create a copy of the arguments
+            // While checking the parameters are valid we will also create a copy of the parameters
             std::vector<Expr*> copiedTemplateArguments;
             copiedTemplateArguments.reserve(templateArguments.size());
 

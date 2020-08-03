@@ -23,6 +23,7 @@
 #include <ast/types/TemplateStructType.hpp>
 #include <ast/types/DependentType.hpp>
 #include <ast/types/TemplateTraitType.hpp>
+#include <ast/types/SelfType.hpp>
 #include "TypeHelper.hpp"
 
 bool gulc::TypeHelper::resolveType(gulc::Type*& type, ASTFile const* currentFile,
@@ -74,7 +75,7 @@ bool gulc::TypeHelper::resolveType(gulc::Type*& type, ASTFile const* currentFile
                             type = fakeUnresolvedType;
                             return true;
                         } else {
-                            // Clear the template arguments list (since it is owned by `nestedType`)
+                            // Clear the template parameters list (since it is owned by `nestedType`)
                             llvm::dyn_cast<UnresolvedType>(fakeUnresolvedType)->templateArguments.clear();
                             delete fakeUnresolvedType;
                         }
@@ -97,7 +98,7 @@ bool gulc::TypeHelper::resolveType(gulc::Type*& type, ASTFile const* currentFile
                             type = fakeUnresolvedType;
                             return true;
                         } else {
-                            // Clear the template arguments list (since it is owned by `nestedType`)
+                            // Clear the template parameters list (since it is owned by `nestedType`)
                             llvm::dyn_cast<UnresolvedType>(fakeUnresolvedType)->templateArguments.clear();
                             delete fakeUnresolvedType;
                         }
@@ -256,6 +257,16 @@ bool gulc::TypeHelper::resolveType(gulc::Type*& type, ASTFile const* currentFile
                     if (BuiltInType::isBuiltInType(checkName)) {
                         auto result = BuiltInType::get(unresolvedType->qualifier(), checkName,
                                                        unresolvedType->startPosition(), unresolvedType->endPosition());
+                        result->setIsLValue(unresolvedType->isLValue());
+
+                        delete unresolvedType;
+
+                        type = result;
+
+                        return true;
+                    } else if (checkName == "Self") {
+                        auto result = new SelfType(unresolvedType->qualifier(),
+                                                   unresolvedType->startPosition(), unresolvedType->endPosition());
                         result->setIsLValue(unresolvedType->isLValue());
 
                         delete unresolvedType;
@@ -427,7 +438,7 @@ bool gulc::TypeHelper::resolveTypeWithinDecl(gulc::Type*& type, gulc::Decl* cont
     if (!potentialTemplates.empty()) {
         auto newType = new TemplatedType(type->qualifier(), potentialTemplates, unresolvedType->templateArguments,
                                          type->startPosition(), type->endPosition());
-        // Delete the old type without deleting the template arguments (since we've given them to the `TemplatedType`)
+        // Delete the old type without deleting the template parameters (since we've given them to the `TemplatedType`)
         unresolvedType->templateArguments.clear();
         delete type;
         type = newType;
@@ -538,7 +549,7 @@ bool gulc::TypeHelper::reresolveDependentWithinDecl(gulc::Type*& type, gulc::Dec
                                                           templateStructType->templateArguments(),
                                                           templateStructDecl,
                                                           type->startPosition(), type->endPosition());
-                    // We steal the arguments so we need to clear to make sure they aren't deleted
+                    // We steal the parameters so we need to clear to make sure they aren't deleted
                     templateStructType->templateArguments().clear();
                     delete type;
                     type = newType;
@@ -551,7 +562,7 @@ bool gulc::TypeHelper::reresolveDependentWithinDecl(gulc::Type*& type, gulc::Dec
                                                          templateTraitType->templateArguments(),
                                                          templateTraitDecl,
                                                          type->startPosition(), type->endPosition());
-                    // We steal the arguments so we need to clear to make sure they aren't deleted
+                    // We steal the parameters so we need to clear to make sure they aren't deleted
                     templateTraitType->templateArguments().clear();
                     delete type;
                     type = newType;
@@ -825,7 +836,7 @@ bool gulc::TypeHelper::resolveTypeToDecl(Type*& type, gulc::Decl* checkDecl,
 
             if (resolveToCheckDecl && checkAlias->identifier().name() == checkName) {
                 if (templated) {
-                    // We skip any aliases that don't have template parameters (since we have arguments)
+                    // We skip any aliases that don't have template parameters (since we have parameters)
                     if (!checkAlias->hasTemplateParameters()) {
                         return false;
                     }
@@ -836,7 +847,7 @@ bool gulc::TypeHelper::resolveTypeToDecl(Type*& type, gulc::Decl* checkDecl,
                         // We keep searching as this might be the wrong type...
                     }
                 } else {
-                    // We skip any aliases that have template parameters (since we have no arguments)
+                    // We skip any aliases that have template parameters (since we have no parameters)
                     if (checkAlias->hasTemplateParameters()) {
                         return false;
                     }
@@ -1007,4 +1018,68 @@ bool gulc::TypeHelper::checkImportForAmbiguity(gulc::ImportDecl* importDecl, con
     }
 
     return false;
+}
+
+gulc::FunctionPointerType* gulc::TypeHelper::getFunctionPointerTypeFromDecl(gulc::FunctionDecl* functionDecl) {
+    std::vector<LabeledType*> arguments;
+
+    // TODO: We will need a special way to handle `ExtensionDecl`
+    // If the function is contained within a struct, class, union, or enum we need to implicitly add a `_ self: Self`
+    // argument
+    if (llvm::isa<StructDecl>(functionDecl->container)) {
+        auto structDecl = llvm::dyn_cast<StructDecl>(functionDecl->container);
+        Type* structType = nullptr;
+
+        if (functionDecl->isMutable()) {
+            structType = new StructType(Type::Qualifier::Mut, structDecl, {}, {});
+        } else {
+            structType = new StructType(Type::Qualifier::Immut, structDecl, {}, {});
+        }
+
+        structType = new ReferenceType(Type::Qualifier::Unassigned, structType);
+
+        arguments.push_back(new LabeledType(Type::Qualifier::Unassigned, "_", structType, {}, {}));
+    } else if (llvm::isa<TraitDecl>(functionDecl->container)) {
+        auto traitDecl = llvm::dyn_cast<TraitDecl>(functionDecl->container);
+        Type* traitType = nullptr;
+
+        if (functionDecl->isMutable()) {
+            traitType = new TraitType(Type::Qualifier::Mut, traitDecl, {}, {});
+        } else {
+            traitType = new TraitType(Type::Qualifier::Immut, traitDecl, {}, {});
+        }
+
+        traitType = new ReferenceType(Type::Qualifier::Unassigned, traitType);
+
+        arguments.push_back(new LabeledType(Type::Qualifier::Unassigned, "_", traitType, {}, {}));
+    } else if (llvm::isa<EnumDecl>(functionDecl->container)) {
+        auto enumDecl = llvm::dyn_cast<EnumDecl>(functionDecl->container);
+        Type* enumType = nullptr;
+
+        // TODO: Can enums contain mutable functions? I don't think so?
+        if (functionDecl->isMutable()) {
+            enumType = new EnumType(Type::Qualifier::Mut, enumDecl, {}, {});
+        } else {
+            enumType = new EnumType(Type::Qualifier::Immut, enumDecl, {}, {});
+        }
+
+        enumType = new ReferenceType(Type::Qualifier::Unassigned, enumType);
+
+        arguments.push_back(new LabeledType(Type::Qualifier::Unassigned, "_", enumType, {}, {}));
+    }
+
+    for (ParameterDecl* parameter : functionDecl->parameters()) {
+        arguments.push_back(new LabeledType(Type::Qualifier::Unassigned, parameter->argumentLabel().name(),
+                                            parameter->type->deepCopy(),
+                                            parameter->startPosition(), parameter->endPosition()));
+    }
+
+    // TODO: When we add it remember to support `throws`, `requires`, and `ensures` on the function pointer
+    Type* returnType = nullptr;
+
+    if (functionDecl->returnType != nullptr) {
+        returnType = functionDecl->returnType->deepCopy();
+    }
+
+    return new FunctionPointerType(Type::Qualifier::Unassigned, arguments, returnType, {}, {});
 }

@@ -58,7 +58,7 @@ bool gulc::ConstExprHelper::templateArgumentsAreSolved(std::vector<Expr*>& templ
 
 bool gulc::ConstExprHelper::templateArgumentIsSolved(gulc::Expr* checkArgument) {
     switch (checkArgument->getExprKind()) {
-        case Expr::Kind::TemplateConstRefExpr:
+        case Expr::Kind::TemplateConstRef:
             return false;
         case Expr::Kind::Type: {
             auto typeExpr = llvm::dyn_cast<TypeExpr>(checkArgument);

@@ -20,6 +20,7 @@ namespace gulc {
 
             Function,
             TemplateFunction,
+            TemplateFunctionInst,
 
             Property,
             PropertyGet,

@@ -40,6 +40,21 @@ namespace gulc {
                 : _target(target), _filePaths(filePaths), _files(nullptr), _currentFile() {}
 
         void processFiles(std::vector<ASTFile>& files);
+        TemplateStructInstDecl* instantiateTemplateStruct(ASTFile* file, TemplateStructDecl* templateStructDecl,
+                                                          std::vector<Expr*>& templateArguments,
+                                                          std::string const& errorMessageName,
+                                                          TextPosition errorStartPosition,
+                                                          TextPosition errorEndPosition);
+        TemplateTraitInstDecl* instantiateTemplateTrait(ASTFile* file, TemplateTraitDecl* templateTraitDecl,
+                                                        std::vector<Expr*>& templateArguments,
+                                                        std::string const& errorMessageName,
+                                                        TextPosition errorStartPosition,
+                                                        TextPosition errorEndPosition);
+        TemplateFunctionInstDecl* instantiateTemplateFunction(ASTFile* file, TemplateFunctionDecl* templateFunctionDecl,
+                                                              std::vector<Expr*>& templateArguments,
+                                                              std::string const& errorMessageName,
+                                                              TextPosition errorStartPosition,
+                                                              TextPosition errorEndPosition);
 
     private:
         gulc::Target const& _target;
@@ -63,6 +78,8 @@ namespace gulc {
         std::set<gulc::Decl*> _delayInstantiationDeclsSet;
         std::queue<gulc::Decl*> _delayInstantiationDecls;
 
+        void handleDelayedInstantiationDecls();
+
         void printError(std::string const& message, TextPosition startPosition, TextPosition endPosition) const;
         void printWarning(std::string const& message, TextPosition startPosition, TextPosition endPosition) const;
 
@@ -78,10 +95,11 @@ namespace gulc {
                                              bool* outIsMatch, bool* outIsExact) const;
 
         // Process the where contracts and output an easy to read error message for any failed contracts
-        void errorOnWhereContractFailure(Type const* errorMessageType,
-                                         std::vector<Cont*> const& contracts,
+        void errorOnWhereContractFailure(std::vector<Cont*> const& contracts,
                                          std::vector<Expr*> const& args,
-                                         std::vector<TemplateParameterDecl*> const& params);
+                                         std::vector<TemplateParameterDecl*> const& params,
+                                         std::string const& errorMessageName,
+                                         TextPosition errorStartPosition, TextPosition errorEndPosition);
 
         void processContract(Cont* contract);
 
@@ -100,6 +118,8 @@ namespace gulc {
         void processSubscriptOperatorGetDecl(SubscriptOperatorGetDecl* subscriptOperatorGetDecl);
         void processSubscriptOperatorSetDecl(SubscriptOperatorSetDecl* subscriptOperatorSetDecl);
         void processTemplateFunctionDecl(TemplateFunctionDecl* templateFunctionDecl);
+        void processTemplateFunctionDeclContracts(TemplateFunctionDecl* templateFunctionDecl);
+        void processTemplateFunctionInstDecl(TemplateFunctionInstDecl* templateFunctionInstDecl);
         void processTemplateParameterDecl(TemplateParameterDecl* templateParameterDecl);
         void processTemplateStructDecl(TemplateStructDecl* templateStructDecl);
         void processTemplateStructDeclContracts(TemplateStructDecl* templateStructDecl);
@@ -144,10 +164,6 @@ namespace gulc {
         void processFunctionCallExpr(FunctionCallExpr* functionCallExpr);
         void processHasExpr(HasExpr* hasExpr);
         void processIdentifierExpr(IdentifierExpr* identifierExpr);
-        // NOTE: `allowInstanceMembers` allows non-const and non-static members to be included in the potentialDecl list
-        void gatherPotentialDeclMatchesInContainer(Decl* container, IdentifierExpr* identifierExpr,
-                                                   bool allowInstanceMembers);
-        void processIndexerCallExpr(IndexerCallExpr* indexerCallExpr);
         void processInfixOperatorExpr(InfixOperatorExpr* infixOperatorExpr);
         void processIsExpr(IsExpr* isExpr);
         void processLabeledArgumentExpr(LabeledArgumentExpr* labeledArgumentExpr);
@@ -155,6 +171,7 @@ namespace gulc {
         void processParenExpr(ParenExpr* parenExpr);
         void processPostfixOperatorExpr(PostfixOperatorExpr* postfixOperatorExpr);
         void processPrefixOperatorExpr(PrefixOperatorExpr* prefixOperatorExpr);
+        void processSubscriptCallExpr(SubscriptCallExpr* subscriptCallExpr);
         void processTemplateConstRefExpr(TemplateConstRefExpr* templateConstRefExpr);
         void processTernaryExpr(TernaryExpr* ternaryExpr);
         void processTypeExpr(TypeExpr* typeExpr);

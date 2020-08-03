@@ -25,7 +25,7 @@
 #include <ast/exprs/AssignmentOperatorExpr.hpp>
 #include <ast/exprs/FunctionCallExpr.hpp>
 #include <ast/exprs/HasExpr.hpp>
-#include <ast/exprs/IndexerCallExpr.hpp>
+#include <ast/exprs/SubscriptCallExpr.hpp>
 #include <ast/exprs/IsExpr.hpp>
 #include <ast/exprs/LabeledArgumentExpr.hpp>
 #include <ast/exprs/MemberAccessCallExpr.hpp>
@@ -98,8 +98,8 @@ namespace gulc {
 
         bool resolveType(Type*& type);
 
-        // After a type is resolved we will do a second pass to process it (mainly just process template arguments)
-        void processType(Type* type);
+        // After a type is resolved we will do a second pass to process it (mainly just process template parameters)
+        void processType(Type*& type);
 
         void processContracts(std::vector<Cont*>& contracts);
 
@@ -149,7 +149,6 @@ namespace gulc {
         void processFunctionCallExpr(FunctionCallExpr* functionCallExpr);
         void processHasExpr(HasExpr* hasExpr);
         void processIdentifierExpr(IdentifierExpr* identifierExpr);
-        void processIndexerCallExpr(IndexerCallExpr* indexerCallExpr);
         void processInfixOperatorExpr(InfixOperatorExpr* infixOperatorExpr);
         void processIsExpr(IsExpr* isExpr);
         void processLabeledArgumentExpr(LabeledArgumentExpr* labeledArgumentExpr);
@@ -157,6 +156,7 @@ namespace gulc {
         void processParenExpr(ParenExpr* parenExpr);
         void processPostfixOperatorExpr(PostfixOperatorExpr* postfixOperatorExpr);
         void processPrefixOperatorExpr(PrefixOperatorExpr* prefixOperatorExpr);
+        void processSubscriptCallExpr(SubscriptCallExpr* indexerCallExpr);
         void processTernaryExpr(TernaryExpr* ternaryExpr);
         void processTypeExpr(TypeExpr* typeExpr);
         void processValueLiteralExpr(ValueLiteralExpr* valueLiteralExpr) const;

@@ -1,0 +1,18 @@
+struct examples {
+    // Anything can access
+    public var _: i32
+    // Only the current struct, child structs, and extensions can access this
+    protected var _: i32
+    // Accessible from the current project, a child struct, or an extension
+    protected internal var _: i32
+    // The current project can access this
+    internal var _: i32
+    // Only the current struct OR an extension can access this
+    private var _: i32
+
+    // CONSIDERING:
+    // Only the current struct can access this (extensions are denied with `sealed`)
+    // NOTE: This might be a bad idea. If we make `final` mean the struct cannot be extended then this would be OK
+    //       but in C# `sealed` is what `final` is in C++. We'll have to decide what we like best.
+    sealed var _: i32
+}

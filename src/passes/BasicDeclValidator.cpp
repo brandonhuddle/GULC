@@ -569,6 +569,9 @@ void gulc::BasicDeclValidator::validatePropertyDecl(gulc::PropertyDecl* property
 
     for (PropertyGetDecl* checkGetter : propertyDecl->getters()) {
         for (PropertyGetDecl* checkDuplicate : propertyDecl->getters()) {
+            // Skip ourself
+            if (checkGetter == checkDuplicate) continue;
+
             if (checkGetter->getResultType() == checkDuplicate->getResultType() &&
                     checkGetter->isMutable() == checkDuplicate->isMutable()) {
                 printError("duplicate `get` definition found for property `" + propertyDecl->identifier().name() + "`!",
@@ -782,6 +785,9 @@ void gulc::BasicDeclValidator::validateSubscriptOperatorDecl(gulc::SubscriptOper
 
     for (SubscriptOperatorGetDecl* checkGetter : subscriptOperatorDecl->getters()) {
         for (SubscriptOperatorGetDecl* checkDuplicate : subscriptOperatorDecl->getters()) {
+            // Skip ourself
+            if (checkGetter == checkDuplicate) continue;
+
             if (checkGetter->getResultType() == checkDuplicate->getResultType() &&
                 checkGetter->isMutable() == checkDuplicate->isMutable()) {
                 printError("duplicate `get` definition found for subscript!",
@@ -847,7 +853,7 @@ void gulc::BasicDeclValidator::validateTemplateStructDecl(gulc::TemplateStructDe
 
     Type* oldContainerTemplateType = _currentContainerTemplateType;
 
-    // Create the list of template arguments from the template parameters
+    // Create the list of template parameters from the template parameters
     std::vector<Expr*> containerTemplateArguments;
     containerTemplateArguments.reserve(templateStructDecl->templateParameters().size());
 
@@ -891,7 +897,7 @@ void gulc::BasicDeclValidator::validateTemplateTraitDecl(gulc::TemplateTraitDecl
 
     Type* oldContainerTemplateType = _currentContainerTemplateType;
 
-    // Create the list of template arguments from the template parameters
+    // Create the list of template parameters from the template parameters
     std::vector<Expr*> containerTemplateArguments;
     containerTemplateArguments.reserve(templateTraitDecl->templateParameters().size());
 

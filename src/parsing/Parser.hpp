@@ -149,7 +149,7 @@ namespace gulc {
         Expr* parseIsAsHas();
         Expr* parsePrefixes();
         Expr* parseCallPostfixOrMemberAccess();
-        // closeToken - `)` for functions, `]` for indexers
+        // closeToken - `)` for functions, `]` for subscripts
         std::vector<LabeledArgumentExpr*> parseCallArguments(TokenType closeToken);
         Expr* parseIdentifierOrLiteralExpr();
         IdentifierExpr* parseIdentifierExpr();

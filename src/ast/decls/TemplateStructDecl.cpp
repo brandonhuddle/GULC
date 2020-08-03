@@ -79,8 +79,8 @@ bool gulc::TemplateStructDecl::getInstantiation(const std::vector<Expr*>& templa
         std::exit(1);
     }
 
-    // We don't check if the provided template arguments are valid UNLESS the isn't an existing match
-    // the reason for this is if the template arguments are invalid that is an error and it is okay to take
+    // We don't check if the provided template parameters are valid UNLESS the isn't an existing match
+    // the reason for this is if the template parameters are invalid that is an error and it is okay to take
     // slightly longer on failure, it is not okay to take longer on successes (especially when the check is
     // just a waste of time if it already exists)
     for (TemplateStructInstDecl* templateStructInst : _templateInstantiations) {
@@ -100,12 +100,12 @@ bool gulc::TemplateStructDecl::getInstantiation(const std::vector<Expr*>& templa
         }
     }
 
-    // While checking the arguments are valid we will also create a copy of the arguments
+    // While checking the parameters are valid we will also create a copy of the parameters
     std::vector<Expr*> copiedTemplateArguments;
     copiedTemplateArguments.reserve(templateArguments.size());
 
     // Once we've reached this point it means no match was found. Before we do anything else we need to make
-    // sure the provided arguments are valid for the provided parameters
+    // sure the provided parameters are valid for the provided parameters
     for (std::size_t i = 0; i < _templateParameters.size(); ++i) {
         if (_templateParameters[i]->templateParameterKind() == TemplateParameterDecl::TemplateParameterKind::Typename) {
             if (!llvm::isa<TypeExpr>(templateArguments[i])) {
@@ -165,6 +165,11 @@ bool gulc::TemplateStructDecl::getInstantiation(const std::vector<Expr*>& templa
                                          copiedInheritedTypes, copiedContracts, copiedOwnedMembers,
                                          copiedConstructors, copiedDestructorDecl,
                                          this, copiedTemplateArguments);
+    (*result)->container = container;
+    (*result)->containedInTemplate = containedInTemplate;
+    (*result)->containerTemplateType = (containerTemplateType == nullptr ? nullptr : containerTemplateType->deepCopy());
+    // TODO: Should we be setting this?
+    (*result)->originalDecl = (originalDecl == nullptr ? this : originalDecl);
 
     TemplateInstHelper templateInstHelper;
     templateInstHelper.instantiateTemplateStructInstDecl((*result)->parentTemplateStruct(),

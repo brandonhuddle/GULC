@@ -16,38 +16,15 @@ using namespace gulc;
 // TODO: Next features to work on:
 //       * [POSTPONED] Finish adding support for extensions...
 //       * Improve error checking for Decls post-instantiation
-//       * Rework the passes to now handle Stmt and Expr as early as possible (doing something similar to
-//         `TemplatedType` and `DependentType` with function calls)
 //       * Improve `const` solving (and simplify expressions as much as possible in trivial situations like `i + 2 + 2` == `i + 4`)
 //       * Output working executables through IR generation... sounds so quick right? Well hopefully it will be since we already have that from last years compiler...
 //       * `peekStartPosition` needs to handle removing any whitespace. Currently doing `peekStartPosition` for statements within a function will return `0, 0` for properly formatted code.
-
-// TODO: I think for processing `Expr` and `Stmt` we should do this:
-//       1. Process `Stmt` within the type resolver
-//       2. Generate lists of potential functions for `FunctionCallExpr`, `IndexerCallExpr`, etc. similar to
-//          `TemplatedType`
-//  [NOTE]: I don't think we should actually do the above. We should wait until `CodeProcessor` and just do a manual
-//          search that fills lists, just handle everything all at once.
-//       3. Attempt to handle as much as possible before `CodeProcessor`
-//       4. ALL `const` EXPRESSIONS SHOULD BE HANDLED BEFORE `CodeProcessor` (i.e. we should finalize type resolution
-//          for hard `Type` instances within `DeclInstantiator`, would shouldn't be touching the `Type` for
-//          `VariableDeclExpr` for instance as we know it is a type and we should be able to solve it within
-//          `DeclInstantiator`)
 
 // TODO: Sidenotes:
 //       * `ghoul` should handle creating new projects for us (i.e. `ghoul new Example`, `ghoul new --template=[URI] Example`)
 //       * `ghoul` should handle the build files (e.g. replacement for `cmake`, should be able to also handle calling
 //         the C compiler and other language compilers)
 //       * Basically `ghoul` should be a compiler, a build system, and a project creation tool
-
-// TODO: We need to add `inheritedMembers` to both `StructDecl` and `TraitDecl`, we need quick access to the inherited
-//       members and due to so many members being able to come from multiple types (and those types having members that
-//       can come from even more types and so on) we need to just fill `inheritedMembers`
-
-// TODO: We need to support having `func` and related within `EnumDecl` (sans `init`. We might need `deinit`,
-//       especially for `enum union`)
-//       Since we now require `enum` to use `case` for their const declarations we can safely and easily support parsing
-//       `func` and other declarations from within the `enum` instead of in an `extension`
 
 // TODO: We need to disable implicit string literal concatenation for `[ ... ]` array literals:
 //       [
@@ -68,31 +45,51 @@ using namespace gulc;
 
 // TODO: Remember to add bit-fields with `var example: 1` and any other numbers for proper bitfielding.
 
-// TODO: Should we rename `property` to `prop`? Since `function` -> `func` also `init`, `call`, etc. being 4 characters
-//       I just think `prop` looks better. We probably won't change `operator` since `oper` looks ugly and `op` is too
-//       short
+// TODO: Should we consider changing attributes to an `@...` system instead of `[...]` like Swift?
+//       Pros:
+//           * Less confusing syntax for parameters
+//             `func test([Escaping] _ callback: func())`
+//             vs
+//             `func test(_ callback: @escaping func())`
+//             We couldn't do `func test(_ callback: [Escaping] func())` as it would be confused for array syntax
+//           * Could be extended to allow fully custom syntax
+//             i.e. `@xmlClass Example {}` for an XML serializable class (AWFUL practice, don't do it. But basic
+//             example.)
+//           * Could potential be used to replace the rust macros `foreach!` stuff to allow:
+//             @for i in 0..<12 {}
+//           * More common. Swift, Kotlin, Java, etc. all use `@` nearly exactly the same way. C# uses `[...]`, Rust
+//             uses `#[]`, C++ uses `[[...]]`, etc. It would be more uniform and well known to use `@...`
+//       Cons:
+//           * Uglier. Coming from C# I like `[XmlRoot] class AmazonEnvelope { ... }` better but I could grow to like
+//             `@xmlRoot class AmazonEnvelope { ... }`
+//           * That's really it. I just don't like how it looks. But having macros use `@...` as well would be nice I
+//             guess. I do like `@for <item> in <iterator/enumerable> { ... }`
 
-// TODO: Swift @FunctionBuilder? I really like the idea of `[HtmlBuilder] func() -> HtmlNode` to allow
-//           html {
-//               head(title: "Example") {
-//                   FavIcon("Icon.png")
-//               }
-//               body {
-//                   if true {
-//                       h3("Bool was true")
-//                           .background(color: .red)
-//                   } else {
-//                       h6("false")
-//                   }
-//               }
+// TODO: For templates I think we should stop modifying them after `DeclInstantiator` and instead create a fake
+//       instantiation with special parameters to handle validating the template. This would help with:
+//        1. Further processing of a template will make creating new instantiations difficult to impossible
+//        2. There are some aspects of templated types that are impossible process further without instantiating
+//        3. For the validation instantiation we can create a `ConceptType` that is used to validate everything with a
+//           template works.
+
+// TODO: We should change `try {} catch {}` to `do {} catch {}` similar to Swift. The idea to make function calls
+//       require a `try` prefix was initially inspired by `Midori` (the same language that inspired Ghoul's contracts
+//       and a few other language features) but seeing Swift using the same idea was a pleasent surprise. I also liked
+//       `do {} catch {}` better as:
+//           try {
+//               try someFunc();
+//               try someFunc2();
+//           } catch {
+//               print("error")
 //           }
-//       I think something like that would be AMAZING compared to ASP.NET razor
-//       We could also offer something like SwiftUI.
-//       It could also be used for making custom XML files, or even ideas not yet thought of.
-
-// TODO: MOST IMPORTANT, DO NOW =======================
-//       We NEED to add an `inheritedMembers` variable to `StructDecl` and others. We NEED that to be able to access
-//       all other types.
+//       Looks too repetitive.
+//           do {
+//               try someFunc();
+//               try someFunc2();
+//           } catch {
+//               print("error")
+//           }
+//       Looks better only as a less repetitive option.
 
 int main() {
     Target target = Target::getHostTarget();
@@ -126,6 +123,10 @@ int main() {
     // Instantiate Decl instances as much as possible (set `StructDecl` data layouts, instantiate `TemplatedType`, etc.)
     DeclInstantiator declInstantiator(target, filePaths);
     declInstantiator.processFiles(parsedFiles);
+
+    // TODO: We need to actually implement `DeclInstValidator`
+    //        * Check to make sure all `Self` references are removed and are valid
+    //        *
 
     // Process main code before IR generation
     CodeProcessor codeProcessor(target, filePaths, prototypes);

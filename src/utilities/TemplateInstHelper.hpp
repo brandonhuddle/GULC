@@ -19,7 +19,7 @@
 #include <ast/exprs/AssignmentOperatorExpr.hpp>
 #include <ast/exprs/FunctionCallExpr.hpp>
 #include <ast/exprs/HasExpr.hpp>
-#include <ast/exprs/IndexerCallExpr.hpp>
+#include <ast/exprs/SubscriptCallExpr.hpp>
 #include <ast/exprs/IsExpr.hpp>
 #include <ast/exprs/LabeledArgumentExpr.hpp>
 #include <ast/exprs/MemberAccessCallExpr.hpp>
@@ -66,6 +66,8 @@ namespace gulc {
         void instantiateTemplateTraitInstDecl(TemplateTraitDecl* parentTemplateTrait,
                                               TemplateTraitInstDecl* templateTraitInstDecl,
                                               bool processBodyStmts);
+        void instantiateTemplateFunctionInstDecl(TemplateFunctionDecl* parentTemplateFunction,
+                                                 TemplateFunctionInstDecl* templateFunctionInstDecl);
         void instantiateType(Type*& type, std::vector<TemplateParameterDecl*>* templateParameters,
                              std::vector<Expr*>* templateArguments);
 
@@ -131,7 +133,6 @@ namespace gulc {
         void instantiateFunctionCallExpr(FunctionCallExpr* functionCallExpr) const;
         void instantiateHasExpr(HasExpr* hasExpr) const;
         void instantiateIdentifierExpr(IdentifierExpr* identifierExpr) const;
-        void instantiateIndexerCallExpr(IndexerCallExpr* indexerCallExpr) const;
         void instantiateInfixOperatorExpr(InfixOperatorExpr* infixOperatorExpr) const;
         void instantiateIsExpr(IsExpr* isExpr) const;
         void instantiateLabeledArgumentExpr(LabeledArgumentExpr* labeledArgumentExpr) const;
@@ -139,6 +140,7 @@ namespace gulc {
         void instantiateParenExpr(ParenExpr* parenExpr) const;
         void instantiatePostfixOperatorExpr(PostfixOperatorExpr* postfixOperatorExpr) const;
         void instantiatePrefixOperatorExpr(PrefixOperatorExpr* prefixOperatorExpr) const;
+        void instantiateSubscriptCallExpr(SubscriptCallExpr* subscriptCallExpr) const;
         void instantiateTernaryExpr(TernaryExpr* ternaryExpr) const;
         void instantiateTypeExpr(TypeExpr* typeExpr) const;
 //        void instantiateValueLiteralExpr(ValueLiteralExpr* valueLiteralExpr) const;

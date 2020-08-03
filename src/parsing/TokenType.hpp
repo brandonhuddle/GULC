@@ -63,7 +63,7 @@ namespace gulc {
         ENSURES,
         WHERE,
         FUNC,
-        PROPERTY,
+        PROP,
         LET,
         VAR,
         INIT, // Constructor

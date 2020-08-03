@@ -4,13 +4,16 @@
 #include <ast/decls/FunctionDecl.hpp>
 #include <ast/decls/TemplateParameterDecl.hpp>
 #include <ast/exprs/LabeledArgumentExpr.hpp>
+#include <ast/decls/TemplateFunctionDecl.hpp>
+#include <ast/types/LabeledType.hpp>
+#include "TypeCompareUtil.hpp"
 
 namespace gulc {
     class SignatureComparer {
     public:
         enum CompareResult {
             Different,
-            /// Similar means the functions could be called with the same arguments but are differentiable
+            /// Similar means the functions could be called with the same parameters but are differentiable
             Similar,
             /// Names are exactly the same, parameter types are exactly the same, and parameter names are the same
             Exact
@@ -18,9 +21,9 @@ namespace gulc {
         enum ArgMatchResult {
             /// No match
             Fail,
-            /// The arguments are castable, they match enough that they didn't fail.
+            /// The parameters are castable, they match enough that they didn't fail.
             Castable,
-            /// The arguments are a perfect match for the parameters
+            /// The parameters are a perfect match for the parameters
             Match
         };
 
@@ -34,12 +37,25 @@ namespace gulc {
          */
         static CompareResult compareFunctions(FunctionDecl const* left, FunctionDecl const* right,
                                               bool checkSimilar = true);
+        static CompareResult compareParameters(std::vector<ParameterDecl*> const& left,
+                                               std::vector<ParameterDecl*> const& right,
+                                               bool checkSimilar = true,
+                                               TemplateComparePlan templateComparePlan =
+                                                       TemplateComparePlan::CompareExact);
+        static CompareResult compareTemplateFunctions(TemplateFunctionDecl const* left,
+                                                      TemplateFunctionDecl const* right,
+                                                      bool checkSimilar = true);
         static ArgMatchResult compareArgumentsToParameters(std::vector<ParameterDecl*> const& parameters,
                                                            std::vector<LabeledArgumentExpr*> const& arguments);
         static ArgMatchResult compareArgumentsToParameters(std::vector<ParameterDecl*> const& parameters,
                                                            std::vector<LabeledArgumentExpr*> const& arguments,
                                                            std::vector<TemplateParameterDecl*> const& templateParameters,
                                                            std::vector<Expr*> const& templateArguments);
+        static ArgMatchResult compareArgumentsToParameters(std::vector<LabeledType*> const& parameters,
+                                                           std::vector<LabeledArgumentExpr*> const& arguments);
+        static ArgMatchResult compareTemplateArgumentsToParameters(
+                std::vector<TemplateParameterDecl*> const& templateParameters,
+                std::vector<Expr*> const& templateArguments);
 
     };
 }

@@ -38,7 +38,7 @@
 #include <ast/exprs/CheckExtendsTypeExpr.hpp>
 #include <ast/exprs/FunctionCallExpr.hpp>
 #include <ast/exprs/HasExpr.hpp>
-#include <ast/exprs/IndexerCallExpr.hpp>
+#include <ast/exprs/SubscriptCallExpr.hpp>
 #include <ast/exprs/IsExpr.hpp>
 #include <ast/exprs/LabeledArgumentExpr.hpp>
 #include <ast/exprs/MemberAccessCallExpr.hpp>
@@ -48,6 +48,19 @@
 #include <ast/exprs/TemplateConstRefExpr.hpp>
 #include <ast/exprs/TernaryExpr.hpp>
 #include <ast/exprs/VariableDeclExpr.hpp>
+#include <ast/exprs/CurrentSelfExpr.hpp>
+#include <ast/exprs/EnumConstRefExpr.hpp>
+#include <ast/exprs/FunctionReferenceExpr.hpp>
+#include <ast/exprs/PropertyRefExpr.hpp>
+#include <ast/exprs/VariableRefExpr.hpp>
+#include <ast/exprs/MemberVariableRefExpr.hpp>
+#include <ast/exprs/MemberPropertyRefExpr.hpp>
+#include <ast/exprs/SubscriptRefExpr.hpp>
+#include <ast/exprs/MemberSubscriptCallExpr.hpp>
+#include <ast/exprs/ConstructorCallExpr.hpp>
+#include <ast/exprs/CallOperatorReferenceExpr.hpp>
+#include <ast/exprs/MemberPostfixOperatorCallExpr.hpp>
+#include <ast/exprs/MemberPrefixOperatorCallExpr.hpp>
 
 namespace gulc {
     /**
@@ -103,6 +116,8 @@ namespace gulc {
         // The current container decl (NOTE: This is one of `NamespaceDecl`, `StructDecl`, etc. this is NOT the
         // current `Decl` being processed such as `FunctionDecl` etc.)
         Decl* _currentContainer;
+        // This is the current function being processed (e.g. `init`, `deinit`, `func`, `prop::get`, etc.)
+        FunctionDecl* _currentFunction;
 
         std::vector<std::vector<TemplateParameterDecl*>*> _allTemplateParameters;
         std::vector<ParameterDecl*>* _currentParameters;
@@ -110,6 +125,9 @@ namespace gulc {
 
         void printError(std::string const& message, TextPosition startPosition, TextPosition endPosition) const;
         void printWarning(std::string const& message, TextPosition startPosition, TextPosition endPosition) const;
+
+        /// Get a new reference to the current `self` or print an error if that is impossible.
+        CurrentSelfExpr* getCurrentSelfRef(TextPosition startPosition, TextPosition endPosition) const;
 
         void processDecl(Decl* decl);
         void processEnumDecl(EnumDecl* enumDecl);
@@ -130,7 +148,7 @@ namespace gulc {
         void processTraitDecl(TraitDecl* traitDecl);
         void processVariableDecl(VariableDecl* variableDecl);
 
-        void processStmt(Stmt* stmt);
+        void processStmt(Stmt*& stmt);
         void processBreakStmt(BreakStmt* breakStmt);
         void processCaseStmt(CaseStmt* caseStmt);
         void processCatchStmt(CatchStmt* catchStmt);
@@ -146,35 +164,76 @@ namespace gulc {
         void processTryStmt(TryStmt* tryStmt);
         void processWhileStmt(WhileStmt* whileStmt);
 
-        void processExpr(Expr* expr);
+        void processExpr(Expr*& expr);
         void processArrayLiteralExpr(ArrayLiteralExpr* arrayLiteralExpr);
         void processAsExpr(AsExpr* asExpr);
         void processAssignmentOperatorExpr(AssignmentOperatorExpr* assignmentOperatorExpr);
+        void processCallOperatorReferenceExpr(CallOperatorReferenceExpr* callOperatorReferenceExpr);
         void processCheckExtendsTypeExpr(CheckExtendsTypeExpr* checkExtendsTypeExpr);
-        void processFunctionCallExpr(FunctionCallExpr* functionCallExpr);
-        // NOTE: Returns true if a single match was found
-        bool fillListOfMatchingConstructors(Type* fromType, std::vector<LabeledArgumentExpr*> const& arguments,
+        void processConstructorCallExpr(ConstructorCallExpr* constructorCallExpr);
+        void processEnumConstRefExpr(EnumConstRefExpr* enumConstRefExpr);
+        void processFunctionCallExpr(FunctionCallExpr*& functionCallExpr);
+        Decl* findMatchingFunctorDecl(std::vector<Decl*>& searchDecls, IdentifierExpr* identifierExpr,
+                                      std::vector<LabeledArgumentExpr*> const& arguments,
+                                      bool findStatic, bool* outIsAmbiguous);
+        void fillListOfMatchingConstructors(StructDecl* structDecl, std::vector<LabeledArgumentExpr*> const& arguments,
                                             std::vector<MatchingDecl>& matchingDecls);
+        // NOTE: Returns true if a single match was found
         bool fillListOfMatchingCallOperators(Type* fromType, std::vector<LabeledArgumentExpr*> const& arguments,
                                              std::vector<MatchingDecl>& matchingDecls);
         bool fillListOfMatchingFunctors(Decl* fromContainer, IdentifierExpr* identifierExpr,
                                         std::vector<LabeledArgumentExpr*> const& arguments,
                                         std::vector<MatchingDecl>& matchingDecls);
+        bool fillListOfMatchingFunctors(ASTFile* file, IdentifierExpr* identifierExpr,
+                                        std::vector<LabeledArgumentExpr*> const& arguments,
+                                        std::vector<MatchingDecl>& matchingDecls);
+        bool addToListIfMatchingFunction(Decl* checkFunction, IdentifierExpr* identifierExpr,
+                                         std::vector<LabeledArgumentExpr*> const& arguments,
+                                         std::vector<MatchingDecl>& matchingDecls,
+                                         /*out*/bool& isExact);
+        bool addToListIfMatchingStructInit(Decl* structDecl, IdentifierExpr* identifierExpr,
+                                           std::vector<LabeledArgumentExpr*> const& arguments,
+                                           std::vector<MatchingDecl>& matchingDecls,
+                                           bool ignoreTemplateArguments = false);
+        Decl* validateAndReturnMatchingFunction(FunctionCallExpr* functionCallExpr,
+                                                std::vector<MatchingDecl>& matchingDecls);
+        /// Create a static reference to the specified function. Function could be a template or normal.
+        Expr* createStaticFunctionReference(Expr* forExpr, Decl* function) const;
+        void processFunctionReferenceExpr(FunctionReferenceExpr* functionReferenceExpr);
         void processHasExpr(HasExpr* hasExpr);
-        void processIdentifierExpr(IdentifierExpr* identifierExpr);
-        void processIndexerCallExpr(IndexerCallExpr* indexerCallExpr);
+        void processIdentifierExpr(Expr*& expr);
+        bool findMatchingDeclInContainer(Decl* container, IdentifierExpr* identifierExpr, Decl** outFoundDecl);
+        // TODO: This can probably be merged with `findMatchingMemberDecl`
+        bool findMatchingDecl(std::vector<Decl*> const& searchDecls, IdentifierExpr* identifierExpr,
+                              Decl** outFoundDecl);
         void processInfixOperatorExpr(InfixOperatorExpr* infixOperatorExpr);
+        bool fillListOfMatchingInfixOperators(std::vector<Decl*>& decls, InfixOperators findOperator, Type* argType,
+                                              std::vector<MatchingDecl>& matchingDecls);
         void processIsExpr(IsExpr* isExpr);
         void processLabeledArgumentExpr(LabeledArgumentExpr* labeledArgumentExpr);
-        void processMemberAccessCallExpr(MemberAccessCallExpr* memberAccessCallExpr);
+        void processMemberAccessCallExpr(Expr*& expr);
+        Decl* findMatchingMemberDecl(std::vector<Decl*> const& searchDecls, IdentifierExpr* memberIdentifier,
+                                     bool searchForStatic, bool* outIsAmbiguous);
+        void processMemberPostfixOperatorCallExpr(MemberPostfixOperatorCallExpr* memberPostfixOperatorCallExpr);
+        void processMemberPrefixOperatorCallExpr(MemberPrefixOperatorCallExpr* memberPrefixOperatorCallExpr);
+        void processMemberPropertyRefExpr(MemberPropertyRefExpr* memberPropertyRefExpr);
+        void processMemberSubscriptCallExpr(MemberSubscriptCallExpr* memberSubscriptCallExpr);
+        void processMemberVariableRefExpr(MemberVariableRefExpr* memberVariableRefExpr);
         void processParenExpr(ParenExpr* parenExpr);
-        void processPostfixOperatorExpr(PostfixOperatorExpr* postfixOperatorExpr);
-        void processPrefixOperatorExpr(PrefixOperatorExpr* prefixOperatorExpr);
+        void processPostfixOperatorExpr(PostfixOperatorExpr*& postfixOperatorExpr);
+        void processPrefixOperatorExpr(PrefixOperatorExpr*& prefixOperatorExpr);
+        void processPropertyRefExpr(PropertyRefExpr* propertyRefExpr);
+        void processSubscriptCallExpr(Expr*& expr);
+        SubscriptOperatorDecl* findMatchingSubscriptOperator(std::vector<Decl*>& searchDecls,
+                                                             std::vector<LabeledArgumentExpr*>& arguments,
+                                                             bool findStatic, bool* outIsAmbiguous);
+        void processSubscriptRefExpr(SubscriptRefExpr* subscriptReferenceExpr);
         void processTemplateConstRefExpr(TemplateConstRefExpr* templateConstRefExpr);
         void processTernaryExpr(TernaryExpr* ternaryExpr);
         void processTypeExpr(TypeExpr* typeExpr);
         void processValueLiteralExpr(ValueLiteralExpr* valueLiteralExpr);
         void processVariableDeclExpr(VariableDeclExpr* variableDeclExpr);
+        void processVariableRefExpr(VariableRefExpr* variableRefExpr);
 
     };
 }
