@@ -148,21 +148,22 @@ namespace gulc {
         void processTraitDecl(TraitDecl* traitDecl);
         void processVariableDecl(VariableDecl* variableDecl);
 
-        void processStmt(Stmt*& stmt);
-        void processBreakStmt(BreakStmt* breakStmt);
-        void processCaseStmt(CaseStmt* caseStmt);
-        void processCatchStmt(CatchStmt* catchStmt);
-        void processCompoundStmt(CompoundStmt* compoundStmt);
-        void processContinueStmt(ContinueStmt* continueStmt);
-        void processDoStmt(DoStmt* doStmt);
-        void processForStmt(ForStmt* forStmt);
-        void processGotoStmt(GotoStmt* gotoStmt);
-        void processIfStmt(IfStmt* ifStmt);
-        void processLabeledStmt(LabeledStmt* labeledStmt);
-        void processReturnStmt(ReturnStmt* returnStmt);
-        void processSwitchStmt(SwitchStmt* switchStmt);
-        void processTryStmt(TryStmt* tryStmt);
-        void processWhileStmt(WhileStmt* whileStmt);
+        // NOTE: Returns true if the statement returns on all code paths.
+        bool processStmt(Stmt*& stmt);
+        bool processBreakStmt(BreakStmt* breakStmt);
+        bool processCaseStmt(CaseStmt* caseStmt);
+        bool processCatchStmt(CatchStmt* catchStmt);
+        bool processCompoundStmt(CompoundStmt* compoundStmt);
+        bool processContinueStmt(ContinueStmt* continueStmt);
+        bool processDoStmt(DoStmt* doStmt);
+        bool processForStmt(ForStmt* forStmt);
+        bool processGotoStmt(GotoStmt* gotoStmt);
+        bool processIfStmt(IfStmt* ifStmt);
+        bool processLabeledStmt(LabeledStmt* labeledStmt);
+        bool processReturnStmt(ReturnStmt* returnStmt);
+        bool processSwitchStmt(SwitchStmt* switchStmt);
+        bool processTryStmt(TryStmt* tryStmt);
+        bool processWhileStmt(WhileStmt* whileStmt);
 
         void processExpr(Expr*& expr);
         void processArrayLiteralExpr(ArrayLiteralExpr* arrayLiteralExpr);

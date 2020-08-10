@@ -110,10 +110,6 @@ using namespace gulc;
 //        * Rust already has set the idea up as `panic` (even though earlier implementations called in `abandon` as
 //          well, such as the Midori OS's programming language)
 
-// TODO: We need to do `LValueToRValue` and handle reference dereferencing before `CodeGen`.
-//       Trying to handle reference dereferencing implicitly within the `CodeGen` pass makes things way more
-//       complicated than they have to be if we would just handle them elsewhere.
-
 int main() {
     Target target = Target::getHostTarget();
 

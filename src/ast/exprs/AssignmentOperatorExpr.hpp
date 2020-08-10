@@ -26,7 +26,7 @@ namespace gulc {
                                TextPosition startPosition, TextPosition endPosition)
                 : Expr(Expr::Kind::AssignmentOperator),
                   leftValue(leftValue), rightValue(rightValue), _startPosition(startPosition),
-                  _endPosition(endPosition), _hasNestedOperator(true), _nestedOperator(InfixOperators::Unknown) {}
+                  _endPosition(endPosition), _hasNestedOperator(false), _nestedOperator(InfixOperators::Unknown) {}
 
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }

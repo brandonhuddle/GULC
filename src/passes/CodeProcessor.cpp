@@ -71,6 +71,8 @@ gulc::CurrentSelfExpr* gulc::CodeProcessor::getCurrentSelfRef(TextPosition start
                     new StructType(Type::Qualifier::Immut, structContainer, startPosition, endPosition));
         }
 
+        result->valueType->setIsLValue(true);
+
         return result;
     } else if (llvm::isa<TraitDecl>(_currentContainer)) {
         auto traitContainer = llvm::dyn_cast<TraitDecl>(_currentContainer);
@@ -86,6 +88,8 @@ gulc::CurrentSelfExpr* gulc::CodeProcessor::getCurrentSelfRef(TextPosition start
                                                   new TraitType(Type::Qualifier::Immut, traitContainer, startPosition, endPosition));
         }
 
+        result->valueType->setIsLValue(true);
+
         return result;
     } else if (llvm::isa<EnumDecl>(_currentContainer)) {
         auto enumContainer = llvm::dyn_cast<EnumDecl>(_currentContainer);
@@ -100,6 +104,8 @@ gulc::CurrentSelfExpr* gulc::CodeProcessor::getCurrentSelfRef(TextPosition start
             result->valueType = new ReferenceType(Type::Qualifier::Unassigned,
                                                   new EnumType(Type::Qualifier::Immut, enumContainer, startPosition, endPosition));
         }
+
+        result->valueType->setIsLValue(true);
 
         return result;
     } else if (llvm::isa<ExtensionDecl>(_currentContainer)) {
@@ -220,7 +226,22 @@ void gulc::CodeProcessor::processFunctionDecl(gulc::FunctionDecl* functionDecl) 
 
     // Prototypes don't have bodies
     if (!functionDecl->isPrototype()) {
-        processCompoundStmt(functionDecl->body());
+        bool returnsOnAllCodePaths = processCompoundStmt(functionDecl->body());
+
+        if (!returnsOnAllCodePaths) {
+            // If the function doesn't return on all code paths but the function returns `void` we add in a default
+            // `return` to the end.
+            // If the function returns non-void we error out saying the function doesn't return on all code paths, this
+            // is to prevent potential errors the programmer might miss.
+            if (functionDecl->returnType == nullptr ||
+                    (llvm::isa<BuiltInType>(functionDecl->returnType) &&
+                            llvm::dyn_cast<BuiltInType>(functionDecl->returnType)->sizeInBytes() == 0)) {
+                functionDecl->body()->statements.push_back(new ReturnStmt({}, {}));
+            } else {
+                printError("function `" + functionDecl->identifier().name() + "` does not return on all code paths!",
+                           functionDecl->startPosition(), functionDecl->endPosition());
+            }
+        }
     }
 
     _currentParameters = oldParameters;
@@ -341,101 +362,109 @@ void gulc::CodeProcessor::processVariableDecl(gulc::VariableDecl* variableDecl) 
 //=====================================================================================================================
 // STATEMENTS
 //=====================================================================================================================
-void gulc::CodeProcessor::processStmt(gulc::Stmt*& stmt) {
+bool gulc::CodeProcessor::processStmt(gulc::Stmt*& stmt) {
     switch (stmt->getStmtKind()) {
         case Stmt::Kind::Break:
-            processBreakStmt(llvm::dyn_cast<BreakStmt>(stmt));
-            break;
+            return processBreakStmt(llvm::dyn_cast<BreakStmt>(stmt));
         case Stmt::Kind::Case:
-            processCaseStmt(llvm::dyn_cast<CaseStmt>(stmt));
-            break;
+            return processCaseStmt(llvm::dyn_cast<CaseStmt>(stmt));
         case Stmt::Kind::Catch:
             // TODO: I don't think this should be included in the general area either...
-            processCatchStmt(llvm::dyn_cast<CatchStmt>(stmt));
-            break;
+            return processCatchStmt(llvm::dyn_cast<CatchStmt>(stmt));
         case Stmt::Kind::Compound:
-            processCompoundStmt(llvm::dyn_cast<CompoundStmt>(stmt));
-            break;
+            return processCompoundStmt(llvm::dyn_cast<CompoundStmt>(stmt));
         case Stmt::Kind::Continue:
-            processContinueStmt(llvm::dyn_cast<ContinueStmt>(stmt));
-            break;
+            return processContinueStmt(llvm::dyn_cast<ContinueStmt>(stmt));
         case Stmt::Kind::Do:
-            processDoStmt(llvm::dyn_cast<DoStmt>(stmt));
-            break;
+            return processDoStmt(llvm::dyn_cast<DoStmt>(stmt));
         case Stmt::Kind::For:
-            processForStmt(llvm::dyn_cast<ForStmt>(stmt));
-            break;
+            return processForStmt(llvm::dyn_cast<ForStmt>(stmt));
         case Stmt::Kind::Goto:
-            processGotoStmt(llvm::dyn_cast<GotoStmt>(stmt));
-            break;
+            return processGotoStmt(llvm::dyn_cast<GotoStmt>(stmt));
         case Stmt::Kind::If:
-            processIfStmt(llvm::dyn_cast<IfStmt>(stmt));
-            break;
+            return processIfStmt(llvm::dyn_cast<IfStmt>(stmt));
         case Stmt::Kind::Labeled:
-            processLabeledStmt(llvm::dyn_cast<LabeledStmt>(stmt));
-            break;
+            return processLabeledStmt(llvm::dyn_cast<LabeledStmt>(stmt));
         case Stmt::Kind::Return:
-            processReturnStmt(llvm::dyn_cast<ReturnStmt>(stmt));
-            break;
+            return processReturnStmt(llvm::dyn_cast<ReturnStmt>(stmt));
         case Stmt::Kind::Switch:
-            processSwitchStmt(llvm::dyn_cast<SwitchStmt>(stmt));
-            break;
+            return processSwitchStmt(llvm::dyn_cast<SwitchStmt>(stmt));
         case Stmt::Kind::Try:
-            processTryStmt(llvm::dyn_cast<TryStmt>(stmt));
-            break;
+            return processTryStmt(llvm::dyn_cast<TryStmt>(stmt));
         case Stmt::Kind::While:
-            processWhileStmt(llvm::dyn_cast<WhileStmt>(stmt));
-            break;
+            return processWhileStmt(llvm::dyn_cast<WhileStmt>(stmt));
 
         case Stmt::Kind::Expr: {
             auto castedExpr = llvm::dyn_cast<Expr>(stmt);
             processExpr(castedExpr);
             stmt = castedExpr;
-            break;
+            return false;
         }
 
         default:
             printError("[INTERNAL ERROR] unsupported `Stmt` found in `CodeProcessor::processStmt`!",
                        stmt->startPosition(), stmt->endPosition());
-            break;
+            return false;
     }
 }
 
-void gulc::CodeProcessor::processBreakStmt(gulc::BreakStmt* breakStmt) {
+bool gulc::CodeProcessor::processBreakStmt(gulc::BreakStmt* breakStmt) {
     // TODO: We will need to keep a list of all current labels and the current containing loop
+
+    // NOTE: This is an iffy scenario. We need a way to say "all code after this is unreachable" but not that there is
+    // a return
+    return false;
 }
 
-void gulc::CodeProcessor::processCaseStmt(gulc::CaseStmt* caseStmt) {
+bool gulc::CodeProcessor::processCaseStmt(gulc::CaseStmt* caseStmt) {
     processExpr(caseStmt->condition);
-    processStmt(caseStmt->trueStmt);
+    bool returnsOnAllCodePaths = processStmt(caseStmt->trueStmt);
 
     // TODO: Dereference implicit references
     caseStmt->condition = convertLValueToRValue(caseStmt->condition);
+
+    return returnsOnAllCodePaths;
 }
 
-void gulc::CodeProcessor::processCatchStmt(gulc::CatchStmt* catchStmt) {
-    processCompoundStmt(catchStmt->body());
+bool gulc::CodeProcessor::processCatchStmt(gulc::CatchStmt* catchStmt) {
+    return processCompoundStmt(catchStmt->body());
 }
 
-void gulc::CodeProcessor::processCompoundStmt(gulc::CompoundStmt* compoundStmt) {
+bool gulc::CodeProcessor::processCompoundStmt(gulc::CompoundStmt* compoundStmt) {
+    // For compound statements since they are an array of statements that run one after the other we only have to detect
+    // if a single statement returns on its code path. If so then we return on all code paths.
+    bool returnsOnAllCodePaths = false;
+
     for (Stmt*& statement : compoundStmt->statements) {
-        processStmt(statement);
+        if (processStmt(statement)) {
+            returnsOnAllCodePaths = true;
+        }
     }
+
+    return returnsOnAllCodePaths;
 }
 
-void gulc::CodeProcessor::processContinueStmt(gulc::ContinueStmt* continueStmt) {
+bool gulc::CodeProcessor::processContinueStmt(gulc::ContinueStmt* continueStmt) {
     // TODO: We will need to keep a list of all current labels and the current containing loop
+
+    // NOTE: This is an iffy scenario. We need a way to say "all code after this is unreachable" but not that there is
+    // a return
+    return false;
 }
 
-void gulc::CodeProcessor::processDoStmt(gulc::DoStmt* doStmt) {
-    processCompoundStmt(doStmt->body());
+bool gulc::CodeProcessor::processDoStmt(gulc::DoStmt* doStmt) {
+    bool returnsOnAllCodePaths = processCompoundStmt(doStmt->body());
     processExpr(doStmt->condition);
 
     // TODO: Dereference implicit references
     doStmt->condition = convertLValueToRValue(doStmt->condition);
+
+    // TODO: Is this true? My logic is that the `condition` could be false therefore we don't know if it returns on all
+    //       code paths.
+    return false;
 }
 
-void gulc::CodeProcessor::processForStmt(gulc::ForStmt* forStmt) {
+bool gulc::CodeProcessor::processForStmt(gulc::ForStmt* forStmt) {
     if (forStmt->init != nullptr) {
         processExpr(forStmt->init);
     }
@@ -452,34 +481,45 @@ void gulc::CodeProcessor::processForStmt(gulc::ForStmt* forStmt) {
     }
 
     processCompoundStmt(forStmt->body());
+
+    // TODO: Is this true? My logic is that the `condition` could be false therefore we don't know if it returns on all
+    //       code paths.
+    return false;
 }
 
-void gulc::CodeProcessor::processGotoStmt(gulc::GotoStmt* gotoStmt) {
+bool gulc::CodeProcessor::processGotoStmt(gulc::GotoStmt* gotoStmt) {
     // TODO: Keep track of all labels... I think we could do this through a lookup? Maybe?
+    return false;
 }
 
-void gulc::CodeProcessor::processIfStmt(gulc::IfStmt* ifStmt) {
+bool gulc::CodeProcessor::processIfStmt(gulc::IfStmt* ifStmt) {
     processExpr(ifStmt->condition);
-    processCompoundStmt(ifStmt->trueBody());
+    bool trueBodyReturnsOnAllCodePaths = processCompoundStmt(ifStmt->trueBody());
+    bool falseBodyReturnsOnAllCodePaths = false;
 
     if (ifStmt->hasFalseBody()) {
         // NOTE: `falseBody` can only be `IfStmt` or `CompoundStmt`
         if (llvm::isa<IfStmt>(ifStmt->falseBody())) {
-            processIfStmt(llvm::dyn_cast<IfStmt>(ifStmt->falseBody()));
+            falseBodyReturnsOnAllCodePaths = processIfStmt(llvm::dyn_cast<IfStmt>(ifStmt->falseBody()));
         } else if (llvm::isa<CompoundStmt>(ifStmt->falseBody())) {
-            processCompoundStmt(llvm::dyn_cast<CompoundStmt>(ifStmt->falseBody()));
+            falseBodyReturnsOnAllCodePaths = processCompoundStmt(llvm::dyn_cast<CompoundStmt>(ifStmt->falseBody()));
         }
     }
 
     // TODO: Dereference implicit references
     ifStmt->condition = convertLValueToRValue(ifStmt->condition);
+
+    // NOTE: Both sides must return on all code paths for us to return on all code paths.
+    //       If there is an `if` statement without an `else` then the `if` CANNOT return on all code paths. The `if`
+    //       might be `false`
+    return trueBodyReturnsOnAllCodePaths && falseBodyReturnsOnAllCodePaths;
 }
 
-void gulc::CodeProcessor::processLabeledStmt(gulc::LabeledStmt* labeledStmt) {
-    processStmt(labeledStmt->labeledStmt);
+bool gulc::CodeProcessor::processLabeledStmt(gulc::LabeledStmt* labeledStmt) {
+    return processStmt(labeledStmt->labeledStmt);
 }
 
-void gulc::CodeProcessor::processReturnStmt(gulc::ReturnStmt* returnStmt) {
+bool gulc::CodeProcessor::processReturnStmt(gulc::ReturnStmt* returnStmt) {
     if (returnStmt->returnValue != nullptr) {
         processExpr(returnStmt->returnValue);
 
@@ -488,33 +528,62 @@ void gulc::CodeProcessor::processReturnStmt(gulc::ReturnStmt* returnStmt) {
         // TODO: Dereference implicit references
         returnStmt->returnValue = convertLValueToRValue(returnStmt->returnValue);
     }
+
+    return true;
 }
 
-void gulc::CodeProcessor::processSwitchStmt(gulc::SwitchStmt* switchStmt) {
+bool gulc::CodeProcessor::processSwitchStmt(gulc::SwitchStmt* switchStmt) {
+    // NOTE: If there is a single case in the switch then we start with the idea that it COULD return on all code paths
+    //       We then loop to check if it does. If a single case doesn't return then we revert to `false`
+    //       Obviously if there are no cases then the switch doesn't return.
+    bool returnsOnAllCodePaths = !switchStmt->statements.empty();
+
     processExpr(switchStmt->condition);
 
     // TODO: We should really strengthen `SwitchStmt` and make `CaseStmt` the list of statements. I hate how it is just
     //       `Stmt` at the moment.
     for (Stmt*& stmt : switchStmt->statements) {
-        processStmt(stmt);
+        if (!processStmt(stmt)) {
+            returnsOnAllCodePaths = false;
+        }
     }
+
+    return returnsOnAllCodePaths;
 }
 
-void gulc::CodeProcessor::processTryStmt(gulc::TryStmt* tryStmt) {
-    processCompoundStmt(tryStmt->body());
+bool gulc::CodeProcessor::processTryStmt(gulc::TryStmt* tryStmt) {
+    // For `do { ... } catch { ... } finally { ... }` ALL blocks must return for the `TryStmt` to return on all code
+    // paths. If a block is missing then we can ignore it.
+    // TODO: Can we ignore it?? What if we return in `finally`, doesn't that mean we return in all code paths? Since
+    //       `finally` ALWAYS runs?
+    bool returnsOnAllCodePaths = true;
+
+    if (!processCompoundStmt(tryStmt->body())) {
+        returnsOnAllCodePaths = false;
+    }
 
     for (CatchStmt* catchStmt : tryStmt->catchStatements()) {
-        processCatchStmt(catchStmt);
+        if (!processCatchStmt(catchStmt)) {
+            returnsOnAllCodePaths = false;
+        }
     }
 
     if (tryStmt->hasFinallyStatement()) {
-        processCompoundStmt(tryStmt->finallyStatement());
+        // TODO: Is this correct? If there is a `finally` block then we can detect `returnsOnAllCodePaths` based off of
+        //       it since it will always run?
+        returnsOnAllCodePaths = true;
+
+        if (!processCompoundStmt(tryStmt->finallyStatement())) {
+            returnsOnAllCodePaths = false;
+        }
     }
+
+    return returnsOnAllCodePaths;
 }
 
-void gulc::CodeProcessor::processWhileStmt(gulc::WhileStmt* whileStmt) {
+bool gulc::CodeProcessor::processWhileStmt(gulc::WhileStmt* whileStmt) {
     processExpr(whileStmt->condition);
-    processCompoundStmt(whileStmt->body());
+    return processCompoundStmt(whileStmt->body());
 }
 
 //=====================================================================================================================
@@ -2211,8 +2280,13 @@ void gulc::CodeProcessor::processIdentifierExpr(gulc::Expr*& expr) {
             if (llvm::isa<StructDecl>(foundDecl->container)) {
                 // If the variable is a member of a struct we have to create a reference to `self` for accessing it.
                 auto selfRef = getCurrentSelfRef(expr->startPosition(), expr->endPosition());
+                auto selfStructType = new StructType(
+                        Type::Qualifier::Immut,
+                        llvm::dyn_cast<StructDecl>(foundDecl->container),
+                        {}, {}
+                    );
                 auto newExpr = new MemberVariableRefExpr(expr->startPosition(), expr->endPosition(), selfRef,
-                                                         variableDecl);
+                                                         selfStructType, variableDecl);
                 processMemberVariableRefExpr(newExpr);
                 // Delete the old identifier
                 delete expr;
@@ -2807,27 +2881,34 @@ void gulc::CodeProcessor::processMemberAccessCallExpr(gulc::Expr*& expr) {
                 auto newExpr = new MemberPropertyRefExpr(
                         expr->startPosition(),
                         expr->endPosition(),
-                        memberAccessCallExpr->member,
+                        memberAccessCallExpr->objectRef,
                         llvm::dyn_cast<PropertyDecl>(foundDecl)
                 );
                 processMemberPropertyRefExpr(newExpr);
-                // We steal the actual member reference.
-                memberAccessCallExpr->member = nullptr;
+                // We steal the actual object reference.
+                memberAccessCallExpr->objectRef = nullptr;
                 // Delete the old reference and replace it with the new property reference.
                 delete expr;
                 expr = newExpr;
                 return;
             }
             case Decl::Kind::Variable: {
+                auto varOwnerStructType =
+                        new StructType(
+                                Type::Qualifier::Unassigned,
+                                llvm::dyn_cast<StructDecl>(foundDecl->container),
+                                {}, {}
+                            );
                 auto newExpr = new MemberVariableRefExpr(
                         expr->startPosition(),
                         expr->endPosition(),
-                        memberAccessCallExpr->member,
+                        memberAccessCallExpr->objectRef,
+                        varOwnerStructType,
                         llvm::dyn_cast<VariableDecl>(foundDecl)
                 );
                 processMemberVariableRefExpr(newExpr);
-                // We steal the actual member reference.
-                memberAccessCallExpr->member = nullptr;
+                // We steal the actual object reference.
+                memberAccessCallExpr->objectRef = nullptr;
                 // Delete the old reference and replace it with the new variable reference.
                 delete expr;
                 expr = newExpr;

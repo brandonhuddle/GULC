@@ -3,6 +3,7 @@
 
 #include <ast/Expr.hpp>
 #include <ast/decls/VariableDecl.hpp>
+#include <ast/types/StructType.hpp>
 
 namespace gulc {
     class MemberVariableRefExpr : public Expr {
@@ -11,12 +12,14 @@ namespace gulc {
 
         // `self`, `obj`, `*somePtr`
         Expr* object;
+        // NOTE: Only `StructDecl` can contain member variables
+        StructType* structType;
 
         MemberVariableRefExpr(TextPosition startPosition, TextPosition endPosition,
-                              Expr* object, gulc::VariableDecl* variableDecl)
+                              Expr* object, StructType* structType, gulc::VariableDecl* variableDecl)
                 : Expr(Expr::Kind::MemberVariableRef),
                   _startPosition(startPosition), _endPosition(endPosition),
-                  object(object), _variableDecl(variableDecl) {}
+                  object(object), structType(structType), _variableDecl(variableDecl) {}
 
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }
@@ -25,7 +28,9 @@ namespace gulc {
 
         Expr* deepCopy() const override {
             auto result = new MemberVariableRefExpr(_startPosition, _endPosition,
-                                                    object->deepCopy(), _variableDecl);
+                                                    object->deepCopy(),
+                                                    llvm::dyn_cast<StructType>(structType->deepCopy()),
+                                                    _variableDecl);
             result->valueType = valueType == nullptr ? nullptr : valueType->deepCopy();
             return result;
         }
@@ -36,6 +41,7 @@ namespace gulc {
 
         ~MemberVariableRefExpr() override {
             delete object;
+            delete structType;
         }
 
     private:

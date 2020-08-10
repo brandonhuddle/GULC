@@ -1326,6 +1326,7 @@ void gulc::DeclInstantiator::processStructDecl(gulc::StructDecl* structDecl, boo
         structDecl->destructor = new DestructorDecl(structDecl->sourceFileID(), {}, Decl::Visibility::Public,
                                                     false, Identifier({}, {}, "deinit"),
                                                     destructorModifiers, {}, new CompoundStmt({}, {}, {}), {}, {});
+        structDecl->destructor->container = structDecl;
     } else {
         // If the base struct's destructor is virtual we have to verify our own is override
         // (NOTE: This check is only needed for manually created destructors)

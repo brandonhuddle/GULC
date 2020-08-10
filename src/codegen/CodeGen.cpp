@@ -16,6 +16,7 @@
 #include <make_reverse_iterator.hpp>
 #include <ast/exprs/FunctionReferenceExpr.hpp>
 #include <ast/types/FunctionPointerType.hpp>
+#include <utilities/TypeCompareUtil.hpp>
 
 gulc::Module gulc::CodeGen::generate(gulc::ASTFile* file) {
     auto llvmContext = new llvm::LLVMContext();
@@ -1310,9 +1311,9 @@ llvm::Value* gulc::CodeGen::generateConstructorCallExpr(gulc::ConstructorCallExp
 }
 
 llvm::Value* gulc::CodeGen::generateCurrentSelfExpr(gulc::CurrentSelfExpr const* currentSelfExpr) {
-    printError("grabbing reference to `self` not yet supported!",
-               currentSelfExpr->startPosition(), currentSelfExpr->endPosition());
-    return nullptr;
+    // NOTE: `self` is always parameter `0`. Error checking to make sure a `self` parameter exists should be performed
+    //       in a prior check.
+    return _currentLlvmFunctionParameters[0];
 }
 
 llvm::Value* gulc::CodeGen::generateEnumConstRefExpr(gulc::EnumConstRefExpr const* enumConstRefExpr) {
@@ -1560,9 +1561,48 @@ llvm::Value* gulc::CodeGen::generateMemberPrefixOperatorCallExpr(
 }
 
 llvm::Value* gulc::CodeGen::generateMemberVariableRefExpr(gulc::MemberVariableRefExpr const* memberVariableRefExpr) {
-    printError("member variable referencing not yet supported!",
-               memberVariableRefExpr->startPosition(), memberVariableRefExpr->endPosition());
-    return nullptr;
+    llvm::Value* objectRef = generateExpr(memberVariableRefExpr->object);
+
+    TypeCompareUtil typeCompareUtil;
+
+    // If the types differ that means there is a compiler cast (one that can never be overridden)
+    // We do this because of the way we lay out variables in a struct. Rather than re-layout the base structs
+    // as part of the current struct we instead make the first variable of the current struct the unpadded version of
+    // our base struct. Giving us all variables of the base struct laid out properly while still attempting to compact
+    // the variables as much as possible (by filling in the unused padded area with our own variables when possible)
+    if (!typeCompareUtil.compareAreSame(memberVariableRefExpr->object->valueType,
+                                        memberVariableRefExpr->structType)) {
+        objectRef = _irBuilder->CreateBitCast(objectRef,
+                llvm::PointerType::getUnqual(generateLlvmType(memberVariableRefExpr->structType)));
+    }
+
+    std::vector<VariableDecl*>& memoryLayout = memberVariableRefExpr->structType->decl()->memoryLayout;
+    unsigned int index = 0;
+    bool elementFound = false;
+
+    for (std::size_t i = 0; i < memoryLayout.size(); ++i) {
+        // We check if the pointers are the same for equality...
+        if (memoryLayout[i] == memberVariableRefExpr->variableDecl()) {
+            index = i;
+            elementFound = true;
+            break;
+        }
+    }
+
+    if (!elementFound) {
+        printError("struct element '" + memberVariableRefExpr->variableDecl()->identifier().name() + "' was not found!",
+                   memberVariableRefExpr->startPosition(), memberVariableRefExpr->endPosition());
+    }
+
+    // If the struct has a base type we increment it by one to account for the base class member
+    if (memberVariableRefExpr->structType->decl()->baseStruct != nullptr) {
+        index += 1;
+    }
+
+    // NOTE: Not exactly sure whats wrong here but we'll just let LLVM handle getting the type...
+//    llvm::StructType* structType = getLlvmStructType(refStructMemberVariableExpr->structType->decl());
+//    llvm::PointerType* structPointerType = llvm::PointerType::getUnqual(structType);
+    return _irBuilder->CreateStructGEP(nullptr, objectRef, index);
 }
 
 llvm::Value* gulc::CodeGen::generateParameterRefExpr(gulc::ParameterRefExpr const* parameterRefExpr) {

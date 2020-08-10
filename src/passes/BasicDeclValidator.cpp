@@ -695,6 +695,11 @@ void gulc::BasicDeclValidator::validateStructDecl(gulc::StructDecl* structDecl, 
     Decl* oldContainer = _currentContainerDecl;
     _currentContainerDecl = structDecl;
 
+    for (ConstructorDecl* constructorDecl : structDecl->constructors()) {
+        // NOTE: We call `validateDecl` instead of `validateConstructorDecl` so that the container is being set properly
+        validateDecl(constructorDecl, false);
+    }
+
     for (Decl* checkDecl : structDecl->ownedMembers()) {
         if (llvm::isa<NamespaceDecl>(checkDecl)) {
             printError("`namespace` cannot be contained within `" + structDecl->structKindName() + "`!",
@@ -725,6 +730,10 @@ void gulc::BasicDeclValidator::validateStructDecl(gulc::StructDecl* structDecl, 
                            checkDecl->startPosition(), checkDecl->endPosition());
             }
         }
+    }
+
+    if (structDecl->destructor != nullptr) {
+        validateDecl(structDecl->destructor);
     }
 
     _currentContainerDecl = oldContainer;
