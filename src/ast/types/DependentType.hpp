@@ -30,7 +30,9 @@ namespace gulc {
         }
 
         Type* deepCopy() const override {
-            return new DependentType(_qualifier, container->deepCopy(), dependent->deepCopy());
+            auto result = new DependentType(_qualifier, container->deepCopy(), dependent->deepCopy());
+            result->setIsLValue(_isLValue);
+            return result;
         }
 
         ~DependentType() override {

@@ -64,8 +64,10 @@ namespace gulc {
                 copiedTemplateArguments.push_back(templateArgument->deepCopy());
             }
 
-            return new UnresolvedType(_qualifier, _namespacePath, _identifier,
-                                      copiedTemplateArguments);
+            auto result = new UnresolvedType(_qualifier, _namespacePath, _identifier,
+                                             copiedTemplateArguments);
+            result->setIsLValue(_isLValue);
+            return result;
         }
 
         ~UnresolvedType() override {

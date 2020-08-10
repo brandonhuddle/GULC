@@ -21,7 +21,9 @@ namespace gulc {
         }
 
         Type* deepCopy() const override {
-            return new ReferenceType(_qualifier, nestedType->deepCopy());
+            auto result = new ReferenceType(_qualifier, nestedType->deepCopy());
+            result->setIsLValue(_isLValue);
+            return result;
         }
 
         ~ReferenceType() override {

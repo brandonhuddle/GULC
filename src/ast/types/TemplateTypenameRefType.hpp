@@ -25,8 +25,10 @@ namespace gulc {
         }
 
         Type* deepCopy() const override {
-            return new TemplateTypenameRefType(_qualifier, _refTemplateParameter,
-                                               _startPosition, _endPosition);
+            auto result = new TemplateTypenameRefType(_qualifier, _refTemplateParameter,
+                                                      _startPosition, _endPosition);
+            result->setIsLValue(_isLValue);
+            return result;
         }
 
     protected:

@@ -20,7 +20,9 @@ namespace gulc {
         }
 
         Type* deepCopy() const override {
-            return new BoolType(_qualifier, _startPosition, _endPosition);
+            auto result = new BoolType(_qualifier, _startPosition, _endPosition);
+            result->setIsLValue(_isLValue);
+            return result;
         }
 
     protected:

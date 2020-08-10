@@ -41,8 +41,10 @@ namespace gulc {
                 copiedTemplateArguments.push_back(templateArgument->deepCopy());
             }
 
-            return new TemplateTraitType(_qualifier, copiedTemplateArguments, _decl,
-                                         _startPosition, _endPosition);
+            auto result = new TemplateTraitType(_qualifier, copiedTemplateArguments, _decl,
+                                                _startPosition, _endPosition);
+            result->setIsLValue(_isLValue);
+            return result;
         }
 
         ~TemplateTraitType() override {

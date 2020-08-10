@@ -1938,8 +1938,11 @@ void gulc::DeclInstantiator::processStmt(gulc::Stmt* stmt) {
         case Stmt::Kind::Continue:
             // There isn't anything we need to process with `continue` here...
             break;
-        case Stmt::Kind::Do:
-            processDoStmt(llvm::dyn_cast<DoStmt>(stmt));
+        case Stmt::Kind::DoCatch:
+            processDoCatchStmt(llvm::dyn_cast<DoCatchStmt>(stmt));
+            break;
+        case Stmt::Kind::DoWhile:
+            processDoWhileStmt(llvm::dyn_cast<DoWhileStmt>(stmt));
             break;
         case Stmt::Kind::Fallthrough:
             // There isn't anything we need to process with `fallthrough` here...
@@ -1961,9 +1964,6 @@ void gulc::DeclInstantiator::processStmt(gulc::Stmt* stmt) {
             break;
         case Stmt::Kind::Switch:
             processSwitchStmt(llvm::dyn_cast<SwitchStmt>(stmt));
-            break;
-        case Stmt::Kind::Try:
-            processTryStmt(llvm::dyn_cast<TryStmt>(stmt));
             break;
         case Stmt::Kind::While:
             processWhileStmt(llvm::dyn_cast<WhileStmt>(stmt));
@@ -1997,10 +1997,22 @@ void gulc::DeclInstantiator::processCompoundStmt(gulc::CompoundStmt* compoundStm
     }
 }
 
-void gulc::DeclInstantiator::processDoStmt(gulc::DoStmt* doStmt) {
-    processCompoundStmt(doStmt->body());
+void gulc::DeclInstantiator::processDoCatchStmt(gulc::DoCatchStmt* doCatchStmt) {
+    processCompoundStmt(doCatchStmt->body());
 
-    processExpr(doStmt->condition);
+    for (CatchStmt* catchStmt : doCatchStmt->catchStatements()) {
+        processCatchStmt(catchStmt);
+    }
+
+    if (doCatchStmt->hasFinallyStatement()) {
+        processCompoundStmt(doCatchStmt->finallyStatement());
+    }
+}
+
+void gulc::DeclInstantiator::processDoWhileStmt(gulc::DoWhileStmt* doWhileStmt) {
+    processCompoundStmt(doWhileStmt->body());
+
+    processExpr(doWhileStmt->condition);
 }
 
 void gulc::DeclInstantiator::processForStmt(gulc::ForStmt* forStmt) {
@@ -2045,18 +2057,6 @@ void gulc::DeclInstantiator::processSwitchStmt(gulc::SwitchStmt* switchStmt) {
 
     for (Stmt* statement : switchStmt->statements) {
         processStmt(statement);
-    }
-}
-
-void gulc::DeclInstantiator::processTryStmt(gulc::TryStmt* tryStmt) {
-    processCompoundStmt(tryStmt->body());
-
-    for (CatchStmt* catchStmt : tryStmt->catchStatements()) {
-        processCatchStmt(catchStmt);
-    }
-
-    if (tryStmt->hasFinallyStatement()) {
-        processCompoundStmt(tryStmt->finallyStatement());
     }
 }
 
@@ -2136,6 +2136,9 @@ void gulc::DeclInstantiator::processExpr(gulc::Expr* expr) {
             break;
         case Expr::Kind::Ternary:
             processTernaryExpr(llvm::dyn_cast<TernaryExpr>(expr));
+            break;
+        case Expr::Kind::Try:
+            processTryExpr(llvm::dyn_cast<TryExpr>(expr));
             break;
         case Expr::Kind::Type:
             processTypeExpr(llvm::dyn_cast<TypeExpr>(expr));
@@ -2260,6 +2263,10 @@ void gulc::DeclInstantiator::processTernaryExpr(gulc::TernaryExpr* ternaryExpr) 
     processExpr(ternaryExpr->condition);
     processExpr(ternaryExpr->trueExpr);
     processExpr(ternaryExpr->falseExpr);
+}
+
+void gulc::DeclInstantiator::processTryExpr(gulc::TryExpr* tryExpr) {
+    processExpr(tryExpr->nestedExpr);
 }
 
 void gulc::DeclInstantiator::processTypeExpr(gulc::TypeExpr* typeExpr) {

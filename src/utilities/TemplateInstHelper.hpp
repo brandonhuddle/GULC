@@ -6,13 +6,13 @@
 #include <ast/decls/VariableDecl.hpp>
 #include <ast/stmts/CaseStmt.hpp>
 #include <ast/stmts/CatchStmt.hpp>
-#include <ast/stmts/DoStmt.hpp>
+#include <ast/stmts/DoWhileStmt.hpp>
 #include <ast/stmts/ForStmt.hpp>
 #include <ast/stmts/IfStmt.hpp>
 #include <ast/stmts/LabeledStmt.hpp>
 #include <ast/stmts/ReturnStmt.hpp>
 #include <ast/stmts/SwitchStmt.hpp>
-#include <ast/stmts/TryStmt.hpp>
+#include <ast/stmts/DoCatchStmt.hpp>
 #include <ast/stmts/WhileStmt.hpp>
 #include <ast/exprs/ArrayLiteralExpr.hpp>
 #include <ast/exprs/AsExpr.hpp>
@@ -116,14 +116,14 @@ namespace gulc {
         void instantiateCatchStmt(CatchStmt* catchStmt) const;
         void instantiateCompoundStmt(CompoundStmt* compoundStmt) const;
 //        void instantiateContinueStmt(ContinueStmt* continueStmt) const;
-        void instantiateDoStmt(DoStmt* doStmt) const;
+        void instantiateDoCatchStmt(DoCatchStmt* doCatchStmt) const;
+        void instantiateDoWhileStmt(DoWhileStmt* doWhileStmt) const;
         void instantiateForStmt(ForStmt* forStmt) const;
 //        void instantiateGotoStmt(GotoStmt* gotoStmt) const;
         void instantiateIfStmt(IfStmt* ifStmt) const;
         void instantiateLabeledStmt(LabeledStmt* labeledStmt) const;
         void instantiateReturnStmt(ReturnStmt* returnStmt) const;
         void instantiateSwitchStmt(SwitchStmt* switchStmt) const;
-        void instantiateTryStmt(TryStmt* tryStmt) const;
         void instantiateWhileStmt(WhileStmt* whileStmt) const;
 
         void instantiateArrayLiteralExpr(ArrayLiteralExpr* arrayLiteralExpr) const;

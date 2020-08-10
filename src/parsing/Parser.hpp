@@ -13,14 +13,14 @@
 #include <ast/stmts/CatchStmt.hpp>
 #include <ast/stmts/CompoundStmt.hpp>
 #include <ast/stmts/ContinueStmt.hpp>
-#include <ast/stmts/DoStmt.hpp>
+#include <ast/stmts/DoWhileStmt.hpp>
 #include <ast/stmts/ForStmt.hpp>
 #include <ast/stmts/GotoStmt.hpp>
 #include <ast/stmts/IfStmt.hpp>
 #include <ast/stmts/LabeledStmt.hpp>
 #include <ast/stmts/ReturnStmt.hpp>
 #include <ast/stmts/SwitchStmt.hpp>
-#include <ast/stmts/TryStmt.hpp>
+#include <ast/stmts/DoCatchStmt.hpp>
 #include <ast/stmts/WhileStmt.hpp>
 #include <ast/decls/FunctionDecl.hpp>
 #include <ast/decls/NamespaceDecl.hpp>
@@ -122,14 +122,15 @@ namespace gulc {
         CatchStmt* parseCatchStmt();
         CompoundStmt* parseCompoundStmt();
         ContinueStmt* parseContinueStmt();
-        DoStmt* parseDoStmt();
+        // Parses either `do { ... } while (...)` or `do { ... } catch { ... }`
+        Stmt* parseDoStmt();
         FallthroughStmt* parseFallthroughStmt();
         ForStmt* parseForStmt();
         GotoStmt* parseGotoStmt();
         IfStmt* parseIfStmt();
         ReturnStmt* parseReturnStmt();
         SwitchStmt* parseSwitchStmt();
-        TryStmt* parseTryStmt();
+        DoCatchStmt* parseTryStmt(TextPosition doStartPosition, TextPosition doEndPosition, CompoundStmt* doStmt);
         WhileStmt* parseWhileStmt();
 
         Expr* parseVariableExpr();

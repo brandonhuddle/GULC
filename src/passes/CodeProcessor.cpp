@@ -375,8 +375,10 @@ bool gulc::CodeProcessor::processStmt(gulc::Stmt*& stmt) {
             return processCompoundStmt(llvm::dyn_cast<CompoundStmt>(stmt));
         case Stmt::Kind::Continue:
             return processContinueStmt(llvm::dyn_cast<ContinueStmt>(stmt));
-        case Stmt::Kind::Do:
-            return processDoStmt(llvm::dyn_cast<DoStmt>(stmt));
+        case Stmt::Kind::DoCatch:
+            return processDoCatchStmt(llvm::dyn_cast<DoCatchStmt>(stmt));
+        case Stmt::Kind::DoWhile:
+            return processDoWhileStmt(llvm::dyn_cast<DoWhileStmt>(stmt));
         case Stmt::Kind::For:
             return processForStmt(llvm::dyn_cast<ForStmt>(stmt));
         case Stmt::Kind::Goto:
@@ -389,8 +391,6 @@ bool gulc::CodeProcessor::processStmt(gulc::Stmt*& stmt) {
             return processReturnStmt(llvm::dyn_cast<ReturnStmt>(stmt));
         case Stmt::Kind::Switch:
             return processSwitchStmt(llvm::dyn_cast<SwitchStmt>(stmt));
-        case Stmt::Kind::Try:
-            return processTryStmt(llvm::dyn_cast<TryStmt>(stmt));
         case Stmt::Kind::While:
             return processWhileStmt(llvm::dyn_cast<WhileStmt>(stmt));
 
@@ -452,12 +452,42 @@ bool gulc::CodeProcessor::processContinueStmt(gulc::ContinueStmt* continueStmt) 
     return false;
 }
 
-bool gulc::CodeProcessor::processDoStmt(gulc::DoStmt* doStmt) {
-    bool returnsOnAllCodePaths = processCompoundStmt(doStmt->body());
-    processExpr(doStmt->condition);
+bool gulc::CodeProcessor::processDoCatchStmt(gulc::DoCatchStmt* doCatchStmt) {
+    // For `do { ... } catch { ... } finally { ... }` ALL blocks must return for the `DoCatchStmt` to return on all code
+    // paths. If a block is missing then we can ignore it.
+    // TODO: Can we ignore it?? What if we return in `finally`, doesn't that mean we return in all code paths? Since
+    //       `finally` ALWAYS runs?
+    bool returnsOnAllCodePaths = true;
+
+    if (!processCompoundStmt(doCatchStmt->body())) {
+        returnsOnAllCodePaths = false;
+    }
+
+    for (CatchStmt* catchStmt : doCatchStmt->catchStatements()) {
+        if (!processCatchStmt(catchStmt)) {
+            returnsOnAllCodePaths = false;
+        }
+    }
+
+    if (doCatchStmt->hasFinallyStatement()) {
+        // TODO: Is this correct? If there is a `finally` block then we can detect `returnsOnAllCodePaths` based off of
+        //       it since it will always run?
+        returnsOnAllCodePaths = true;
+
+        if (!processCompoundStmt(doCatchStmt->finallyStatement())) {
+            returnsOnAllCodePaths = false;
+        }
+    }
+
+    return returnsOnAllCodePaths;
+}
+
+bool gulc::CodeProcessor::processDoWhileStmt(gulc::DoWhileStmt* doWhileStmt) {
+    bool returnsOnAllCodePaths = processCompoundStmt(doWhileStmt->body());
+    processExpr(doWhileStmt->condition);
 
     // TODO: Dereference implicit references
-    doStmt->condition = convertLValueToRValue(doStmt->condition);
+    doWhileStmt->condition = convertLValueToRValue(doWhileStmt->condition);
 
     // TODO: Is this true? My logic is that the `condition` could be false therefore we don't know if it returns on all
     //       code paths.
@@ -551,36 +581,6 @@ bool gulc::CodeProcessor::processSwitchStmt(gulc::SwitchStmt* switchStmt) {
     return returnsOnAllCodePaths;
 }
 
-bool gulc::CodeProcessor::processTryStmt(gulc::TryStmt* tryStmt) {
-    // For `do { ... } catch { ... } finally { ... }` ALL blocks must return for the `TryStmt` to return on all code
-    // paths. If a block is missing then we can ignore it.
-    // TODO: Can we ignore it?? What if we return in `finally`, doesn't that mean we return in all code paths? Since
-    //       `finally` ALWAYS runs?
-    bool returnsOnAllCodePaths = true;
-
-    if (!processCompoundStmt(tryStmt->body())) {
-        returnsOnAllCodePaths = false;
-    }
-
-    for (CatchStmt* catchStmt : tryStmt->catchStatements()) {
-        if (!processCatchStmt(catchStmt)) {
-            returnsOnAllCodePaths = false;
-        }
-    }
-
-    if (tryStmt->hasFinallyStatement()) {
-        // TODO: Is this correct? If there is a `finally` block then we can detect `returnsOnAllCodePaths` based off of
-        //       it since it will always run?
-        returnsOnAllCodePaths = true;
-
-        if (!processCompoundStmt(tryStmt->finallyStatement())) {
-            returnsOnAllCodePaths = false;
-        }
-    }
-
-    return returnsOnAllCodePaths;
-}
-
 bool gulc::CodeProcessor::processWhileStmt(gulc::WhileStmt* whileStmt) {
     processExpr(whileStmt->condition);
     return processCompoundStmt(whileStmt->body());
@@ -651,6 +651,9 @@ void gulc::CodeProcessor::processExpr(gulc::Expr*& expr) {
             break;
         case Expr::Kind::Ternary:
             processTernaryExpr(llvm::dyn_cast<TernaryExpr>(expr));
+            break;
+        case Expr::Kind::Try:
+            processTryExpr(llvm::dyn_cast<TryExpr>(expr));
             break;
         case Expr::Kind::Type:
             processTypeExpr(llvm::dyn_cast<TypeExpr>(expr));
@@ -3723,6 +3726,12 @@ void gulc::CodeProcessor::processTernaryExpr(gulc::TernaryExpr* ternaryExpr) {
     }
 
     ternaryExpr->valueType = ternaryExpr->trueExpr->valueType->deepCopy();
+}
+
+void gulc::CodeProcessor::processTryExpr(gulc::TryExpr* tryExpr) {
+    processExpr(tryExpr->nestedExpr);
+
+    tryExpr->valueType = tryExpr->nestedExpr->valueType->deepCopy();
 }
 
 void gulc::CodeProcessor::processTypeExpr(gulc::TypeExpr* typeExpr) {

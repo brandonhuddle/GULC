@@ -23,7 +23,9 @@ namespace gulc {
         std::string toString() const override { return "#vtable#"; }
 
         Type* deepCopy() const override {
-            return new VTableType();
+            auto result = new VTableType();
+            result->setIsLValue(_isLValue);
+            return result;
         }
 
     };

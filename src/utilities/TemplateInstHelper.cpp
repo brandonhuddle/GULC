@@ -367,8 +367,11 @@ void gulc::TemplateInstHelper::instantiateStmt(gulc::Stmt* stmt) const {
         case Stmt::Kind::Compound:
             instantiateCompoundStmt(llvm::dyn_cast<CompoundStmt>(stmt));
             break;
-        case Stmt::Kind::Do:
-            instantiateDoStmt(llvm::dyn_cast<DoStmt>(stmt));
+        case Stmt::Kind::DoCatch:
+            instantiateDoCatchStmt(llvm::dyn_cast<DoCatchStmt>(stmt));
+            break;
+        case Stmt::Kind::DoWhile:
+            instantiateDoWhileStmt(llvm::dyn_cast<DoWhileStmt>(stmt));
             break;
         case Stmt::Kind::For:
             instantiateForStmt(llvm::dyn_cast<ForStmt>(stmt));
@@ -384,9 +387,6 @@ void gulc::TemplateInstHelper::instantiateStmt(gulc::Stmt* stmt) const {
             break;
         case Stmt::Kind::Switch:
             instantiateSwitchStmt(llvm::dyn_cast<SwitchStmt>(stmt));
-            break;
-        case Stmt::Kind::Try:
-            instantiateTryStmt(llvm::dyn_cast<TryStmt>(stmt));
             break;
         case Stmt::Kind::While:
             instantiateWhileStmt((llvm::dyn_cast<WhileStmt>(stmt)));
@@ -843,9 +843,21 @@ void gulc::TemplateInstHelper::instantiateCompoundStmt(gulc::CompoundStmt* compo
     }
 }
 
-void gulc::TemplateInstHelper::instantiateDoStmt(gulc::DoStmt* doStmt) const {
-    instantiateStmt(doStmt->body());
-    instantiateExpr(doStmt->condition);
+void gulc::TemplateInstHelper::instantiateDoCatchStmt(gulc::DoCatchStmt* doCatchStmt) const {
+    instantiateStmt(doCatchStmt->body());
+
+    for (CatchStmt* catchStmt : doCatchStmt->catchStatements()) {
+        instantiateStmt(catchStmt);
+    }
+
+    if (doCatchStmt->hasFinallyStatement()) {
+        instantiateStmt(doCatchStmt->finallyStatement());
+    }
+}
+
+void gulc::TemplateInstHelper::instantiateDoWhileStmt(gulc::DoWhileStmt* doWhileStmt) const {
+    instantiateStmt(doWhileStmt->body());
+    instantiateExpr(doWhileStmt->condition);
 }
 
 void gulc::TemplateInstHelper::instantiateForStmt(gulc::ForStmt* forStmt) const {
@@ -888,18 +900,6 @@ void gulc::TemplateInstHelper::instantiateSwitchStmt(gulc::SwitchStmt* switchStm
 
     for (Stmt* statement : switchStmt->statements) {
         instantiateStmt(statement);
-    }
-}
-
-void gulc::TemplateInstHelper::instantiateTryStmt(gulc::TryStmt* tryStmt) const {
-    instantiateStmt(tryStmt->body());
-
-    for (CatchStmt* catchStmt : tryStmt->catchStatements()) {
-        instantiateStmt(catchStmt);
-    }
-
-    if (tryStmt->hasFinallyStatement()) {
-        instantiateStmt(tryStmt->finallyStatement());
     }
 }
 

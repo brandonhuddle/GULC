@@ -61,7 +61,9 @@ namespace gulc {
         }
 
         Type* deepCopy() const override {
-            return new DimensionType(_qualifier, nestedType->deepCopy(), _dimensions);
+            auto result = new DimensionType(_qualifier, nestedType->deepCopy(), _dimensions);
+            result->setIsLValue(_isLValue);
+            return result;
         }
 
         ~DimensionType() override {

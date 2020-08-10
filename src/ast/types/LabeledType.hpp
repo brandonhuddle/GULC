@@ -27,8 +27,10 @@ namespace gulc {
         }
 
         Type* deepCopy() const override {
-            return new LabeledType(_qualifier, _label, type->deepCopy(),
-                                   _startPosition, _endPosition);
+            auto result = new LabeledType(_qualifier, _label, type->deepCopy(),
+                                          _startPosition, _endPosition);
+            result->setIsLValue(_isLValue);
+            return result;
         }
 
         ~LabeledType() override {

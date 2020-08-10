@@ -19,8 +19,6 @@ struct vec3 {
         self.x = x
         self.y = y
         self.z = z
-
-        let test: Self = self
     }
 }
 
@@ -43,5 +41,5 @@ func main() -> i32 {
     //goto test
 
 test:
-    return manglerTest(arg: testInt)
+    return try manglerTest(arg: testInt)
 }

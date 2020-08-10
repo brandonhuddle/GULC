@@ -55,8 +55,10 @@ namespace gulc {
                 copiedTemplateArguments.push_back(templateArgument->deepCopy());
             }
 
-            return new UnresolvedNestedType(_qualifier, container->deepCopy(), _nestedIdentifier,
-                                            copiedTemplateArguments, _startPosition, _endPosition);
+            auto result = new UnresolvedNestedType(_qualifier, container->deepCopy(), _nestedIdentifier,
+                                                   copiedTemplateArguments, _startPosition, _endPosition);
+            result->setIsLValue(_isLValue);
+            return result;
         }
 
         ~UnresolvedNestedType() override {

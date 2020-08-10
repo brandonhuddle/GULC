@@ -46,8 +46,6 @@ using namespace gulc;
 //       If we can avoid runtime errors I would like to as much as possible. So within `[ ... ]` array literals
 //       disallow implicit string concatenation UNLESS the strings are contained within `(...)`.
 
-// TODO: Remember to add bit-fields with `var example: 1` and any other numbers for proper bitfielding.
-
 // TODO: Should we consider changing attributes to an `@...` system instead of `[...]` like Swift?
 //       Pros:
 //           * Less confusing syntax for parameters
@@ -74,25 +72,6 @@ using namespace gulc;
 //        2. There are some aspects of templated types that are impossible process further without instantiating
 //        3. For the validation instantiation we can create a `ConceptType` that is used to validate everything with a
 //           template works.
-
-// TODO: We should change `try {} catch {}` to `do {} catch {}` similar to Swift. The idea to make function calls
-//       require a `try` prefix was initially inspired by `Midori` (the same language that inspired Ghoul's contracts
-//       and a few other language features) but seeing Swift using the same idea was a pleasent surprise. I also liked
-//       `do {} catch {}` better as:
-//           try {
-//               try someFunc();
-//               try someFunc2();
-//           } catch {
-//               print("error")
-//           }
-//       Looks too repetitive.
-//           do {
-//               try someFunc();
-//               try someFunc2();
-//           } catch {
-//               print("error")
-//           }
-//       Looks better only as a less repetitive option.
 
 // TODO: Need to parse `true`, `false`, and `bool`
 

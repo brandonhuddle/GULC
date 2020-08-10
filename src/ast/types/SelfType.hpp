@@ -22,7 +22,9 @@ namespace gulc {
         }
 
         Type* deepCopy() const override {
-            return new SelfType(_qualifier, _startPosition, _endPosition);
+            auto result = new SelfType(_qualifier, _startPosition, _endPosition);
+            result->setIsLValue(_isLValue);
+            return result;
         }
 
     protected:

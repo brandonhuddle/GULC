@@ -1,18 +1,18 @@
-#ifndef GULC_TRYSTMT_HPP
-#define GULC_TRYSTMT_HPP
+#ifndef GULC_DOCATCHSTMT_HPP
+#define GULC_DOCATCHSTMT_HPP
 
 #include <ast/Stmt.hpp>
 #include "CompoundStmt.hpp"
 #include "CatchStmt.hpp"
 
 namespace gulc {
-    class TryStmt : public Stmt {
+    class DoCatchStmt : public Stmt {
     public:
-        static bool classof(const Stmt* stmt) { return stmt->getStmtKind() == Stmt::Kind::Try; }
+        static bool classof(const Stmt* stmt) { return stmt->getStmtKind() == Stmt::Kind::DoCatch; }
 
-        TryStmt(TextPosition startPosition, TextPosition endPosition,
-                CompoundStmt* body, std::vector<CatchStmt*> catchStatements, CompoundStmt* finallyStatement)
-                : Stmt(Stmt::Kind::Try),
+        DoCatchStmt(TextPosition startPosition, TextPosition endPosition,
+                    CompoundStmt* body, std::vector<CatchStmt*> catchStatements, CompoundStmt* finallyStatement)
+                : Stmt(Stmt::Kind::DoCatch),
                   _body(body), _catchStatements(std::move(catchStatements)), _finallyStatement(finallyStatement),
                   _startPosition(startPosition), _endPosition(endPosition) {}
 
@@ -37,12 +37,12 @@ namespace gulc {
                 copiedFinallyStatement = llvm::dyn_cast<CompoundStmt>(_finallyStatement->deepCopy());
             }
 
-            return new TryStmt(_startPosition, _endPosition,
-                               llvm::dyn_cast<CompoundStmt>(_body->deepCopy()),
-                               copiedCatchStatements, copiedFinallyStatement);
+            return new DoCatchStmt(_startPosition, _endPosition,
+                                   llvm::dyn_cast<CompoundStmt>(_body->deepCopy()),
+                                   copiedCatchStatements, copiedFinallyStatement);
         }
 
-        ~TryStmt() override {
+        ~DoCatchStmt() override {
             delete _body;
 
             for (CatchStmt* catchStmt : _catchStatements) {
@@ -62,4 +62,4 @@ namespace gulc {
     };
 }
 
-#endif //GULC_TRYSTMT_HPP
+#endif //GULC_DOCATCHSTMT_HPP

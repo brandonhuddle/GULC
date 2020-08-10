@@ -24,7 +24,9 @@ namespace gulc {
         }
 
         Type* deepCopy() const override {
-            return new FlatArrayType(_qualifier, indexType->deepCopy(), length->deepCopy());
+            auto result = new FlatArrayType(_qualifier, indexType->deepCopy(), length->deepCopy());
+            result->setIsLValue(_isLValue);
+            return result;
         }
 
         ~FlatArrayType() override {

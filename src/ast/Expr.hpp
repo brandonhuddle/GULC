@@ -61,6 +61,7 @@ namespace gulc {
             SubscriptRef,
             TemplateConstRef,
             Ternary,
+            Try,
             Type,
             ValueLiteral,
             VariableDecl,

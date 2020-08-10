@@ -19,7 +19,8 @@ namespace gulc {
             Catch,
             Compound,
             Continue,
-            Do,
+            DoCatch,
+            DoWhile,
             Fallthrough,
             For,
             Goto,
@@ -27,7 +28,6 @@ namespace gulc {
             Labeled,
             Return,
             Switch,
-            Try,
             While,
         };
 

@@ -1,5 +1,5 @@
-#ifndef GULC_DOSTMT_HPP
-#define GULC_DOSTMT_HPP
+#ifndef GULC_DOWHILESTMT_HPP
+#define GULC_DOWHILESTMT_HPP
 
 #include <ast/Stmt.hpp>
 #include <ast/Expr.hpp>
@@ -7,16 +7,16 @@
 #include "CompoundStmt.hpp"
 
 namespace gulc {
-    class DoStmt : public Stmt {
+    class DoWhileStmt : public Stmt {
     public:
-        static bool classof(const Stmt* stmt) { return stmt->getStmtKind() == Stmt::Kind::Do; }
+        static bool classof(const Stmt* stmt) { return stmt->getStmtKind() == Stmt::Kind::DoWhile; }
 
         Expr* condition;
 
-        DoStmt(CompoundStmt* body, Expr* condition,
-               TextPosition doStartPosition, TextPosition doEndPosition,
-               TextPosition whileStartPosition, TextPosition whileEndPosition)
-                : Stmt(Stmt::Kind::Do),
+        DoWhileStmt(CompoundStmt* body, Expr* condition,
+                    TextPosition doStartPosition, TextPosition doEndPosition,
+                    TextPosition whileStartPosition, TextPosition whileEndPosition)
+                : Stmt(Stmt::Kind::DoWhile),
                   condition(condition), _body(body), _doStartPosition(doStartPosition), _doEndPosition(doEndPosition),
                   _whileStartPosition(whileStartPosition), _whileEndPosition(whileEndPosition) {}
 
@@ -29,12 +29,12 @@ namespace gulc {
         TextPosition endPosition() const override { return _doEndPosition; }
 
         Stmt* deepCopy() const override {
-            return new DoStmt(llvm::dyn_cast<CompoundStmt>(_body->deepCopy()), condition->deepCopy(),
-                              _doStartPosition, _doEndPosition,
-                              _whileStartPosition, _whileEndPosition);
+            return new DoWhileStmt(llvm::dyn_cast<CompoundStmt>(_body->deepCopy()), condition->deepCopy(),
+                                   _doStartPosition, _doEndPosition,
+                                   _whileStartPosition, _whileEndPosition);
         }
 
-        ~DoStmt() override {
+        ~DoWhileStmt() override {
             delete condition;
             delete _body;
         }
@@ -49,4 +49,4 @@ namespace gulc {
     };
 }
 
-#endif //GULC_DOSTMT_HPP
+#endif //GULC_DOWHILESTMT_HPP

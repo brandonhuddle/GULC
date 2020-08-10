@@ -55,8 +55,10 @@ namespace gulc {
                 copiedTemplateArguments.push_back(templateArgument->deepCopy());
             }
 
-            return new TemplatedType(_qualifier, _matchingTemplateDecls, copiedTemplateArguments,
-                                     _startPosition, _endPosition);
+            auto result = new TemplatedType(_qualifier, _matchingTemplateDecls, copiedTemplateArguments,
+                                            _startPosition, _endPosition);
+            result->setIsLValue(_isLValue);
+            return result;
         }
 
         ~TemplatedType() override {

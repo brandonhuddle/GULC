@@ -25,6 +25,7 @@
 #include <ast/exprs/CheckExtendsTypeExpr.hpp>
 #include <ast/conts/WhereCont.hpp>
 #include <ast/exprs/TemplateConstRefExpr.hpp>
+#include <ast/exprs/TryExpr.hpp>
 
 namespace gulc {
     /**
@@ -146,13 +147,13 @@ namespace gulc {
         void processCaseStmt(CaseStmt* caseStmt);
         void processCatchStmt(CatchStmt* catchStmt);
         void processCompoundStmt(CompoundStmt* compoundStmt);
-        void processDoStmt(DoStmt* doStmt);
+        void processDoCatchStmt(DoCatchStmt* doCatchStmt);
+        void processDoWhileStmt(DoWhileStmt* doWhileStmt);
         void processForStmt(ForStmt* forStmt);
         void processIfStmt(IfStmt* ifStmt);
         void processLabeledStmt(LabeledStmt* labeledStmt);
         void processReturnStmt(ReturnStmt* returnStmt);
         void processSwitchStmt(SwitchStmt* switchStmt);
-        void processTryStmt(TryStmt* tryStmt);
         void processWhileStmt(WhileStmt* whileStmt);
 
         void processConstExpr(Expr* expr);
@@ -174,6 +175,7 @@ namespace gulc {
         void processSubscriptCallExpr(SubscriptCallExpr* subscriptCallExpr);
         void processTemplateConstRefExpr(TemplateConstRefExpr* templateConstRefExpr);
         void processTernaryExpr(TernaryExpr* ternaryExpr);
+        void processTryExpr(TryExpr* tryExpr);
         void processTypeExpr(TypeExpr* typeExpr);
         void processValueLiteralExpr(ValueLiteralExpr* valueLiteralExpr) const;
         void processVariableDeclExpr(VariableDeclExpr* variableDeclExpr);

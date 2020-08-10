@@ -23,14 +23,14 @@
 #include <ast/stmts/CaseStmt.hpp>
 #include <ast/stmts/CatchStmt.hpp>
 #include <ast/stmts/ContinueStmt.hpp>
-#include <ast/stmts/DoStmt.hpp>
+#include <ast/stmts/DoWhileStmt.hpp>
 #include <ast/stmts/ForStmt.hpp>
 #include <ast/stmts/GotoStmt.hpp>
 #include <ast/stmts/IfStmt.hpp>
 #include <ast/stmts/LabeledStmt.hpp>
 #include <ast/stmts/ReturnStmt.hpp>
 #include <ast/stmts/SwitchStmt.hpp>
-#include <ast/stmts/TryStmt.hpp>
+#include <ast/stmts/DoCatchStmt.hpp>
 #include <ast/stmts/WhileStmt.hpp>
 #include <ast/exprs/ArrayLiteralExpr.hpp>
 #include <ast/exprs/AsExpr.hpp>
@@ -61,6 +61,7 @@
 #include <ast/exprs/CallOperatorReferenceExpr.hpp>
 #include <ast/exprs/MemberPostfixOperatorCallExpr.hpp>
 #include <ast/exprs/MemberPrefixOperatorCallExpr.hpp>
+#include <ast/exprs/TryExpr.hpp>
 
 namespace gulc {
     /**
@@ -155,14 +156,14 @@ namespace gulc {
         bool processCatchStmt(CatchStmt* catchStmt);
         bool processCompoundStmt(CompoundStmt* compoundStmt);
         bool processContinueStmt(ContinueStmt* continueStmt);
-        bool processDoStmt(DoStmt* doStmt);
+        bool processDoCatchStmt(DoCatchStmt* doCatchStmt);
+        bool processDoWhileStmt(DoWhileStmt* doWhileStmt);
         bool processForStmt(ForStmt* forStmt);
         bool processGotoStmt(GotoStmt* gotoStmt);
         bool processIfStmt(IfStmt* ifStmt);
         bool processLabeledStmt(LabeledStmt* labeledStmt);
         bool processReturnStmt(ReturnStmt* returnStmt);
         bool processSwitchStmt(SwitchStmt* switchStmt);
-        bool processTryStmt(TryStmt* tryStmt);
         bool processWhileStmt(WhileStmt* whileStmt);
 
         void processExpr(Expr*& expr);
@@ -231,6 +232,7 @@ namespace gulc {
         void processSubscriptRefExpr(SubscriptRefExpr* subscriptReferenceExpr);
         void processTemplateConstRefExpr(TemplateConstRefExpr* templateConstRefExpr);
         void processTernaryExpr(TernaryExpr* ternaryExpr);
+        void processTryExpr(TryExpr* tryExpr);
         void processTypeExpr(TypeExpr* typeExpr);
         void processValueLiteralExpr(ValueLiteralExpr* valueLiteralExpr);
         void processVariableDeclExpr(VariableDeclExpr* variableDeclExpr);

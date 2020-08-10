@@ -110,8 +110,10 @@ namespace gulc {
         std::string toString() const override { return _name; }
 
         Type* deepCopy() const override {
-            return new BuiltInType(_qualifier, _name, _sizeInBytes, _isFloating, _isSigned,
-                                   _startPosition, _endPosition);
+            auto result = new BuiltInType(_qualifier, _name, _sizeInBytes, _isFloating, _isSigned,
+                                          _startPosition, _endPosition);
+            result->setIsLValue(_isLValue);
+            return result;
         }
 
     protected:

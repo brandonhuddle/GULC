@@ -222,6 +222,8 @@ add_executable(gulc
         src/ast/exprs/TemplateConstRefExpr.hpp
         src/ast/exprs/TernaryExpr.cpp
         src/ast/exprs/TernaryExpr.hpp
+        src/ast/exprs/TryExpr.cpp
+        src/ast/exprs/TryExpr.hpp
         src/ast/exprs/TypeExpr.cpp
         src/ast/exprs/TypeExpr.hpp
         src/ast/exprs/ValueLiteralExpr.cpp
@@ -245,8 +247,8 @@ add_executable(gulc
         src/ast/stmts/CompoundStmt.hpp
         src/ast/stmts/ContinueStmt.cpp
         src/ast/stmts/ContinueStmt.hpp
-        src/ast/stmts/DoStmt.cpp
-        src/ast/stmts/DoStmt.hpp
+        src/ast/stmts/DoWhileStmt.cpp
+        src/ast/stmts/DoWhileStmt.hpp
         src/ast/stmts/FallthroughStmt.cpp
         src/ast/stmts/FallthroughStmt.hpp
         src/ast/stmts/ForStmt.cpp
@@ -261,8 +263,8 @@ add_executable(gulc
         src/ast/stmts/ReturnStmt.hpp
         src/ast/stmts/SwitchStmt.cpp
         src/ast/stmts/SwitchStmt.hpp
-        src/ast/stmts/TryStmt.cpp
-        src/ast/stmts/TryStmt.hpp
+        src/ast/stmts/DoCatchStmt.cpp
+        src/ast/stmts/DoCatchStmt.hpp
         src/ast/stmts/WhileStmt.cpp
         src/ast/stmts/WhileStmt.hpp
 

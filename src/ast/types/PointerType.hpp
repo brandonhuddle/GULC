@@ -21,7 +21,9 @@ namespace gulc {
         }
 
         Type* deepCopy() const override {
-            return new PointerType(_qualifier, nestedType->deepCopy());
+            auto result = new PointerType(_qualifier, nestedType->deepCopy());
+            result->setIsLValue(_isLValue);
+            return result;
         }
 
         ~PointerType() override {

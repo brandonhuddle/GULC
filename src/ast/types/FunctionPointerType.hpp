@@ -72,8 +72,10 @@ namespace gulc {
                 copiedReturnType = returnType->deepCopy();
             }
 
-            return new FunctionPointerType(_qualifier, copiedParameters, copiedReturnType,
-                                           _startPosition, _endPosition);
+            auto result = new FunctionPointerType(_qualifier, copiedParameters, copiedReturnType,
+                                                  _startPosition, _endPosition);
+            result->setIsLValue(_isLValue);
+            return result;
         }
 
         ~FunctionPointerType() override {

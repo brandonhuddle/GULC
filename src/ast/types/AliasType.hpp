@@ -23,7 +23,9 @@ namespace gulc {
         }
 
         Type* deepCopy() const override {
-            return new AliasType(_qualifier, _decl, _startPosition, _endPosition);
+            auto result = new AliasType(_qualifier, _decl, _startPosition, _endPosition);
+            result->setIsLValue(_isLValue);
+            return result;
         }
 
     protected:

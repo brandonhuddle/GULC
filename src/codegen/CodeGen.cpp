@@ -707,8 +707,11 @@ void gulc::CodeGen::generateStmt(gulc::Stmt const* stmt, std::string const& stmt
         case Stmt::Kind::Continue:
             generateContinueStmt(llvm::dyn_cast<ContinueStmt>(stmt));
             break;
-        case Stmt::Kind::Do:
-            generateDoStmt(llvm::dyn_cast<DoStmt>(stmt), stmtName);
+        case Stmt::Kind::DoCatch:
+            generateDoCatchStmt(llvm::dyn_cast<DoCatchStmt>(stmt));
+            break;
+        case Stmt::Kind::DoWhile:
+            generateDoWhileStmt(llvm::dyn_cast<DoWhileStmt>(stmt), stmtName);
             break;
         case Stmt::Kind::For:
             generateForStmt(llvm::dyn_cast<ForStmt>(stmt), stmtName);
@@ -729,9 +732,6 @@ void gulc::CodeGen::generateStmt(gulc::Stmt const* stmt, std::string const& stmt
             return;
         case Stmt::Kind::Switch:
             generateSwitchStmt(llvm::dyn_cast<SwitchStmt>(stmt));
-            break;
-        case Stmt::Kind::Try:
-            generateTryStmt(llvm::dyn_cast<TryStmt>(stmt));
             break;
         case Stmt::Kind::While:
             generateWhileStmt(llvm::dyn_cast<WhileStmt>(stmt), stmtName);
@@ -811,7 +811,12 @@ void gulc::CodeGen::generateContinueStmt(gulc::ContinueStmt const* continueStmt)
     }
 }
 
-void gulc::CodeGen::generateDoStmt(gulc::DoStmt const* doStmt, std::string const& loopName) {
+void gulc::CodeGen::generateDoCatchStmt(gulc::DoCatchStmt const* doCatchStmt) {
+    printError("`do {} catch {}` statement not yet supported!",
+               doCatchStmt->startPosition(), doCatchStmt->endPosition());
+}
+
+void gulc::CodeGen::generateDoWhileStmt(gulc::DoWhileStmt const* doWhileStmt, std::string const& loopName) {
     std::string doName;
 
     if (loopName.empty()) {
@@ -840,7 +845,7 @@ void gulc::CodeGen::generateDoStmt(gulc::DoStmt const* doStmt, std::string const
     // Generate the statement we loop on...
     std::size_t oldNestedLoopCount = 0;
     enterNestedLoop(loopContinue, loopBreak, &oldNestedLoopCount);
-    generateStmt(doStmt->body());
+    generateStmt(doWhileStmt->body());
     leaveNestedLoop(oldNestedLoopCount);
     _irBuilder->CreateBr(loopContinue);
 
@@ -852,7 +857,7 @@ void gulc::CodeGen::generateDoStmt(gulc::DoStmt const* doStmt, std::string const
     _irBuilder->SetInsertPoint(loopContinue);
 
     // Generate the condition and create the conditional branch
-    llvm::Value* cond = generateExpr(doStmt->condition);
+    llvm::Value* cond = generateExpr(doWhileStmt->condition);
     _irBuilder->CreateCondBr(cond, loop, loopBreak);
 
     // Add the loop break block to the function and set it as the insert point...
@@ -1042,11 +1047,6 @@ void gulc::CodeGen::generateSwitchStmt(gulc::SwitchStmt const* switchStmt) {
     //       it's too hard to deal with.
     printError("`switch` statement not yet supported!",
                switchStmt->startPosition(), switchStmt->endPosition());
-}
-
-void gulc::CodeGen::generateTryStmt(gulc::TryStmt const* tryStmt) {
-    printError("`try` statement not yet supported!",
-               tryStmt->startPosition(), tryStmt->endPosition());
 }
 
 void gulc::CodeGen::generateWhileStmt(gulc::WhileStmt const* whileStmt, std::string const& loopName) {
@@ -1241,6 +1241,8 @@ llvm::Value* gulc::CodeGen::generateExpr(gulc::Expr const* expr) {
             return generatePrefixOperatorExpr(llvm::dyn_cast<PrefixOperatorExpr>(expr));
         case Expr::Kind::Ternary:
             return generateTernaryExpr(llvm::dyn_cast<TernaryExpr>(expr));
+        case Expr::Kind::Try:
+            return generateTryExpr(llvm::dyn_cast<TryExpr>(expr));
         case Expr::Kind::ValueLiteral:
             return generateValueLiteralExpr(llvm::dyn_cast<ValueLiteralExpr>(expr));
         case Expr::Kind::VariableDecl:
@@ -1837,6 +1839,10 @@ llvm::Value* gulc::CodeGen::generateTernaryExpr(gulc::TernaryExpr const* ternary
     printError("ternary operator not yet supported!",
                ternaryExpr->startPosition(), ternaryExpr->endPosition());
     return nullptr;
+}
+
+llvm::Value* gulc::CodeGen::generateTryExpr(gulc::TryExpr const* tryExpr) {
+    return generateExpr(tryExpr->nestedExpr);
 }
 
 llvm::Value* gulc::CodeGen::generateValueLiteralExpr(gulc::ValueLiteralExpr const* valueLiteralExpr) {

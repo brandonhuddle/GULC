@@ -22,14 +22,14 @@
 #include <ast/decls/EnumDecl.hpp>
 #include <ast/stmts/BreakStmt.hpp>
 #include <ast/stmts/ContinueStmt.hpp>
-#include <ast/stmts/DoStmt.hpp>
+#include <ast/stmts/DoWhileStmt.hpp>
 #include <ast/stmts/ForStmt.hpp>
 #include <ast/stmts/GotoStmt.hpp>
 #include <ast/stmts/IfStmt.hpp>
 #include <ast/stmts/LabeledStmt.hpp>
 #include <ast/stmts/ReturnStmt.hpp>
 #include <ast/stmts/SwitchStmt.hpp>
-#include <ast/stmts/TryStmt.hpp>
+#include <ast/stmts/DoCatchStmt.hpp>
 #include <ast/stmts/WhileStmt.hpp>
 #include <ast/exprs/ArrayLiteralExpr.hpp>
 #include <ast/exprs/AsExpr.hpp>
@@ -51,6 +51,7 @@
 #include <ast/exprs/VariableRefExpr.hpp>
 #include <ast/exprs/VTableFunctionReferenceExpr.hpp>
 #include <ast/exprs/LValueToRValueExpr.hpp>
+#include <ast/exprs/TryExpr.hpp>
 
 namespace gulc {
     // This is a storage container for any temporary value that might require destruction at the end of a statement
@@ -139,14 +140,14 @@ namespace gulc {
         void generateBreakStmt(BreakStmt const* breakStmt);
         void generateCompoundStmt(CompoundStmt const* compoundStmt);
         void generateContinueStmt(ContinueStmt const* continueStmt);
-        void generateDoStmt(DoStmt const* doStmt, std::string const& stmtName);
+        void generateDoCatchStmt(DoCatchStmt const* doCatchStmt);
+        void generateDoWhileStmt(DoWhileStmt const* doWhileStmt, std::string const& stmtName);
         void generateForStmt(ForStmt const* forStmt, std::string const& stmtName);
         void generateGotoStmt(GotoStmt const* gotoStmt);
         void generateIfStmt(IfStmt const* ifStmt);
         void generateLabeledStmt(LabeledStmt const* labeledStmt);
         void generateReturnStmt(ReturnStmt const* returnStmt);
         void generateSwitchStmt(SwitchStmt const* switchStmt);
-        void generateTryStmt(TryStmt const* tryStmt);
         void generateWhileStmt(WhileStmt const* whileStmt, std::string const& stmtName);
 
         void enterNestedLoop(llvm::BasicBlock* continueLoop, llvm::BasicBlock* breakLoop,
@@ -185,6 +186,7 @@ namespace gulc {
         llvm::Value* generatePostfixOperatorExpr(PostfixOperatorExpr const* postfixOperatorExpr);
         llvm::Value* generatePrefixOperatorExpr(PrefixOperatorExpr const* prefixOperatorExpr);
         llvm::Value* generateTernaryExpr(TernaryExpr const* ternaryExpr);
+        llvm::Value* generateTryExpr(TryExpr const* tryExpr);
         llvm::Value* generateValueLiteralExpr(ValueLiteralExpr const* valueLiteralExpr);
         llvm::Value* generateVariableDeclExpr(VariableDeclExpr const* variableDeclExpr);
         llvm::Value* generateVariableRefExpr(VariableRefExpr const* variableRefExpr);

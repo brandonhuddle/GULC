@@ -557,8 +557,11 @@ void gulc::BasicTypeResolver::processStmt(gulc::Stmt* stmt) {
         case Stmt::Kind::Continue:
             processContinueStmt(llvm::dyn_cast<ContinueStmt>(stmt));
             break;
-        case Stmt::Kind::Do:
-            processDoStmt(llvm::dyn_cast<DoStmt>(stmt));
+        case Stmt::Kind::DoCatch:
+            processDoCatchStmt(llvm::dyn_cast<DoCatchStmt>(stmt));
+            break;
+        case Stmt::Kind::DoWhile:
+            processDoWhileStmt(llvm::dyn_cast<DoWhileStmt>(stmt));
             break;
         case Stmt::Kind::For:
             processForStmt(llvm::dyn_cast<ForStmt>(stmt));
@@ -577,9 +580,6 @@ void gulc::BasicTypeResolver::processStmt(gulc::Stmt* stmt) {
             break;
         case Stmt::Kind::Switch:
             processSwitchStmt(llvm::dyn_cast<SwitchStmt>(stmt));
-            break;
-        case Stmt::Kind::Try:
-            processTryStmt(llvm::dyn_cast<TryStmt>(stmt));
             break;
         case Stmt::Kind::While:
             processWhileStmt(llvm::dyn_cast<WhileStmt>(stmt));
@@ -640,9 +640,21 @@ void gulc::BasicTypeResolver::processContinueStmt(gulc::ContinueStmt* continueSt
     }
 }
 
-void gulc::BasicTypeResolver::processDoStmt(gulc::DoStmt* doStmt) {
-    processStmt(doStmt->body());
-    processExpr(doStmt->condition);
+void gulc::BasicTypeResolver::processDoCatchStmt(gulc::DoCatchStmt* doCatchStmt) {
+    processStmt(doCatchStmt->body());
+
+    for (CatchStmt* catchStmt : doCatchStmt->catchStatements()) {
+        processCatchStmt(catchStmt);
+    }
+
+    if (doCatchStmt->hasFinallyStatement()) {
+        processStmt(doCatchStmt->finallyStatement());
+    }
+}
+
+void gulc::BasicTypeResolver::processDoWhileStmt(gulc::DoWhileStmt* doWhileStmt) {
+    processStmt(doWhileStmt->body());
+    processExpr(doWhileStmt->condition);
 }
 
 void gulc::BasicTypeResolver::processForStmt(gulc::ForStmt* forStmt) {
@@ -711,18 +723,6 @@ void gulc::BasicTypeResolver::processSwitchStmt(gulc::SwitchStmt* switchStmt) {
 
     for (Stmt* statement : switchStmt->statements) {
         processStmt(statement);
-    }
-}
-
-void gulc::BasicTypeResolver::processTryStmt(gulc::TryStmt* tryStmt) {
-    processStmt(tryStmt->body());
-
-    for (CatchStmt* catchStmt : tryStmt->catchStatements()) {
-        processCatchStmt(catchStmt);
-    }
-
-    if (tryStmt->hasFinallyStatement()) {
-        processStmt(tryStmt->finallyStatement());
     }
 }
 
@@ -810,6 +810,9 @@ void gulc::BasicTypeResolver::processExpr(gulc::Expr* expr) {
             break;
         case Expr::Kind::Ternary:
             processTernaryExpr(llvm::dyn_cast<TernaryExpr>(expr));
+            break;
+        case Expr::Kind::Try:
+            processTryExpr(llvm::dyn_cast<TryExpr>(expr));
             break;
         case Expr::Kind::Type:
             processTypeExpr(llvm::dyn_cast<TypeExpr>(expr));
@@ -931,6 +934,10 @@ void gulc::BasicTypeResolver::processTernaryExpr(gulc::TernaryExpr* ternaryExpr)
     processExpr(ternaryExpr->condition);
     processExpr(ternaryExpr->trueExpr);
     processExpr(ternaryExpr->falseExpr);
+}
+
+void gulc::BasicTypeResolver::processTryExpr(gulc::TryExpr* tryExpr) {
+    processExpr(tryExpr->nestedExpr);
 }
 
 void gulc::BasicTypeResolver::processTypeExpr(gulc::TypeExpr* typeExpr) {

@@ -27,6 +27,7 @@
 #include <ast/decls/TemplateTraitDecl.hpp>
 #include <ast/types/UnresolvedNestedType.hpp>
 #include <ast/exprs/CheckExtendsTypeExpr.hpp>
+#include <ast/exprs/TryExpr.hpp>
 #include "Parser.hpp"
 
 using namespace gulc;
@@ -1916,8 +1917,6 @@ Stmt* Parser::parseStmt() {
             return parseReturnStmt();
         case TokenType::SWITCH:
             return parseSwitchStmt();
-        case TokenType::TRY:
-            return parseTryStmt();
         case TokenType::WHILE:
             return parseWhileStmt();
         default: {
@@ -2086,13 +2085,18 @@ ContinueStmt* Parser::parseContinueStmt() {
     }
 }
 
-DoStmt* Parser::parseDoStmt() {
+Stmt* Parser::parseDoStmt() {
     TextPosition doStartPosition = _lexer.peekStartPosition();
     TextPosition doEndPosition = _lexer.peekEndPosition();
 
     _lexer.consumeType(TokenType::DO);
 
-    CompoundStmt* loopStmt = parseCompoundStmt();
+    CompoundStmt* doStmt = parseCompoundStmt();
+
+    if (_lexer.peekType() == TokenType::CATCH || _lexer.peekType() == TokenType::FINALLY) {
+        // Continue parsing in `parseTryStmt` as this is a `do {} catch {} finally {}` instead of `do {} while()`
+        return parseTryStmt(doStartPosition, doEndPosition, doStmt);
+    }
 
     TextPosition whileStartPosition = _lexer.peekStartPosition();
     TextPosition whileEndPosition = _lexer.peekEndPosition();
@@ -2110,7 +2114,7 @@ DoStmt* Parser::parseDoStmt() {
 //                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
 //    }
 
-    return new DoStmt(loopStmt, condition, doStartPosition, doEndPosition, whileStartPosition, whileEndPosition);
+    return new DoWhileStmt(doStmt, condition, doStartPosition, doEndPosition, whileStartPosition, whileEndPosition);
 }
 
 FallthroughStmt* Parser::parseFallthroughStmt() {
@@ -2297,14 +2301,7 @@ SwitchStmt* Parser::parseSwitchStmt() {
     return new SwitchStmt(startPosition, endPosition, condition, statements);
 }
 
-TryStmt* Parser::parseTryStmt() {
-    TextPosition startPosition = _lexer.peekStartPosition();
-    TextPosition endPosition = _lexer.peekEndPosition();
-
-    _lexer.consumeType(TokenType::TRY);
-
-    CompoundStmt* tryBody = parseCompoundStmt();
-
+DoCatchStmt* Parser::parseTryStmt(TextPosition doStartPosition, TextPosition doEndPosition, CompoundStmt* doStmt) {
     std::vector<CatchStmt*> catchStatements;
     CompoundStmt* finallyStatement = nullptr;
 
@@ -2323,7 +2320,7 @@ TryStmt* Parser::parseTryStmt() {
         }
     }
 
-    return new TryStmt(startPosition, endPosition, tryBody, catchStatements, finallyStatement);
+    return new DoCatchStmt(doStartPosition, doEndPosition, doStmt, catchStatements, finallyStatement);
 }
 
 WhileStmt* Parser::parseWhileStmt() {
@@ -2913,6 +2910,12 @@ Expr* Parser::parsePrefixes() {
             Expr* expr = parsePrefixes();
 
             return new PrefixOperatorExpr(PrefixOperators::TraitsOf, expr, startPosition, endPosition);
+        }
+        case TokenType::TRY: {
+            _lexer.consumeType(TokenType::TRY);
+            Expr* expr = parsePrefixes();
+
+            return new TryExpr(expr, startPosition, endPosition);
         }
         default:
             return parseCallPostfixOrMemberAccess();
