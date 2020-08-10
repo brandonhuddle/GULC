@@ -4,6 +4,9 @@
 #include <passes/NamespacePrototyper.hpp>
 #include <passes/BasicDeclValidator.hpp>
 #include <passes/CodeProcessor.hpp>
+#include <passes/NameMangler.hpp>
+#include <namemangling/ItaniumMangler.hpp>
+#include <codegen/CodeGen.hpp>
 #include "Target.hpp"
 
 using namespace gulc;
@@ -91,6 +94,26 @@ using namespace gulc;
 //           }
 //       Looks better only as a less repetitive option.
 
+// TODO: Need to parse `true`, `false`, and `bool`
+
+// TODO: I think we should use the terms `abandon` and `abandonment` instead of `panic` even though Rust currently uses
+//       `panic`.
+//       Pros:
+//        * Most descriptive to what is happening. `panic` doesn't really tell you what is actually happening and could
+//          give the wrong impression that the program could keep going. Saying the process `abandoned` sounds more
+//          descriptive and doesn't leave any impression that it could keep going or be fixed.
+//        * More user friendly. When a process "abandons" for a user-facing program the most likely thing to happen
+//          will be for the program to tell the user the program abandoned and how to report that to the developer.
+//          In my opinion `abandon` will give the user a better idea on how severe this is than `panic`. Telling the
+//          user the program `panicked` seems more confusing.
+//       Cons:
+//        * Rust already has set the idea up as `panic` (even though earlier implementations called in `abandon` as
+//          well, such as the Midori OS's programming language)
+
+// TODO: We need to do `LValueToRValue` and handle reference dereferencing before `CodeGen`.
+//       Trying to handle reference dereferencing implicitly within the `CodeGen` pass makes things way more
+//       complicated than they have to be if we would just handle them elsewhere.
+
 int main() {
     Target target = Target::getHostTarget();
 
@@ -125,12 +148,22 @@ int main() {
     declInstantiator.processFiles(parsedFiles);
 
     // TODO: We need to actually implement `DeclInstValidator`
-    //        * Check to make sure all `Self` references are removed and are valid
+    //        * Check to make sure all `Self` type references are removed and are valid
     //        *
 
     // Process main code before IR generation
     CodeProcessor codeProcessor(target, filePaths, prototypes);
     codeProcessor.processFiles(parsedFiles);
+
+    // Mangle decl names for code generation
+    auto manglerBackend = ItaniumMangler();
+    NameMangler nameMangler(&manglerBackend);
+    nameMangler.processFiles(parsedFiles);
+
+    for (auto parsedFile : parsedFiles) {
+        CodeGen codeGen(target, filePaths);
+        codeGen.generate(&parsedFile);
+    }
 
     return 0;
 }

@@ -8,18 +8,21 @@ namespace gulc {
     public:
         static bool classof(const Expr *expr) { return expr->getExprKind() == Kind::ParameterRef; }
 
-        ParameterRefExpr(TextPosition startPosition, TextPosition endPosition, std::string parameterRef)
+        ParameterRefExpr(TextPosition startPosition, TextPosition endPosition,
+                         std::size_t parameterIndex, std::string parameterRef)
                 : Expr(Expr::Kind::ParameterRef),
-                  _startPosition(startPosition), _endPosition(endPosition), _parameterRef(std::move(parameterRef)) {}
+                  _startPosition(startPosition), _endPosition(endPosition),
+                  _parameterIndex(parameterIndex), _parameterRef(std::move(parameterRef)) {}
 
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }
 
+        std::size_t parameterIndex() const { return _parameterIndex; }
         std::string const& parameterRef() const { return _parameterRef; }
 
         Expr* deepCopy() const override {
             auto result = new ParameterRefExpr(_startPosition, _endPosition,
-                                               _parameterRef);
+                                               _parameterIndex, _parameterRef);
             result->valueType = valueType == nullptr ? nullptr : valueType->deepCopy();
             return result;
         }
@@ -31,6 +34,7 @@ namespace gulc {
     private:
         TextPosition _startPosition;
         TextPosition _endPosition;
+        std::size_t _parameterIndex;
         std::string _parameterRef;
 
     };

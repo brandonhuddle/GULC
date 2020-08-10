@@ -44,6 +44,7 @@ namespace gulc {
             Is,
             LabeledArgument,
             LocalVariableRef,
+            LValueToRValue,
             MemberAccessCall,
             MemberFunctionCall,
             MemberPostfixOperatorCall,

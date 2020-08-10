@@ -99,6 +99,9 @@ namespace gulc {
         // Makes checking if it is virtual at all easier
         bool isAnyVirtual() const { return isVirtual() || isAbstract() || isOverride(); }
 
+        std::string const& mangledName() const { return _mangledName; }
+        void setMangledName(std::string mangledName) { _mangledName = std::move(mangledName); }
+
         // The namespace, struct, trait, etc. that the Decl is contained within. Null when contained in a file.
         Decl* container;
         // True if the container or the container of the container (ad infinitum) is a template
@@ -116,6 +119,7 @@ namespace gulc {
         Identifier _identifier;
         bool _isConstExpr;
         DeclModifiers _declModifiers;
+        std::string _mangledName;
 
         Decl(Kind declKind, unsigned int sourceFileID, std::vector<Attr*> attributes, Visibility declVisibility,
              bool isConstExpr, Identifier identifier, DeclModifiers declModifiers)

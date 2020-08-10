@@ -111,6 +111,8 @@ add_executable(gulc
         src/ast/types/AliasType.hpp
         src/ast/types/BuiltInType.cpp
         src/ast/types/BuiltInType.hpp
+        src/ast/types/BoolType.cpp
+        src/ast/types/BoolType.hpp
         src/ast/types/DependentType.cpp
         src/ast/types/DependentType.hpp
         src/ast/types/DimensionType.cpp
@@ -186,6 +188,8 @@ add_executable(gulc
         src/ast/exprs/LabeledArgumentExpr.hpp
         src/ast/exprs/LocalVariableRefExpr.cpp
         src/ast/exprs/LocalVariableRefExpr.hpp
+        src/ast/exprs/LValueToRValueExpr.cpp
+        src/ast/exprs/LValueToRValueExpr.hpp
         src/ast/exprs/MemberAccessCallExpr.cpp
         src/ast/exprs/MemberAccessCallExpr.hpp
         src/ast/exprs/MemberFunctionCallExpr.cpp
@@ -288,10 +292,14 @@ add_executable(gulc
         src/passes/BasicTypeResolver.hpp
         src/passes/CodeProcessor.cpp
         src/passes/CodeProcessor.hpp
+        src/passes/CodeTransformer.cpp
+        src/passes/CodeTransformer.hpp
         src/passes/DeclInstantiator.cpp
         src/passes/DeclInstantiator.hpp
         src/passes/DeclInstValidator.cpp
         src/passes/DeclInstValidator.hpp
+        src/passes/NameMangler.cpp
+        src/passes/NameMangler.hpp
         src/passes/NamespacePrototyper.cpp
         src/passes/NamespacePrototyper.hpp
 
@@ -314,7 +322,17 @@ add_executable(gulc
         src/utilities/TypeCompareUtil.cpp
         src/utilities/TypeCompareUtil.hpp
         src/utilities/TypeHelper.cpp
-        src/utilities/TypeHelper.hpp)
+        src/utilities/TypeHelper.hpp
+
+        src/namemangling/ManglerBase.cpp
+        src/namemangling/ManglerBase.hpp
+        src/namemangling/ItaniumMangler.cpp
+        src/namemangling/ItaniumMangler.hpp
+
+        src/codegen/CodeGen.cpp
+        src/codegen/CodeGen.hpp
+        src/codegen/Module.cpp
+        src/codegen/Module.hpp)
 
 # MSVC doesn't require the stdc++fs.
 if (NOT MSVC AND NOT APPLE)

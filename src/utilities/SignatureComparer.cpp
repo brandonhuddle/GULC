@@ -222,8 +222,15 @@ SignatureComparer::ArgMatchResult SignatureComparer::compareArgumentsToParameter
                 return ArgMatchResult::Fail;
             }
 
+            // If the argument is a reference but the parameter is not then we remove the reference type for comparison
+            gulc::Type* checkArgType = arguments[i]->valueType;
+
+            if (llvm::isa<ReferenceType>(checkArgType) && !llvm::isa<ReferenceType>(parameters[i]->type)) {
+                checkArgType = llvm::dyn_cast<ReferenceType>(checkArgType)->nestedType;
+            }
+
             // Compare the type of the argument to the type of the parameter...
-            if (!typeCompareUtil.compareAreSame(arguments[i]->valueType, parameters[i]->type)) {
+            if (!typeCompareUtil.compareAreSame(checkArgType, parameters[i]->type)) {
                 // TODO: Check if the argument type can be casted to the parameter type...
                 return ArgMatchResult::Fail;
             }
@@ -250,7 +257,14 @@ SignatureComparer::ArgMatchResult SignatureComparer::compareArgumentsToParameter
                 return ArgMatchResult::Fail;
             }
 
-            if (!typeCompareUtil.compareAreSame(arguments[i]->valueType, parameters[i]->type)) {
+            // If the argument is a reference but the parameter is not then we remove the reference type for comparison
+            gulc::Type* checkArgType = arguments[i]->valueType;
+
+            if (llvm::isa<ReferenceType>(checkArgType) && !llvm::isa<ReferenceType>(parameters[i]->type)) {
+                checkArgType = llvm::dyn_cast<ReferenceType>(checkArgType)->nestedType;
+            }
+
+            if (!typeCompareUtil.compareAreSame(checkArgType, parameters[i]->type)) {
                 // TODO: Check if the argument type can be casted to the parameter type...
                 return ArgMatchResult::Fail;
             }

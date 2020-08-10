@@ -30,6 +30,9 @@ namespace gulc {
         LessThan, // <
         GreaterThanEqualTo, // >=
         LessThanEqualTo, // <=
+
+        // TODO: Implement this
+        Spaceship, // <=>
     };
 
     inline std::string getInfixOperatorStringValue(InfixOperators infixOperator) {

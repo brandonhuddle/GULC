@@ -28,6 +28,9 @@ namespace gulc {
 
         ConstructorType constructorType() const { return _constructorType; }
 
+        std::string mangledNameVTable() const { return _mangledNameVTable; }
+        void setMangledNameVTable(std::string const& mangledName) { _mangledNameVTable = mangledName; }
+
         Decl* deepCopy() const override {
             std::vector<Attr*> copiedAttributes;
             copiedAttributes.reserve(_attributes.size());
@@ -60,6 +63,9 @@ namespace gulc {
 
     protected:
         ConstructorType _constructorType;
+        // We force `CodeGen` to generate the vtable variant of every constructor instead of duplicating constructors.
+        // So we have a separate mangled name here for the vtable setting constructor
+        std::string _mangledNameVTable;
 
     };
 }

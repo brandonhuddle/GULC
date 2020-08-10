@@ -25,6 +25,8 @@
 #include <ast/types/PointerType.hpp>
 #include <ast/decls/TypeSuffixDecl.hpp>
 #include <utilities/FunctorUtil.hpp>
+#include <ast/types/BoolType.hpp>
+#include <ast/exprs/LValueToRValueExpr.hpp>
 
 void gulc::CodeProcessor::processFiles(std::vector<ASTFile>& files) {
     for (ASTFile& file : files) {
@@ -209,6 +211,8 @@ void gulc::CodeProcessor::processExtensionDecl(gulc::ExtensionDecl* extensionDec
 void gulc::CodeProcessor::processFunctionDecl(gulc::FunctionDecl* functionDecl) {
     FunctionDecl* oldFunction = _currentFunction;
     _currentFunction = functionDecl;
+    std::vector<ParameterDecl*>* oldParameters = _currentParameters;
+    _currentParameters = &functionDecl->parameters();
 
     for (ParameterDecl* parameter : functionDecl->parameters()) {
         processParameterDecl(parameter);
@@ -219,6 +223,7 @@ void gulc::CodeProcessor::processFunctionDecl(gulc::FunctionDecl* functionDecl) 
         processCompoundStmt(functionDecl->body());
     }
 
+    _currentParameters = oldParameters;
     _currentFunction = oldFunction;
 }
 
@@ -403,6 +408,9 @@ void gulc::CodeProcessor::processBreakStmt(gulc::BreakStmt* breakStmt) {
 void gulc::CodeProcessor::processCaseStmt(gulc::CaseStmt* caseStmt) {
     processExpr(caseStmt->condition);
     processStmt(caseStmt->trueStmt);
+
+    // TODO: Dereference implicit references
+    caseStmt->condition = convertLValueToRValue(caseStmt->condition);
 }
 
 void gulc::CodeProcessor::processCatchStmt(gulc::CatchStmt* catchStmt) {
@@ -422,6 +430,9 @@ void gulc::CodeProcessor::processContinueStmt(gulc::ContinueStmt* continueStmt) 
 void gulc::CodeProcessor::processDoStmt(gulc::DoStmt* doStmt) {
     processCompoundStmt(doStmt->body());
     processExpr(doStmt->condition);
+
+    // TODO: Dereference implicit references
+    doStmt->condition = convertLValueToRValue(doStmt->condition);
 }
 
 void gulc::CodeProcessor::processForStmt(gulc::ForStmt* forStmt) {
@@ -431,6 +442,9 @@ void gulc::CodeProcessor::processForStmt(gulc::ForStmt* forStmt) {
 
     if (forStmt->condition != nullptr) {
         processExpr(forStmt->condition);
+
+        // TODO: Dereference implicit references
+        forStmt->condition = convertLValueToRValue(forStmt->condition);
     }
 
     if (forStmt->iteration != nullptr) {
@@ -456,6 +470,9 @@ void gulc::CodeProcessor::processIfStmt(gulc::IfStmt* ifStmt) {
             processCompoundStmt(llvm::dyn_cast<CompoundStmt>(ifStmt->falseBody()));
         }
     }
+
+    // TODO: Dereference implicit references
+    ifStmt->condition = convertLValueToRValue(ifStmt->condition);
 }
 
 void gulc::CodeProcessor::processLabeledStmt(gulc::LabeledStmt* labeledStmt) {
@@ -465,6 +482,11 @@ void gulc::CodeProcessor::processLabeledStmt(gulc::LabeledStmt* labeledStmt) {
 void gulc::CodeProcessor::processReturnStmt(gulc::ReturnStmt* returnStmt) {
     if (returnStmt->returnValue != nullptr) {
         processExpr(returnStmt->returnValue);
+
+        // NOTE: We don't implicitly convert from `lvalue` to reference here if the function returns a reference.
+        //       To return a reference you MUST specify `ref {value}`, we don't do implicitly referencing like in C++.
+        // TODO: Dereference implicit references
+        returnStmt->returnValue = convertLValueToRValue(returnStmt->returnValue);
     }
 }
 
@@ -658,10 +680,6 @@ void gulc::CodeProcessor::processAsExpr(gulc::AsExpr* asExpr) {
     asExpr->valueType = asExpr->asType->deepCopy();
 }
 
-void testReference(int& param1) {
-    param1 = 44;
-}
-
 void gulc::CodeProcessor::processAssignmentOperatorExpr(gulc::AssignmentOperatorExpr* assignmentOperatorExpr) {
     processExpr(assignmentOperatorExpr->leftValue);
     processExpr(assignmentOperatorExpr->rightValue);
@@ -676,6 +694,8 @@ void gulc::CodeProcessor::processAssignmentOperatorExpr(gulc::AssignmentOperator
     // TODO: Validate that `rightType` can be casted to `leftType` (if they aren't the same type)
 
     assignmentOperatorExpr->valueType = assignmentOperatorExpr->leftValue->valueType->deepCopy();
+    // TODO: Is this right? I believe we'll end up returning the actual alloca from CodeGen so this seems right to me.
+    assignmentOperatorExpr->valueType->setIsLValue(true);
 }
 
 void gulc::CodeProcessor::processCallOperatorReferenceExpr(gulc::CallOperatorReferenceExpr* callOperatorReferenceExpr) {
@@ -698,7 +718,8 @@ void gulc::CodeProcessor::processEnumConstRefExpr(gulc::EnumConstRefExpr* enumCo
             {}
         );
 
-    enumConstRefExpr->valueType = new ReferenceType(Type::Qualifier::Unassigned, enumType);
+    enumConstRefExpr->valueType = enumType;
+    enumConstRefExpr->valueType->setIsLValue(true);
 }
 
 void gulc::CodeProcessor::processFunctionCallExpr(gulc::FunctionCallExpr*& functionCallExpr) {
@@ -799,6 +820,10 @@ void gulc::CodeProcessor::processFunctionCallExpr(gulc::FunctionCallExpr*& funct
 
                         functionReturnType = foundFunction->returnType->deepCopy();
 
+                        // We handle argument casting and conversion no matter what. The below function will handle
+                        // converting from lvalue to rvalue, casting, and other rules for us.
+                        handleArgumentCasting(foundFunction->parameters(), functionCallExpr->arguments);
+
                         if (foundFunction->isAnyVirtual()) {
                             // TODO: Find the vtable index and create a `VTableFunctionReferenceExpr`
                             if (!llvm::isa<StructDecl>(foundFunction->container)) {
@@ -870,6 +895,7 @@ void gulc::CodeProcessor::processFunctionCallExpr(gulc::FunctionCallExpr*& funct
                         functionCallExpr = newFunctionCallExpr;
 
                         functionCallExpr->valueType = functionReturnType;
+                        functionCallExpr->valueType->setIsLValue(true);
 
                         return;
                     } else if (llvm::isa<NamespaceDecl>(_currentContainer)) {
@@ -879,6 +905,7 @@ void gulc::CodeProcessor::processFunctionCallExpr(gulc::FunctionCallExpr*& funct
                         functionCallExpr->functionReference = newFunctionReference;
 
                         functionCallExpr->valueType = functionReturnType;
+                        functionCallExpr->valueType->setIsLValue(true);
 
                         return;
                     } else {
@@ -899,11 +926,16 @@ void gulc::CodeProcessor::processFunctionCallExpr(gulc::FunctionCallExpr*& funct
 
                 if (foundDecl != nullptr) {
                     if (llvm::isa<ConstructorDecl>(foundDecl)) {
+                        auto foundConstructor = llvm::dyn_cast<ConstructorDecl>(foundDecl);
                         auto constructorReferenceExpr = new ConstructorReferenceExpr(identifierExpr->startPosition(),
-                                identifierExpr->endPosition(), llvm::dyn_cast<ConstructorDecl>(foundDecl));
+                                identifierExpr->endPosition(), foundConstructor);
                         auto constructorCallExpr = new ConstructorCallExpr(constructorReferenceExpr,
                                 functionCallExpr->arguments, functionCallExpr->startPosition(),
                                 functionCallExpr->endPosition());
+
+                        // We handle argument casting and conversion no matter what. The below function will handle
+                        // converting from lvalue to rvalue, casting, and other rules for us.
+                        handleArgumentCasting(foundConstructor->parameters(), functionCallExpr->arguments);
 
                         // We steal the parameters...
                         functionCallExpr->arguments.clear();
@@ -917,11 +949,13 @@ void gulc::CodeProcessor::processFunctionCallExpr(gulc::FunctionCallExpr*& funct
                             case Decl::Kind::Struct:
                                 functionCallExpr->valueType = new StructType(Type::Qualifier::Unassigned,
                                         llvm::dyn_cast<StructDecl>(foundDecl->container), {}, {});
+                                functionCallExpr->valueType->setIsLValue(true);
                                 break;
                             case Decl::Kind::TemplateTraitInst:
                             case Decl::Kind::Trait:
                                 functionCallExpr->valueType = new TraitType(Type::Qualifier::Unassigned,
                                         llvm::dyn_cast<TraitDecl>(foundDecl->container), {}, {});
+                                functionCallExpr->valueType->setIsLValue(true);
                                 break;
                             default:
                                 printError("unknown constructor type found in `CodeProcessor::processFunctionCallExpr`!",
@@ -930,11 +964,18 @@ void gulc::CodeProcessor::processFunctionCallExpr(gulc::FunctionCallExpr*& funct
 
                         return;
                     } else if (llvm::isa<FunctionDecl>(foundDecl)) {
+                        auto foundFunction = llvm::dyn_cast<FunctionDecl>(foundDecl);
+
+                        // We handle argument casting and conversion no matter what. The below function will handle
+                        // converting from lvalue to rvalue, casting, and other rules for us.
+                        handleArgumentCasting(foundFunction->parameters(), functionCallExpr->arguments);
+
                         // Delete the old function reference and replace it with the new one.
                         delete functionCallExpr->functionReference;
                         functionCallExpr->functionReference = createStaticFunctionReference(functionCallExpr, foundDecl);
 
                         functionCallExpr->valueType = llvm::dyn_cast<FunctionDecl>(foundDecl)->returnType->deepCopy();
+                        functionCallExpr->valueType->setIsLValue(true);
 
                         return;
                     } else {
@@ -962,11 +1003,16 @@ void gulc::CodeProcessor::processFunctionCallExpr(gulc::FunctionCallExpr*& funct
 
                 if (foundDecl != nullptr) {
                     if (llvm::isa<ConstructorDecl>(foundDecl)) {
+                        auto foundConstructor = llvm::dyn_cast<ConstructorDecl>(foundDecl);
                         auto constructorReferenceExpr = new ConstructorReferenceExpr(identifierExpr->startPosition(),
                                 identifierExpr->endPosition(), llvm::dyn_cast<ConstructorDecl>(foundDecl));
                         auto constructorCallExpr = new ConstructorCallExpr(constructorReferenceExpr,
                                 functionCallExpr->arguments, functionCallExpr->startPosition(),
                                 functionCallExpr->endPosition());
+
+                        // We handle argument casting and conversion no matter what. The below function will handle
+                        // converting from lvalue to rvalue, casting, and other rules for us.
+                        handleArgumentCasting(foundConstructor->parameters(), functionCallExpr->arguments);
 
                         // We steal the parameters...
                         functionCallExpr->arguments.clear();
@@ -980,11 +1026,13 @@ void gulc::CodeProcessor::processFunctionCallExpr(gulc::FunctionCallExpr*& funct
                             case Decl::Kind::Struct:
                                 functionCallExpr->valueType = new StructType(Type::Qualifier::Unassigned,
                                         llvm::dyn_cast<StructDecl>(foundDecl->container), {}, {});
+                                functionCallExpr->valueType->setIsLValue(true);
                                 break;
                             case Decl::Kind::TemplateTraitInst:
                             case Decl::Kind::Trait:
                                 functionCallExpr->valueType = new TraitType(Type::Qualifier::Unassigned,
                                         llvm::dyn_cast<TraitDecl>(foundDecl->container), {}, {});
+                                functionCallExpr->valueType->setIsLValue(true);
                                 break;
                             default:
                                 printError("unknown constructor type found in `CodeProcessor::processFunctionCallExpr`!",
@@ -993,11 +1041,18 @@ void gulc::CodeProcessor::processFunctionCallExpr(gulc::FunctionCallExpr*& funct
 
                         return;
                     } else if (llvm::isa<FunctionDecl>(foundDecl)) {
+                        auto foundFunction = llvm::dyn_cast<FunctionDecl>(foundDecl);
+
+                        // We handle argument casting and conversion no matter what. The below function will handle
+                        // converting from lvalue to rvalue, casting, and other rules for us.
+                        handleArgumentCasting(foundFunction->parameters(), functionCallExpr->arguments);
+
                         // Delete the old function reference and replace it with the new one.
                         delete functionCallExpr->functionReference;
                         functionCallExpr->functionReference = createStaticFunctionReference(functionCallExpr, foundDecl);
 
                         functionCallExpr->valueType = llvm::dyn_cast<FunctionDecl>(foundDecl)->returnType->deepCopy();
+                        functionCallExpr->valueType->setIsLValue(true);
 
                         return;
                     } else {
@@ -1081,6 +1136,11 @@ void gulc::CodeProcessor::processFunctionCallExpr(gulc::FunctionCallExpr*& funct
                             functionCallExpr->endPosition()
                         );
                     processConstructorCallExpr(newExpr);
+
+                    // We handle argument casting and conversion no matter what. The below function will handle
+                    // converting from lvalue to rvalue, casting, and other rules for us.
+                    handleArgumentCasting(constructorDecl->parameters(), functionCallExpr->arguments);
+
                     // NOTE: We steal the `arguments`
                     functionCallExpr->arguments.clear();
                     // Delete the old function call and replace it with the constructor call.
@@ -1104,6 +1164,11 @@ void gulc::CodeProcessor::processFunctionCallExpr(gulc::FunctionCallExpr*& funct
                             functionDecl
                         );
                     processFunctionReferenceExpr(functionReference);
+
+                    // We handle argument casting and conversion no matter what. The below function will handle
+                    // converting from lvalue to rvalue, casting, and other rules for us.
+                    handleArgumentCasting(functionDecl->parameters(), functionCallExpr->arguments);
+
                     // Delete the old reference and replace it with the new one.
                     delete functionCallExpr->functionReference;
                     functionCallExpr->functionReference = functionReference;
@@ -1195,6 +1260,11 @@ void gulc::CodeProcessor::processFunctionCallExpr(gulc::FunctionCallExpr*& funct
                             functionCallExpr->startPosition(),
                             functionCallExpr->endPosition()
                         );
+
+                    // We handle argument casting and conversion no matter what. The below function will handle
+                    // converting from lvalue to rvalue, casting, and other rules for us.
+                    handleArgumentCasting(callOperatorDecl->parameters(), functionCallExpr->arguments);
+
                     // We steal the object reference
                     memberAccessCallExpr->objectRef = nullptr;
                     // And we steal the arguments
@@ -1202,6 +1272,8 @@ void gulc::CodeProcessor::processFunctionCallExpr(gulc::FunctionCallExpr*& funct
                     // Delete the old function call and replace it with the new one
                     delete functionCallExpr;
                     functionCallExpr = newExpr;
+                    functionCallExpr->valueType = callOperatorDecl->returnType->deepCopy();
+                    functionCallExpr->valueType->setIsLValue(true);
                     break;
                 }
                 case Decl::Kind::TemplateFunctionInst:
@@ -1221,6 +1293,11 @@ void gulc::CodeProcessor::processFunctionCallExpr(gulc::FunctionCallExpr*& funct
                             functionCallExpr->startPosition(),
                             functionCallExpr->endPosition()
                         );
+
+                    // We handle argument casting and conversion no matter what. The below function will handle
+                    // converting from lvalue to rvalue, casting, and other rules for us.
+                    handleArgumentCasting(functionDecl->parameters(), functionCallExpr->arguments);
+
                     // We steal the object reference
                     memberAccessCallExpr->objectRef = nullptr;
                     // And we steal the arguments
@@ -1228,6 +1305,8 @@ void gulc::CodeProcessor::processFunctionCallExpr(gulc::FunctionCallExpr*& funct
                     // Delete the old function call and replace it with the new one
                     delete functionCallExpr;
                     functionCallExpr = newExpr;
+                    functionCallExpr->valueType = functionDecl->returnType->deepCopy();
+                    functionCallExpr->valueType->setIsLValue(true);
                     break;
                 }
                 case Decl::Kind::Property: {
@@ -1976,7 +2055,8 @@ void gulc::CodeProcessor::processIdentifierExpr(gulc::Expr*& expr) {
                 // NOTE: The local variable must have it's type assigned by this point. Either through inference or
                 //       being explicitly set.
                 // TODO: We need to handle the variables mutability here.
-                newExpr->valueType = new ReferenceType(Type::Qualifier::Unassigned, localVariable->type->deepCopy());
+                newExpr->valueType = localVariable->type->deepCopy();
+                newExpr->valueType->setIsLValue(true);
                 // Delete the old identifier
                 delete expr;
                 // Set it to the local variable reference and exit our function.
@@ -1987,12 +2067,15 @@ void gulc::CodeProcessor::processIdentifierExpr(gulc::Expr*& expr) {
 
         // Check parameters
         if (_currentParameters != nullptr) {
-            for (ParameterDecl* parameter : *_currentParameters) {
+            for (std::size_t paramIndex = 0; paramIndex < _currentParameters->size(); ++paramIndex) {
+                ParameterDecl* parameter = (*_currentParameters)[paramIndex];
+
                 if (parameter->identifier().name() == identifierExpr->identifier().name()) {
                     auto newExpr = new ParameterRefExpr(expr->startPosition(), expr->endPosition(),
-                                                        parameter->identifier().name());
+                                                        paramIndex, parameter->identifier().name());
                     // TODO: We need to handle the variables mutability here.
-                    newExpr->valueType = new ReferenceType(Type::Qualifier::Unassigned, parameter->type->deepCopy());
+                    newExpr->valueType = parameter->type->deepCopy();
+                    newExpr->valueType->setIsLValue(true);
                     // Delete the old identifier
                     delete expr;
                     // Set it to the local variable reference and exit our function.
@@ -2297,6 +2380,31 @@ void gulc::CodeProcessor::processInfixOperatorExpr(gulc::InfixOperatorExpr* infi
         rightType = llvm::dyn_cast<ReferenceType>(rightType)->nestedType;
     }
 
+    switch (infixOperatorExpr->infixOperator()) {
+        case InfixOperators::LogicalAnd: // &&
+        case InfixOperators::LogicalOr: // ||
+            // For logical and and logical or we need both sides to be `bool`
+            if (!llvm::isa<BoolType>(leftType)) {
+                printError("left operand for `&&` must be of type `bool`! (it is of type `" +
+                           leftType->toString() +
+                           "`!",
+                           infixOperatorExpr->leftValue->startPosition(), infixOperatorExpr->leftValue->endPosition());
+            }
+
+            if (!llvm::isa<BoolType>(rightType)) {
+                printError("right operand for `&&` must be of type `bool`! (it is of type `" +
+                           rightType->toString() +
+                           "`!",
+                           infixOperatorExpr->rightValue->startPosition(), infixOperatorExpr->rightValue->endPosition());
+            }
+
+            infixOperatorExpr->valueType = new BoolType(Type::Qualifier::Immut, {}, {});
+            return;
+        default:
+            // We continue, looking for built in type instead.
+            break;
+    }
+
     if (!llvm::isa<BuiltInType>(leftType) || !llvm::isa<BuiltInType>(rightType)) {
         // If one of the sides isn't a built in type we error saying an operator doesn't exist for the specified values
         // At this point we've already checked for an overload and found none.
@@ -2342,6 +2450,10 @@ void gulc::CodeProcessor::processInfixOperatorExpr(gulc::InfixOperatorExpr* infi
         }
     }
 
+    // NOTE: We are using `leftBuiltIn` and `rightBuiltIn` as the result of a built in operator does NOT return the
+    //       reference. It returns an entirely new value with no reference.
+    Type* resultType = leftBuiltIn;
+
     // At this point any needed implicit casts are valid. If the size doesn't match or the signage doesn't match we
     // need to cast to the bigger or the signed of the two types.
     // Because of the fact that casting from unsigned to signed requires the signed type to be bigger for an implicit
@@ -2354,17 +2466,35 @@ void gulc::CodeProcessor::processInfixOperatorExpr(gulc::InfixOperatorExpr* infi
         //       references.
         infixOperatorExpr->rightValue = new ImplicitCastExpr(infixOperatorExpr->rightValue,
                                                              leftBuiltIn->deepCopy());
-
-        // NOTE: We are using `leftBuiltIn` and `rightBuiltIn` as the result of a built in operator does NOT return the
-        //       reference. It returns an entirely new value with no reference.
-        infixOperatorExpr->valueType = leftBuiltIn->deepCopy();
     } else if (rightBuiltIn->sizeInBytes() > leftBuiltIn->sizeInBytes()) {
         // Cast `left` to the type of `right`
         // TODO: Check if there is an extension to implicitly cast `left` to `right` as that is overloadable
         infixOperatorExpr->leftValue = new ImplicitCastExpr(infixOperatorExpr->leftValue,
                                                             rightBuiltIn->deepCopy());
 
-        infixOperatorExpr->valueType = rightBuiltIn->deepCopy();
+        resultType = rightBuiltIn;
+    }
+
+    // Once we've reached this point we need to convert any lvalues to rvalues and dereference any implicit references
+    // TODO: Deference implicit reference
+    infixOperatorExpr->leftValue = convertLValueToRValue(infixOperatorExpr->leftValue);
+    infixOperatorExpr->rightValue = convertLValueToRValue(infixOperatorExpr->rightValue);
+
+    // We need to change `resultType` if the operator is a logical (i.e. `bool`) operator.
+    switch (infixOperatorExpr->infixOperator()) {
+        // NOTE: `LogicalAnd` and `LogicalOr` are handled before the built in check.
+        case InfixOperators::EqualTo: // ==
+        case InfixOperators::NotEqualTo: // !=
+        case InfixOperators::GreaterThan: // >
+        case InfixOperators::LessThan: // <
+        case InfixOperators::GreaterThanEqualTo: // >=
+        case InfixOperators::LessThanEqualTo: // <=
+            infixOperatorExpr->valueType = new BoolType(Type::Qualifier::Immut, {}, {});
+            break;
+        default:
+            infixOperatorExpr->valueType = resultType->deepCopy();
+            infixOperatorExpr->valueType->setIsLValue(false);
+            break;
     }
 
     // At this point is properly validated and any required casts are complete.
@@ -2638,6 +2768,11 @@ void gulc::CodeProcessor::processMemberAccessCallExpr(gulc::Expr*& expr) {
                        memberAccessCallExpr->startPosition(), memberAccessCallExpr->endPosition());
         }
 
+        // If we've reached this point we need to convert any lvalue object references to rvalues and dereference any
+        // implicit references
+        // TODO: Dereference implicit references
+        memberAccessCallExpr->objectRef = convertLValueToRValue(memberAccessCallExpr->objectRef);
+
         // Support:
         //  * `prop`
         //  * `var`
@@ -2809,17 +2944,21 @@ gulc::Decl* gulc::CodeProcessor::findMatchingMemberDecl(std::vector<Decl*> const
 
 void gulc::CodeProcessor::processMemberPostfixOperatorCallExpr(
         gulc::MemberPostfixOperatorCallExpr* memberPostfixOperatorCallExpr) {
+    // TODO: Do we need to do `lvalue -> rvalue`?
     if (memberPostfixOperatorCallExpr->postfixOperatorDecl->returnType != nullptr) {
         memberPostfixOperatorCallExpr->valueType =
                 memberPostfixOperatorCallExpr->postfixOperatorDecl->returnType->deepCopy();
+        memberPostfixOperatorCallExpr->valueType->setIsLValue(true);
     }
 }
 
 void gulc::CodeProcessor::processMemberPrefixOperatorCallExpr(
         gulc::MemberPrefixOperatorCallExpr* memberPrefixOperatorCallExpr) {
+    // TODO: Do we need to do `lvalue -> rvalue`?
     if (memberPrefixOperatorCallExpr->prefixOperatorDecl->returnType != nullptr) {
         memberPrefixOperatorCallExpr->valueType =
                 memberPrefixOperatorCallExpr->prefixOperatorDecl->returnType->deepCopy();
+        memberPrefixOperatorCallExpr->valueType->setIsLValue(true);
     }
 }
 
@@ -2836,8 +2975,10 @@ void gulc::CodeProcessor::processMemberSubscriptCallExpr(gulc::MemberSubscriptCa
 void gulc::CodeProcessor::processMemberVariableRefExpr(gulc::MemberVariableRefExpr* memberVariableRefExpr) {
     auto varType = memberVariableRefExpr->variableDecl()->type->deepCopy();
     // TODO: Based on `object` mutability for `varType`
+    // TODO: Do we need to do `lvalue -> rvalue`?
 
-    memberVariableRefExpr->valueType = new ReferenceType(Type::Qualifier::Unassigned, varType);
+    memberVariableRefExpr->valueType = varType;
+    memberVariableRefExpr->valueType->setIsLValue(true);
 }
 
 void gulc::CodeProcessor::processParenExpr(gulc::ParenExpr* parenExpr) {
@@ -2988,9 +3129,15 @@ void gulc::CodeProcessor::processPostfixOperatorExpr(gulc::PostfixOperatorExpr*&
                    postfixOperatorExpr->startPosition(), postfixOperatorExpr->endPosition());
     }
 
-    // At this point it is validated as a built in operator, we clone the `valueType` as the return type. The result of
-    // `++` is still modifiable.
-    postfixOperatorExpr->valueType = postfixOperatorExpr->nestedExpr->valueType->deepCopy();
+    // Once we reach this point we handle lvalue to rvalue and dereference implicit references
+    // TODO: Dereference implicit references
+    postfixOperatorExpr->nestedExpr = convertLValueToRValue(postfixOperatorExpr->nestedExpr);
+
+    // At this point it is validated as a built in operator, we clone the `checkType` as the return type instead of
+    // `valueType` to remove any references.
+    // The result of `++` is NOT modifiable.
+    postfixOperatorExpr->valueType = checkType->deepCopy();
+    postfixOperatorExpr->valueType->setIsLValue(false);
 }
 
 void gulc::CodeProcessor::processPrefixOperatorExpr(gulc::PrefixOperatorExpr*& prefixOperatorExpr) {
@@ -3158,10 +3305,24 @@ void gulc::CodeProcessor::processPrefixOperatorExpr(gulc::PrefixOperatorExpr*& p
             // At this point it is validated as a built in operator, we clone the `valueType` as the return type.
             // The result of `++` is still modifiable.
             prefixOperatorExpr->valueType = prefixOperatorExpr->nestedExpr->valueType->deepCopy();
+            prefixOperatorExpr->valueType->setIsLValue(true);
             break;
         case PrefixOperators::LogicalNot:
+            // NOTE: `!` can ONLY be applied to `bool` type with built in and MUST return `bool`
+            if (!llvm::isa<BoolType>(checkType)) {
+                printError("prefix operator `!` expects type `bool`, found `" + checkType->toString() + "`!",
+                           prefixOperatorExpr->startPosition(), prefixOperatorExpr->endPosition());
+            }
+
+            // Convert lvalue to rvalue and dereference implicit references (to get value type)
+            // TODO: Dereference implicit references
+            prefixOperatorExpr->nestedExpr = convertLValueToRValue(prefixOperatorExpr->nestedExpr);
+
+            // With `!` and `~` we remove any references, they are `immut` operators.
+            prefixOperatorExpr->valueType = new BoolType(Type::Qualifier::Immut, {}, {});
+            break;
         case PrefixOperators::BitwiseNot:
-            // NOTE: `!` and `~` CAN be applied to pointers as well, only in `unsafe` areas.
+            // NOTE: `~` CAN be applied to pointers as well, only in `unsafe` areas.
             if (!llvm::isa<BuiltInType>(checkType) && !llvm::isa<PointerType>(checkType)) {
                 printError("prefix operator `" +
                            gulc::getPrefixOperatorString(prefixOperatorExpr->prefixOperator()) +
@@ -3170,8 +3331,13 @@ void gulc::CodeProcessor::processPrefixOperatorExpr(gulc::PrefixOperatorExpr*& p
                            prefixOperatorExpr->startPosition(), prefixOperatorExpr->endPosition());
             }
 
+            // Convert lvalue to rvalue and dereference implicit references (to get value type)
+            // TODO: Dereference implicit references
+            prefixOperatorExpr->nestedExpr = convertLValueToRValue(prefixOperatorExpr->nestedExpr);
+
             // With `!` and `~` we remove any references, they are `immut` operators.
             prefixOperatorExpr->valueType = checkType->deepCopy();
+            prefixOperatorExpr->valueType->setIsLValue(false);
             break;
         case PrefixOperators::Positive:
             // NOTE: `+` does nothing by default. There is no built in `abs` function
@@ -3181,9 +3347,19 @@ void gulc::CodeProcessor::processPrefixOperatorExpr(gulc::PrefixOperatorExpr*& p
             break;
         case PrefixOperators::Negative:
             // NOTE: `-` only works on built in types, pointers cannot be made negative.
-            printError("prefix operator `-` was not found for type `" +
-                       prefixOperatorExpr->nestedExpr->valueType->toString() + "`!",
-                       prefixOperatorExpr->startPosition(), prefixOperatorExpr->endPosition());
+            if (!llvm::isa<BuiltInType>(checkType)) {
+                printError("prefix operator `-` was not found for type `" +
+                           prefixOperatorExpr->nestedExpr->valueType->toString() + "`!",
+                           prefixOperatorExpr->startPosition(), prefixOperatorExpr->endPosition());
+            }
+
+            // Convert lvalue to rvalue and dereference implicit references (to get value type)
+            // TODO: Dereference implicit references
+            prefixOperatorExpr->nestedExpr = convertLValueToRValue(prefixOperatorExpr->nestedExpr);
+
+            // `-` removes any references, they are `immut` operators.
+            prefixOperatorExpr->valueType = checkType->deepCopy();
+            prefixOperatorExpr->valueType->setIsLValue(false);
             break;
         case PrefixOperators::Dereference:
             // NOTE: Obviously you cannot deference a non-pointer type by default.
@@ -3194,18 +3370,26 @@ void gulc::CodeProcessor::processPrefixOperatorExpr(gulc::PrefixOperatorExpr*& p
                            prefixOperatorExpr->startPosition(), prefixOperatorExpr->endPosition());
             }
 
+            // Convert lvalue to rvalue and dereference implicit references (to get value type)
+            // TODO: Dereference implicit references
+            prefixOperatorExpr->nestedExpr = convertLValueToRValue(prefixOperatorExpr->nestedExpr);
+
             // Grab the type that is pointed to by the pointer.
             prefixOperatorExpr->valueType = llvm::dyn_cast<PointerType>(checkType)->nestedType->deepCopy();
             break;
         case PrefixOperators::Reference:
-            // TODO: Are we going to add `lvalue` and `rvalue`? Or are we going to go 100% with the `reference` idea?
-            //       One potential area we might need `lvalue` is with function return values. They might not be
-            //       explicit references (as you can't take a pointer to them) BUT they can be passed as references
-            //       with a lifetime...
-            if (!llvm::isa<ReferenceType>(prefixOperatorExpr->nestedExpr->valueType)) {
-                printError("cannot grab pointer of non-reference type `" +
+            // NOTE: To reference you either need an lvalue or a reference.
+            if (!llvm::isa<ReferenceType>(prefixOperatorExpr->nestedExpr->valueType) ||
+                    !prefixOperatorExpr->nestedExpr->valueType->isLValue()) {
+                printError("cannot grab pointer of non-reference, non-lvalue type `" +
                            prefixOperatorExpr->nestedExpr->valueType->toString() + "`!",
                            prefixOperatorExpr->startPosition(), prefixOperatorExpr->endPosition());
+            }
+
+            // NOTE: If it is BOTH a reference and lvalue then we need to convert from lvalue to rvalue
+            if (llvm::isa<ReferenceType>(prefixOperatorExpr->nestedExpr->valueType) &&
+                    prefixOperatorExpr->nestedExpr->valueType->isLValue()) {
+                prefixOperatorExpr->nestedExpr = convertLValueToRValue(prefixOperatorExpr->nestedExpr);
             }
 
             // Make the result type a pointer to the `checkType`
@@ -3442,9 +3626,19 @@ void gulc::CodeProcessor::processTernaryExpr(gulc::TernaryExpr* ternaryExpr) {
 
     TypeCompareUtil typeCompareUtil;
 
+    // TODO: We need to handle when one side is `ref` and the other isn't. Also casting?
     if (!typeCompareUtil.compareAreSame(ternaryExpr->trueExpr->valueType, ternaryExpr->falseExpr->valueType)) {
         printError("both sides of a ternary operator must be the same type!",
                    ternaryExpr->startPosition(), ternaryExpr->endPosition());
+    }
+
+    // If one side or the other isn't an lvalue then we need to convert the lvalue to an rvalue
+    if (!ternaryExpr->trueExpr->valueType->isLValue()) {
+        ternaryExpr->falseExpr = convertLValueToRValue(ternaryExpr->falseExpr);
+    }
+
+    if (!ternaryExpr->falseExpr->valueType->isLValue()) {
+        ternaryExpr->trueExpr = convertLValueToRValue(ternaryExpr->trueExpr);
     }
 
     ternaryExpr->valueType = ternaryExpr->trueExpr->valueType->deepCopy();
@@ -3496,6 +3690,10 @@ void gulc::CodeProcessor::processVariableDeclExpr(gulc::VariableDeclExpr* variab
     if (variableDeclExpr->initialValue != nullptr) {
         processExpr(variableDeclExpr->initialValue);
 
+        // We convert lvalue to rvalue but we DO NOT remove `ref` UNLESS `variableDeclExpr->type` isn't `ref`
+        // TODO: Handle implicit references
+        variableDeclExpr->initialValue = convertLValueToRValue(variableDeclExpr->initialValue);
+
         if (variableDeclExpr->type == nullptr) {
             // If the type wasn't explicitly set then we infer the type from the value type of the initial value
             variableDeclExpr->type = variableDeclExpr->initialValue->valueType->deepCopy();
@@ -3514,6 +3712,41 @@ void gulc::CodeProcessor::processVariableDeclExpr(gulc::VariableDeclExpr* variab
 }
 
 void gulc::CodeProcessor::processVariableRefExpr(gulc::VariableRefExpr* variableRefExpr) {
-    auto varType = variableRefExpr->variableDecl->type->deepCopy();
-    variableRefExpr->valueType = new ReferenceType(Type::Qualifier::Unassigned, varType);
+    variableRefExpr->valueType = variableRefExpr->variableDecl->type->deepCopy();
+    variableRefExpr->valueType->setIsLValue(true);
+}
+
+gulc::Expr* gulc::CodeProcessor::convertLValueToRValue(gulc::Expr* potentialLValue) const {
+    if (potentialLValue->valueType->isLValue()) {
+        auto result = new LValueToRValueExpr(potentialLValue);
+        result->valueType = potentialLValue->valueType->deepCopy();
+        result->valueType->setIsLValue(false);
+        return result;
+    }
+
+    return potentialLValue;
+}
+
+void gulc::CodeProcessor::handleArgumentCasting(std::vector<ParameterDecl*> const& parameters,
+                                                std::vector<LabeledArgumentExpr*>& arguments) {
+    for (std::size_t i = 0; i < parameters.size(); ++i) {
+        if (i >= arguments.size()) {
+            // TODO: Append the default value to arguments
+        } else {
+            // TODO: Remember that `ref mut` MUST be a `ref mut`, no implicit conversion from `lvalue` to `ref mut`
+            if (llvm::isa<ReferenceType>(parameters[i]->type)) {
+                if (!llvm::isa<ReferenceType>(arguments[i]->argument->valueType)) {
+                    // TODO: If it is an `lvalue` convert the `lvalue` to a real `ref` if possible
+                } else if (arguments[i]->argument->valueType->isLValue()) {
+                    // If the argument is an lvalue to a reference then we convert the lvalue to an rvalue, keeping the
+                    // implicit reference.
+                    arguments[i]->argument = convertLValueToRValue(arguments[i]->argument);
+                }
+            } else {
+                // The parameter is a value type so we remove any `lvalue` and dereference any implicit references.
+                arguments[i]->argument = convertLValueToRValue(arguments[i]->argument);
+                // TODO: Dereference any references as well.
+            }
+        }
+    }
 }

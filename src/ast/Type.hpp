@@ -11,6 +11,7 @@ namespace gulc {
 
         enum class Kind {
             Alias,
+            Bool,
             BuiltIn,
             Dependent,
             Dimension,
