@@ -1,3 +1,20 @@
+/*
+ * Copyright (C) 2020 Brandon Huddle
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ */
 #include <iostream>
 #include "CodeGen.hpp"
 
@@ -75,6 +92,9 @@ void gulc::CodeGen::printError(std::string const& message, gulc::TextPosition st
 
 llvm::Type* gulc::CodeGen::generateLlvmType(gulc::Type const* type) {
     switch (type->getTypeKind()) {
+        case Type::Kind::Bool: {
+            return llvm::Type::getInt8Ty(*_llvmContext);
+        }
         case Type::Kind::BuiltIn: {
             auto builtInType = llvm::dyn_cast<BuiltInType>(type);
 
@@ -1213,6 +1233,8 @@ llvm::Value* gulc::CodeGen::generateExpr(gulc::Expr const* expr) {
             return generateAsExpr(llvm::dyn_cast<AsExpr>(expr));
         case Expr::Kind::AssignmentOperator:
             return generateAssignmentOperatorExpr(llvm::dyn_cast<AssignmentOperatorExpr>(expr));
+        case Expr::Kind::BoolLiteral:
+            return generateBoolLiteralExpr(llvm::dyn_cast<BoolLiteralExpr>(expr));
         case Expr::Kind::ConstructorCall:
             return generateConstructorCallExpr(llvm::dyn_cast<ConstructorCallExpr>(expr));
         case Expr::Kind::CurrentSelf:
@@ -1305,6 +1327,11 @@ llvm::Value* gulc::CodeGen::generateAssignmentOperatorExpr(gulc::AssignmentOpera
 
     // We ALWAYS return the left value for assignments
     return leftValue;
+}
+
+llvm::Value* gulc::CodeGen::generateBoolLiteralExpr(gulc::BoolLiteralExpr const* boolLiteralExpr) {
+    // TODO: Is this right? Is there no constant bool?
+    return llvm::ConstantInt::get(llvm::IntegerType::getInt8Ty(*_llvmContext), boolLiteralExpr->value(), false);
 }
 
 llvm::Value* gulc::CodeGen::generateCallOperatorReferenceExpr(

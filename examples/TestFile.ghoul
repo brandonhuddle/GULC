@@ -32,6 +32,10 @@ func manglerTest(arg param: i32) -> i32 {
     return param
 }
 
+func boolTest() -> bool {
+    return true
+}
+
 func main() -> i32 {
     //let testVec: vec3 = vec3(x: 0, y: 12, z: 44)
     //let templateTest = TemplateTest<i32>()

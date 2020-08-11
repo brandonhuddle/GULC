@@ -1,3 +1,20 @@
+/*
+ * Copyright (C) 2020 Brandon Huddle
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ */
 #include <iostream>
 #include <ast/types/DependentType.hpp>
 #include <ast/types/StructType.hpp>
@@ -600,6 +617,9 @@ void gulc::CodeProcessor::processExpr(gulc::Expr*& expr) {
         case Expr::Kind::AssignmentOperator:
             processAssignmentOperatorExpr(llvm::dyn_cast<AssignmentOperatorExpr>(expr));
             break;
+        case Expr::Kind::BoolLiteral:
+            processBoolLiteralExpr(llvm::dyn_cast<BoolLiteralExpr>(expr));
+            break;
         case Expr::Kind::CheckExtendsType:
             processCheckExtendsTypeExpr(llvm::dyn_cast<CheckExtendsTypeExpr>(expr));
             break;
@@ -768,6 +788,10 @@ void gulc::CodeProcessor::processAssignmentOperatorExpr(gulc::AssignmentOperator
     assignmentOperatorExpr->valueType = assignmentOperatorExpr->leftValue->valueType->deepCopy();
     // TODO: Is this right? I believe we'll end up returning the actual alloca from CodeGen so this seems right to me.
     assignmentOperatorExpr->valueType->setIsLValue(true);
+}
+
+void gulc::CodeProcessor::processBoolLiteralExpr(gulc::BoolLiteralExpr* boolLiteralExpr) {
+    boolLiteralExpr->valueType = new BoolType(Type::Qualifier::Immut, {}, {});
 }
 
 void gulc::CodeProcessor::processCallOperatorReferenceExpr(gulc::CallOperatorReferenceExpr* callOperatorReferenceExpr) {

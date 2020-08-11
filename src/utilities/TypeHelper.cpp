@@ -1,3 +1,20 @@
+/*
+ * Copyright (C) 2020 Brandon Huddle
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ */
 #include <llvm/Support/Casting.h>
 #include <ast/types/DimensionType.hpp>
 #include <ast/types/PointerType.hpp>
@@ -24,6 +41,7 @@
 #include <ast/types/DependentType.hpp>
 #include <ast/types/TemplateTraitType.hpp>
 #include <ast/types/SelfType.hpp>
+#include <ast/types/BoolType.hpp>
 #include "TypeHelper.hpp"
 
 bool gulc::TypeHelper::resolveType(gulc::Type*& type, ASTFile const* currentFile,
@@ -34,6 +52,8 @@ bool gulc::TypeHelper::resolveType(gulc::Type*& type, ASTFile const* currentFile
 
     switch (type->getTypeKind()) {
         case Type::Kind::Alias:
+            return true;
+        case Type::Kind::Bool:
             return true;
         case Type::Kind::BuiltIn:
             return true;
@@ -274,6 +294,16 @@ bool gulc::TypeHelper::resolveType(gulc::Type*& type, ASTFile const* currentFile
                         type = result;
 
                         return true;
+                    } else if (checkName == "bool") {
+                        auto result = new BoolType(unresolvedType->qualifier(),
+                                                   unresolvedType->startPosition(), unresolvedType->endPosition());
+                        result->setIsLValue(unresolvedType->isLValue());
+
+                        delete unresolvedType;
+
+                        type = result;
+
+                        return true;
                     }
                 }
 
@@ -384,6 +414,8 @@ bool gulc::TypeHelper::typeIsConstExpr(gulc::Type* resolvedType) {
             auto aliasType = llvm::dyn_cast<AliasType>(resolvedType);
             return typeIsConstExpr(aliasType->decl()->typeValue);
         }
+        case Type::Kind::Bool:
+            return true;
         case Type::Kind::BuiltIn:
             return true;
         case Type::Kind::Dimension:

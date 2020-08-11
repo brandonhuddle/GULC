@@ -1,3 +1,20 @@
+/*
+ * Copyright (C) 2020 Brandon Huddle
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ */
 #include <fstream>
 #include <sstream>
 #include <iostream>
@@ -2230,17 +2247,17 @@ ReturnStmt* Parser::parseReturnStmt() {
     bool tryIsExpr = false;
     TokenMetaType checkTokenMetaType = _lexer.peekMeta();
     TokenType checkTokenType = _lexer.peekType();
-
-    if (checkTokenType == TokenType::TRY) {
-        // We create a checkpoint we will immediately return to after checking for `{`
-        LexerCheckpoint lexerCheckpoint(_lexer.createCheckpoint());
-
-        _lexer.consumeType(TokenType::TRY);
-
-        tryIsExpr = _lexer.peekType() != TokenType::LCURLY;
-
-        _lexer.returnToCheckpoint(lexerCheckpoint);
-    }
+//
+//    if (checkTokenType == TokenType::TRY) {
+//        // We create a checkpoint we will immediately return to after checking for `{`
+//        LexerCheckpoint lexerCheckpoint(_lexer.createCheckpoint());
+//
+//        _lexer.consumeType(TokenType::TRY);
+//
+//        tryIsExpr = _lexer.peekType() != TokenType::LCURLY;
+//
+//        _lexer.returnToCheckpoint(lexerCheckpoint);
+//    }
 
     // Allowed after return:
     //  VALUE
@@ -2252,6 +2269,8 @@ ReturnStmt* Parser::parseReturnStmt() {
     //  TRAITSOF
     //  TRY
     //  FUNC? TODO
+    //  TRUE
+    //  FALSE
     //
     //  OPERATOR
     //
@@ -2264,8 +2283,10 @@ ReturnStmt* Parser::parseReturnStmt() {
     if (checkTokenMetaType == TokenMetaType::VALUE || checkTokenMetaType == TokenMetaType::OPERATOR ||
             checkTokenType == TokenType::SIZEOF || checkTokenType == TokenType::ALIGNOF ||
             checkTokenType == TokenType::OFFSETOF || checkTokenType == TokenType::NAMEOF ||
-            checkTokenType == TokenType::TRAITSOF || tryIsExpr || checkTokenType == TokenType::LSQUARE ||
-            checkTokenType == TokenType::LPAREN || checkTokenType == TokenType::ATSYMBOL) {
+            checkTokenType == TokenType::TRAITSOF || checkTokenType == TokenType::TRY ||
+            checkTokenType == TokenType::TRUE || checkTokenType == TokenType::FALSE ||
+            checkTokenType == TokenType::LSQUARE || checkTokenType == TokenType::LPAREN ||
+            checkTokenType == TokenType::ATSYMBOL) {
         Expr* returnValue = parseExpr();
 
         return new ReturnStmt(startPosition, endPosition, returnValue);
@@ -3062,6 +3083,9 @@ Expr* Parser::parseIdentifierOrLiteralExpr() {
             return parseStringLiteralExpr();
         case TokenType::CHARACTER:
             return parseCharacterLiteralExpr();
+        case TokenType::TRUE:
+        case TokenType::FALSE:
+            return parseBooleanLiteralExpr();
         case TokenType::LPAREN: {
             // TODO: Support tuples by checking for a comma after.
             TextPosition startPosition = _lexer.peekStartPosition();
@@ -3279,6 +3303,24 @@ ValueLiteralExpr* Parser::parseCharacterLiteralExpr() {
     printError("character literals are not yet supported!",
                _lexer.peekStartPosition(), _lexer.peekEndPosition());
     return nullptr;
+}
+
+BoolLiteralExpr* Parser::parseBooleanLiteralExpr() {
+    TextPosition startPosition = _lexer.peekStartPosition();
+    TextPosition endPosition = _lexer.peekEndPosition();
+    bool value;
+
+    if (_lexer.consumeType(TokenType::TRUE)) {
+        value = true;
+    } else if (_lexer.consumeType(TokenType::FALSE)) {
+        value = false;
+    } else {
+        printError("expected `true` or `false`, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   startPosition, endPosition);
+        return nullptr;
+    }
+
+    return new BoolLiteralExpr(startPosition, endPosition, value);
 }
 
 Expr* Parser::parseArrayLiteralOrDimensionType() {

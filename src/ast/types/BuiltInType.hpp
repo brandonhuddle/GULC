@@ -1,3 +1,20 @@
+/*
+ * Copyright (C) 2020 Brandon Huddle
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ */
 #ifndef GULC_BUILTINTYPE_HPP
 #define GULC_BUILTINTYPE_HPP
 
@@ -42,7 +59,7 @@ namespace gulc {
                 sizeInBytes = 1;
                 isFloating = false;
                 isSigned = true;
-            } else if (name == "u8" || name == "bool") {
+            } else if (name == "u8") {
                 sizeInBytes = 1;
                 isFloating = false;
                 isSigned = false;
@@ -95,7 +112,7 @@ namespace gulc {
         static bool isBuiltInType(std::string const& name) {
             return name == "void" ||
                    name == "i8" ||
-                   name == "u8" || name == "bool" ||
+                   name == "u8" ||
                    name == "i16" ||
                    name == "u16" ||
                    name == "f16" ||

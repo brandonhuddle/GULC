@@ -158,6 +158,8 @@ add_executable(gulc
         src/ast/exprs/AsExpr.hpp
         src/ast/exprs/AssignmentOperatorExpr.cpp
         src/ast/exprs/AssignmentOperatorExpr.hpp
+        src/ast/exprs/BoolLiteralExpr.cpp
+        src/ast/exprs/BoolLiteralExpr.hpp
         src/ast/exprs/CallOperatorReferenceExpr.cpp
         src/ast/exprs/CallOperatorReferenceExpr.hpp
         src/ast/exprs/CheckExtendsTypeExpr.cpp
