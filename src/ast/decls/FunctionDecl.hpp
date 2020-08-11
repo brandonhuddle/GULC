@@ -43,6 +43,8 @@ namespace gulc {
         bool throws() const { return _throws; }
         bool hasContract() const { return !_contracts.empty(); }
 
+        bool isMemberFunction() const;
+
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }
 

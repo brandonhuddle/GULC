@@ -348,7 +348,7 @@ void gulc::CodeGen::generateConstructorDecl(gulc::ConstructorDecl const* constru
         llvm::BasicBlock *funcBody = llvm::BasicBlock::Create(*_llvmContext, "entry", function);
         _irBuilder->SetInsertPoint(funcBody);
 
-        setCurrentFunction(function);
+        setCurrentFunction(function, constructorDecl);
 
         // If there is a base constructor we HAVE to call it as the first line of the constructor
         // TODO: Support the base constructors
@@ -364,6 +364,7 @@ void gulc::CodeGen::generateConstructorDecl(gulc::ConstructorDecl const* constru
 
         // Reset the insertion point (this probably isn't needed but oh well)
         _irBuilder->ClearInsertionPoint();
+        _currentGhoulFunction = nullptr;
         _currentLlvmFunction = nullptr;
     }
 
@@ -390,7 +391,7 @@ void gulc::CodeGen::generateConstructorDecl(gulc::ConstructorDecl const* constru
             llvm::BasicBlock *funcBody = llvm::BasicBlock::Create(*_llvmContext, "entry", functionVTable);
             _irBuilder->SetInsertPoint(funcBody);
 
-            setCurrentFunction(functionVTable);
+            setCurrentFunction(functionVTable, constructorDecl);
 
             // TODO: Assign vtable here
             {
@@ -436,6 +437,7 @@ void gulc::CodeGen::generateConstructorDecl(gulc::ConstructorDecl const* constru
 
             // Reset the insertion point (this probably isn't needed but oh well)
             _irBuilder->ClearInsertionPoint();
+            _currentGhoulFunction = nullptr;
             _currentLlvmFunction = nullptr;
         }
     }
@@ -465,7 +467,7 @@ void gulc::CodeGen::generateDestructorDecl(gulc::DestructorDecl const* destructo
     llvm::BasicBlock* funcBody = llvm::BasicBlock::Create(*_llvmContext, "entry", function);
     _irBuilder->SetInsertPoint(funcBody);
 
-    setCurrentFunction(function);
+    setCurrentFunction(function, destructorDecl);
 
     // Generate the function body
     generateStmt(destructorDecl->body());
@@ -475,6 +477,7 @@ void gulc::CodeGen::generateDestructorDecl(gulc::DestructorDecl const* destructo
 
     // Reset the insertion point (this probably isn't needed but oh well)
     _irBuilder->ClearInsertionPoint();
+    _currentGhoulFunction = nullptr;
     _currentLlvmFunction = nullptr;
 }
 
@@ -506,7 +509,7 @@ void gulc::CodeGen::generateFunctionDecl(gulc::FunctionDecl const* functionDecl,
 
     llvm::BasicBlock* funcBody = llvm::BasicBlock::Create(*_llvmContext, "entry", function);
     _irBuilder->SetInsertPoint(funcBody);
-    setCurrentFunction(function);
+    setCurrentFunction(function, functionDecl);
 
     // Generate the function body
     generateStmt(functionDecl->body());
@@ -516,6 +519,7 @@ void gulc::CodeGen::generateFunctionDecl(gulc::FunctionDecl const* functionDecl,
 
     // Reset the insertion point (this probably isn't needed but oh well)
     _irBuilder->ClearInsertionPoint();
+    _currentGhoulFunction = nullptr;
     _currentLlvmFunction = nullptr;
 }
 
@@ -657,7 +661,8 @@ void gulc::CodeGen::generateVariableDecl(gulc::VariableDecl const* variableDecl,
     }
 }
 
-void gulc::CodeGen::setCurrentFunction(llvm::Function* currentFunction) {
+void gulc::CodeGen::setCurrentFunction(llvm::Function* currentFunction,
+                                       gulc::FunctionDecl const* currentGhoulFunction) {
     if (_entryBlockBuilder) {
         delete _entryBlockBuilder;
         _entryBlockBuilder = nullptr;
@@ -668,6 +673,7 @@ void gulc::CodeGen::setCurrentFunction(llvm::Function* currentFunction) {
     _currentLlvmFunctionLabels.clear();
 
     _currentLlvmFunction = currentFunction;
+    _currentGhoulFunction = currentGhoulFunction;
     _entryBlockBuilder = new llvm::IRBuilder<>(&currentFunction->getEntryBlock(),
                                                currentFunction->getEntryBlock().begin());
 
@@ -1608,8 +1614,13 @@ llvm::Value* gulc::CodeGen::generateMemberVariableRefExpr(gulc::MemberVariableRe
 }
 
 llvm::Value* gulc::CodeGen::generateParameterRefExpr(gulc::ParameterRefExpr const* parameterRefExpr) {
-    if (parameterRefExpr->parameterIndex() < _currentLlvmFunctionParameters.size()) {
-        return _currentLlvmFunctionParameters[parameterRefExpr->parameterIndex()];
+    // If the function is a member function (i.e. has `self` argument) we need to add one to the param
+    // index.
+    std::size_t paramMod = _currentGhoulFunction->isMemberFunction() ? 1 : 0;
+    std::size_t paramIndex = parameterRefExpr->parameterIndex() + paramMod;
+
+    if (paramIndex < _currentLlvmFunctionParameters.size()) {
+        return _currentLlvmFunctionParameters[paramIndex];
     }
 
     printError("[INTERNAL] parameter was not found!",

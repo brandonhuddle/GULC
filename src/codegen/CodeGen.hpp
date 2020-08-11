@@ -88,6 +88,7 @@ namespace gulc {
         std::map<std::string, llvm::StructType*> _cachedLlvmStructTypes;
 
         llvm::Function* _currentLlvmFunction;
+        gulc::FunctionDecl const* _currentGhoulFunction;
         std::vector<llvm::AllocaInst*> _currentLlvmFunctionParameters;
         llvm::IRBuilder<>* _entryBlockBuilder;
         std::map<std::string, llvm::BasicBlock*> _currentLlvmFunctionLabels;
@@ -127,7 +128,7 @@ namespace gulc {
         // Generate a global (non-member) variable declaration.
         void generateVariableDecl(VariableDecl const* variableDecl, bool isInternal);
 
-        void setCurrentFunction(llvm::Function* currentFunction);
+        void setCurrentFunction(llvm::Function* currentFunction, gulc::FunctionDecl const* currentGhoulFunction);
         llvm::Function* getFunction(FunctionDecl* functionDecl);
         bool currentFunctionLabelsContains(std::string const& labelName);
         void addCurrentFunctionLabel(std::string const& labelName, llvm::BasicBlock* basicBlock);
