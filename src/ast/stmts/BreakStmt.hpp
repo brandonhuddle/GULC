@@ -21,6 +21,8 @@
 #include <ast/Stmt.hpp>
 #include <ast/Identifier.hpp>
 #include <optional>
+#include <ast/Expr.hpp>
+#include <vector>
 
 namespace gulc {
     class BreakStmt : public Stmt {
@@ -46,6 +48,15 @@ namespace gulc {
                 return new BreakStmt(_startPosition, _endPosition, _breakLabel.value());
             } else {
                 return new BreakStmt(_startPosition, _endPosition);
+            }
+        }
+
+        // The most common case for this will be destructor calls.
+        std::vector<Expr*> preBreakDeferred;
+
+        ~BreakStmt() override {
+            for (Expr* preBreakDeferredExpr : preBreakDeferred) {
+                delete preBreakDeferredExpr;
             }
         }
 

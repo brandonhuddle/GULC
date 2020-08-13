@@ -15,11 +15,20 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-#include "Stmt.hpp"
-#include <ast/exprs/VariableDeclExpr.hpp>
+#ifndef GULC_OBJGEN_HPP
+#define GULC_OBJGEN_HPP
 
-gulc::Stmt::~Stmt()  {
-    for (VariableDeclExpr* temporaryValue : temporaryValues) {
-        delete temporaryValue;
-    }
+#include <codegen/Module.hpp>
+#include "ObjFile.hpp"
+
+namespace gulc {
+    class ObjGen {
+    public:
+        static void init();
+
+        ObjFile generate(gulc::Module const& module);
+
+    };
 }
+
+#endif //GULC_OBJGEN_HPP

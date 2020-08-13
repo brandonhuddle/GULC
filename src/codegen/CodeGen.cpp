@@ -520,7 +520,7 @@ void gulc::CodeGen::generateFunctionDecl(gulc::FunctionDecl const* functionDecl,
     if (!function) {
         auto linkageType = llvm::Function::LinkageTypes::ExternalLinkage;
 
-        if (isInternal/* TODO: && !functionDecl->isMain()*/) {
+        if (isInternal && !functionDecl->isMainEntry()) {
             linkageType = llvm::Function::LinkageTypes::InternalLinkage;
         }
 
@@ -723,6 +723,12 @@ llvm::Function* gulc::CodeGen::getFunction(gulc::FunctionDecl* functionDecl) {
 
 // Statement Generation
 void gulc::CodeGen::generateStmt(gulc::Stmt const* stmt, std::string const& stmtName) {
+    if (!stmt->temporaryValues.empty()) {
+        for (auto tempValLocalVar : stmt->temporaryValues) {
+            generateVariableDeclExpr(tempValLocalVar);
+        }
+    }
+
     switch (stmt->getStmtKind()) {
         case Stmt::Kind::Break:
             generateBreakStmt(llvm::dyn_cast<BreakStmt>(stmt));
@@ -772,15 +778,15 @@ void gulc::CodeGen::generateStmt(gulc::Stmt const* stmt, std::string const& stmt
             break;
     }
 
-    cleanupTemporaryValues();
+    // TODO: Need to call deferred
+//    cleanupTemporaryValues();
 }
 
 void gulc::CodeGen::generateBreakStmt(gulc::BreakStmt const* breakStmt) {
     if (!breakStmt->hasBreakLabel()) {
-        // TODO: Handle deferred statements
-//        for (Expr* cleanupExpr : breakStmt->preBreakCleanup) {
-//            generateExpr(cleanupExpr);
-//        }
+        for (Expr* deferredExpr : breakStmt->preBreakDeferred) {
+            generateExpr(deferredExpr);
+        }
 
         _irBuilder->CreateBr(_currentLoopBlockBreak);
     } else {
@@ -792,10 +798,9 @@ void gulc::CodeGen::generateBreakStmt(gulc::BreakStmt const* breakStmt) {
             return;
         }
 
-        // TODO: Handle deferred statements
-//        for (Expr* cleanupExpr : breakStmt->preBreakCleanup) {
-//            generateExpr(cleanupExpr);
-//        }
+        for (Expr* deferredExpr : breakStmt->preBreakDeferred) {
+            generateExpr(deferredExpr);
+        }
 
         _irBuilder->CreateBr(breakBlock);
     }
@@ -813,10 +818,9 @@ void gulc::CodeGen::generateCompoundStmt(gulc::CompoundStmt const* compoundStmt)
 
 void gulc::CodeGen::generateContinueStmt(gulc::ContinueStmt const* continueStmt) {
     if (continueStmt->hasContinueLabel()) {
-        // TODO: Handle deferred statements
-//        for (Expr* cleanupExpr : continueStmt->preContinueCleanup) {
-//            generateExpr(cleanupExpr);
-//        }
+        for (Expr* deferredExpr : continueStmt->preContinueDeferred) {
+            generateExpr(deferredExpr);
+        }
 
         _irBuilder->CreateBr(_currentLoopBlockContinue);
     } else {
@@ -828,10 +832,9 @@ void gulc::CodeGen::generateContinueStmt(gulc::ContinueStmt const* continueStmt)
             return;
         }
 
-        // TODO: Handle deferred statements
-//        for (Expr* cleanupExpr : continueStmt->preContinueCleanup) {
-//            generateExpr(cleanupExpr);
-//        }
+        for (Expr* deferredExpr : continueStmt->preContinueDeferred) {
+            generateExpr(deferredExpr);
+        }
 
         _irBuilder->CreateBr(continueBlock);
     }
@@ -964,10 +967,9 @@ void gulc::CodeGen::generateForStmt(gulc::ForStmt const* forStmt, std::string co
 }
 
 void gulc::CodeGen::generateGotoStmt(gulc::GotoStmt const* gotoStmt) {
-    // TODO: Handle deferred statements
-//    for (Expr* cleanupExpr : gotoStmt->preGotoCleanup) {
-//        generateExpr(cleanupExpr);
-//    }
+    for (Expr* deferredExpr : gotoStmt->preGotoDeferred) {
+        generateExpr(deferredExpr);
+    }
 
     if (currentFunctionLabelsContains(gotoStmt->label().name())) {
         _irBuilder->CreateBr(_currentLlvmFunctionLabels[gotoStmt->label().name()]);
@@ -1048,21 +1050,21 @@ void gulc::CodeGen::generateReturnStmt(gulc::ReturnStmt const* returnStmt) {
     if (returnStmt->returnValue != nullptr) {
         llvm::Value* returnValue = generateExpr(returnStmt->returnValue);
 
-        // TODO: Handle deferred statements
-//        for (Expr* preReturnExpr : returnStmt->preReturnExprs) {
-//            generateExpr(preReturnExpr);
-//        }
+        for (Expr* deferredExpr : returnStmt->preReturnDeferred) {
+            generateExpr(deferredExpr);
+        }
 
-        cleanupTemporaryValues();
+        // TODO: Need to call deferred
+//    cleanupTemporaryValues();
 
         _irBuilder->CreateRet(returnValue);
     } else {
-        // TODO: Handle deferred statements
-//        for (Expr* preReturnExpr : returnStmt->preReturnExprs) {
-//            generateExpr(preReturnExpr);
-//        }
+        for (Expr* deferredExpr : returnStmt->preReturnDeferred) {
+            generateExpr(deferredExpr);
+        }
 
-        cleanupTemporaryValues();
+        // TODO: Need to call deferred
+//    cleanupTemporaryValues();
 
         _irBuilder->CreateRetVoid();
     }
@@ -1340,9 +1342,27 @@ llvm::Value* gulc::CodeGen::generateCallOperatorReferenceExpr(
 }
 
 llvm::Value* gulc::CodeGen::generateConstructorCallExpr(gulc::ConstructorCallExpr const* constructorCallExpr) {
-    printError("constructor calls not yet supported!",
-               constructorCallExpr->startPosition(), constructorCallExpr->endPosition());
-    return nullptr;
+    llvm::Value* objectRef = generateExpr(constructorCallExpr->objectRef);
+
+    auto constructorReferenceExpr = llvm::dyn_cast<gulc::ConstructorReferenceExpr>(
+            constructorCallExpr->functionReference);
+
+    // TODO: Should this be `vtable` or not?
+    llvm::Function* constructorFunc =
+            _llvmModule->getFunction(constructorReferenceExpr->constructor->mangledName());
+
+    std::vector<llvm::Value*> llvmArgs{};
+    llvmArgs.reserve(constructorCallExpr->arguments.size() + 1);
+
+    llvmArgs.push_back(objectRef);
+
+    for (LabeledArgumentExpr* argument : constructorCallExpr->arguments) {
+        llvmArgs.push_back(generateExpr(argument->argument));
+    }
+
+    _irBuilder->CreateCall(constructorFunc, llvmArgs);
+
+    return objectRef;
 }
 
 llvm::Value* gulc::CodeGen::generateCurrentSelfExpr(gulc::CurrentSelfExpr const* currentSelfExpr) {
@@ -1368,7 +1388,7 @@ llvm::Value* gulc::CodeGen::generateFunctionCallExpr(gulc::FunctionCallExpr cons
         }
     }
 
-    return makeTemporaryValue(functionCallExpr->valueType, _irBuilder->CreateCall(functionPointer, llvmArgs));
+    return _irBuilder->CreateCall(functionPointer, llvmArgs);
 }
 
 llvm::Value* gulc::CodeGen::generateFunctionReferenceFromExpr(gulc::Expr const* expr) {
@@ -2066,42 +2086,4 @@ llvm::AllocaInst* gulc::CodeGen::getLocalVariableOrNull(std::string const& varNa
     }
 
     return nullptr;
-}
-
-llvm::AllocaInst* gulc::CodeGen::makeTemporaryValue(gulc::Type* type, llvm::Value* value) {
-    llvm::AllocaInst* allocaInst = _irBuilder->CreateAlloca(generateLlvmType(type));
-
-    // TODO: I'm adding `isVolatile` here because one of the IR passes is changing our single store
-    //       into an individual store for every single member of the struct. Not sure if this is correct or not
-//    irBuilder->CreateStore(value, allocaInst, true);
-    _irBuilder->CreateStore(value, allocaInst);
-
-    temporaryValues.emplace_back(TemporaryValue(type, allocaInst));
-
-    return allocaInst;
-}
-
-void gulc::CodeGen::cleanupTemporaryValues() {
-    for (TemporaryValue& temporaryValue : temporaryValues) {
-        if (llvm::isa<StructType>(temporaryValue.gulType)) {
-            auto structDecl = llvm::dyn_cast<StructType>(temporaryValue.gulType)->decl();
-
-            // Because we only work on by value structs we don't have to deal with the vtable, we can know the
-            // struct is the correct type.
-            // TODO: Is this a correct assumption? I don't think this is a correct assumption...
-            auto destructorFunc = _llvmModule->getFunction(structDecl->destructor->mangledName());
-
-            std::vector<llvm::Value*> llvmArgs {
-                    // We pass the struct reference as the first argument of the destructor
-                    // the destructor doesn't return anything. It modifies the `this` variable that we pass here
-                    temporaryValue.llvmReference
-            };
-
-            // Call the destructor...
-            // We don't bother giving the result a name since destructors return void
-            _irBuilder->CreateCall(destructorFunc, llvmArgs);
-        }
-    }
-
-    temporaryValues.clear();
 }

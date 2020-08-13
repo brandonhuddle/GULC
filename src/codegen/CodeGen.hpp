@@ -72,24 +72,12 @@
 #include <ast/exprs/BoolLiteralExpr.hpp>
 
 namespace gulc {
-    // This is a storage container for any temporary value that might require destruction at the end of a statement
-    // E.g. this will hold function results, temporary constructor results, etc.
-    // TODO: Should this be handled in a normal pass instead?
-    struct TemporaryValue {
-        gulc::Type* gulType;
-        llvm::AllocaInst* llvmReference;
-
-        TemporaryValue(gulc::Type* gulType, llvm::AllocaInst* llvmReference)
-                : gulType(gulType), llvmReference(llvmReference) {}
-
-    };
-
     class CodeGen {
     public:
         CodeGen(Target const& genTarget, std::vector<std::string> const& filePaths)
                 : _target(genTarget), _filePaths(filePaths), _currentFile(nullptr),
                   _llvmContext(nullptr), _irBuilder(nullptr), _llvmModule(nullptr), _funcPassManager(nullptr),
-                  _currentLlvmFunction(nullptr), _entryBlockBuilder(nullptr),
+                  _currentLlvmFunction(nullptr), _currentGhoulFunction(nullptr), _entryBlockBuilder(nullptr),
                   _currentLoopBlockContinue(nullptr), _currentLoopBlockBreak(nullptr), _anonLoopNameNumber(0) {}
 
         gulc::Module generate(ASTFile* file);
@@ -118,9 +106,6 @@ namespace gulc {
         std::vector<llvm::BasicBlock*> _nestedLoopBreaks;
         // For unnamed (anonymous) loop names we keep a tally of their numbers for proper naming
         unsigned int _anonLoopNameNumber;
-
-        // These are the results of any function calls or related. These need to be checked for if they need destructed
-        std::vector<TemporaryValue> temporaryValues;
 
         void printError(std::string const& message, TextPosition startPosition, TextPosition endPosition);
 
@@ -218,11 +203,6 @@ namespace gulc {
                        TextPosition const& startPosition, TextPosition const& endPosition);
         llvm::AllocaInst* addLocalVariable(std::string const& varName, llvm::Type* llvmType);
         llvm::AllocaInst* getLocalVariableOrNull(std::string const& varName);
-
-        /// Takes an `llvm::Value` and stores it in an `Alloca`, making it a temporary value.
-        llvm::AllocaInst* makeTemporaryValue(gulc::Type* type, llvm::Value* value);
-        /// Loop the temporary values, destruct them if needed, and clear the list
-        void cleanupTemporaryValues();
 
     };
 }

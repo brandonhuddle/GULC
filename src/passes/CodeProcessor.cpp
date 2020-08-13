@@ -1023,11 +1023,18 @@ void gulc::CodeProcessor::processFunctionCallExpr(gulc::FunctionCallExpr*& funct
                 if (foundDecl != nullptr) {
                     if (llvm::isa<ConstructorDecl>(foundDecl)) {
                         auto foundConstructor = llvm::dyn_cast<ConstructorDecl>(foundDecl);
-                        auto constructorReferenceExpr = new ConstructorReferenceExpr(identifierExpr->startPosition(),
-                                identifierExpr->endPosition(), foundConstructor);
-                        auto constructorCallExpr = new ConstructorCallExpr(constructorReferenceExpr,
-                                functionCallExpr->arguments, functionCallExpr->startPosition(),
-                                functionCallExpr->endPosition());
+                        auto constructorReferenceExpr = new ConstructorReferenceExpr(
+                                identifierExpr->startPosition(),
+                                identifierExpr->endPosition(),
+                                foundConstructor
+                            );
+                        auto constructorCallExpr = new ConstructorCallExpr(
+                                constructorReferenceExpr,
+                                nullptr,
+                                functionCallExpr->arguments,
+                                functionCallExpr->startPosition(),
+                                functionCallExpr->endPosition()
+                            );
 
                         // We handle argument casting and conversion no matter what. The below function will handle
                         // converting from lvalue to rvalue, casting, and other rules for us.
@@ -1100,11 +1107,18 @@ void gulc::CodeProcessor::processFunctionCallExpr(gulc::FunctionCallExpr*& funct
                 if (foundDecl != nullptr) {
                     if (llvm::isa<ConstructorDecl>(foundDecl)) {
                         auto foundConstructor = llvm::dyn_cast<ConstructorDecl>(foundDecl);
-                        auto constructorReferenceExpr = new ConstructorReferenceExpr(identifierExpr->startPosition(),
-                                identifierExpr->endPosition(), llvm::dyn_cast<ConstructorDecl>(foundDecl));
-                        auto constructorCallExpr = new ConstructorCallExpr(constructorReferenceExpr,
-                                functionCallExpr->arguments, functionCallExpr->startPosition(),
-                                functionCallExpr->endPosition());
+                        auto constructorReferenceExpr = new ConstructorReferenceExpr(
+                                identifierExpr->startPosition(),
+                                identifierExpr->endPosition(),
+                                llvm::dyn_cast<ConstructorDecl>(foundDecl)
+                            );
+                        auto constructorCallExpr = new ConstructorCallExpr(
+                                constructorReferenceExpr,
+                                nullptr,
+                                functionCallExpr->arguments,
+                                functionCallExpr->startPosition(),
+                                functionCallExpr->endPosition()
+                            );
 
                         // We handle argument casting and conversion no matter what. The below function will handle
                         // converting from lvalue to rvalue, casting, and other rules for us.
@@ -1227,6 +1241,7 @@ void gulc::CodeProcessor::processFunctionCallExpr(gulc::FunctionCallExpr*& funct
                         );
                     auto newExpr = new ConstructorCallExpr(
                             constructorReference,
+                            nullptr,
                             functionCallExpr->arguments,
                             functionCallExpr->startPosition(),
                             functionCallExpr->endPosition()

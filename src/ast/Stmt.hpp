@@ -19,8 +19,11 @@
 #define GULC_STMT_HPP
 
 #include "Node.hpp"
+#include <vector>
 
 namespace gulc {
+    class VariableDeclExpr;
+
     class Stmt : public Node {
     public:
         static bool classof(const Node* node) {
@@ -50,6 +53,10 @@ namespace gulc {
 
         Kind getStmtKind() const { return _stmtKind; }
         virtual Stmt* deepCopy() const = 0;
+
+        std::vector<VariableDeclExpr*> temporaryValues;
+
+        ~Stmt() override;
 
     protected:
         Kind _stmtKind;

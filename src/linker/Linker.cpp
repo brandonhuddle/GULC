@@ -15,11 +15,20 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-#include "Stmt.hpp"
-#include <ast/exprs/VariableDeclExpr.hpp>
+#include "Linker.hpp"
 
-gulc::Stmt::~Stmt()  {
-    for (VariableDeclExpr* temporaryValue : temporaryValues) {
-        delete temporaryValue;
+void gulc::Linker::link(std::vector<ObjFile>& objFiles) {
+    // Create the entry object...
+    std::string asmArgs = "as examples/entry.x64.s -o build/objs/examples/entry.o";
+    std::system(asmArgs.c_str());
+
+    std::string objFilesPath;
+
+    for (ObjFile& objFile : objFiles) {
+        objFilesPath += " " + objFile.filePath;
     }
+
+    // Link everything together...
+    std::string linkerArgs = "ld build/objs/examples/entry.o " + objFilesPath + " -o a.out";
+    std::system(linkerArgs.c_str());
 }

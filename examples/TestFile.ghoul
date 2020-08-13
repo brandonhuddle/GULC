@@ -37,7 +37,7 @@ func boolTest() -> bool {
 }
 
 func main() -> i32 {
-    //let testVec: vec3 = vec3(x: 0, y: 12, z: 44)
+    let testVec: vec3 = vec3(x: 0, y: 12, z: 44)
     //let templateTest = TemplateTest<i32>()
     let testFloat: f32 = 12.0
     let testInt: i32 = 44

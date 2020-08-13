@@ -20,6 +20,8 @@
 
 #include <ast/Stmt.hpp>
 #include <ast/Identifier.hpp>
+#include <ast/Expr.hpp>
+#include <vector>
 
 namespace gulc {
     class GotoStmt : public Stmt {
@@ -30,7 +32,7 @@ namespace gulc {
 
         GotoStmt(TextPosition startPosition, TextPosition endPosition, Identifier label)
                 : Stmt(Stmt::Kind::Goto),
-                  _label(std::move(label)) {}
+                  _label(std::move(label)), _startPosition(startPosition), _endPosition(endPosition) {}
 
         TextPosition gotoStartPosition() const { return _startPosition; }
         TextPosition gotoEndPosition() const { return _endPosition; }
@@ -40,6 +42,15 @@ namespace gulc {
 
         Stmt* deepCopy() const override {
             return new GotoStmt(_startPosition, _endPosition, _label);
+        }
+
+        // The most common case for this will be destructor calls.
+        std::vector<Expr*> preGotoDeferred;
+
+        ~GotoStmt() override {
+            for (Expr* preGotoDeferredExpr : preGotoDeferred) {
+                delete preGotoDeferredExpr;
+            }
         }
 
     protected:

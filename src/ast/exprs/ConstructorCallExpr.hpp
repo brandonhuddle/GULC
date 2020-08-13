@@ -30,13 +30,15 @@ namespace gulc {
     public:
         static bool classof(const Expr* expr) { return expr->getExprKind() == Expr::Kind::ConstructorCall; }
 
-        ConstructorCallExpr(ConstructorReferenceExpr* constructorReference, std::vector<LabeledArgumentExpr*> arguments,
+        // This is the object that will be passed as `self`
+        Expr* objectRef;
+
+        ConstructorCallExpr(ConstructorReferenceExpr* constructorReference, Expr* objectRef,
+                            std::vector<LabeledArgumentExpr*> arguments,
                             TextPosition startPosition, TextPosition endPosition)
                 : FunctionCallExpr(Expr::Kind::ConstructorCall, constructorReference, std::move(arguments),
-                                   startPosition, endPosition) {}
-
-        TextPosition startPosition() const override { return _startPosition; }
-        TextPosition endPosition() const override { return _endPosition; }
+                                   startPosition, endPosition),
+                  objectRef(objectRef) {}
 
         Expr* deepCopy() const override {
             std::vector<LabeledArgumentExpr*> copiedArguments;
@@ -51,7 +53,7 @@ namespace gulc {
                 copiedConstructorReference = llvm::dyn_cast<ConstructorReferenceExpr>(functionReference->deepCopy());
             }
 
-            auto result = new ConstructorCallExpr(copiedConstructorReference, copiedArguments,
+            auto result = new ConstructorCallExpr(copiedConstructorReference, objectRef->deepCopy(), copiedArguments,
                                                   _startPosition, _endPosition);
             result->valueType = valueType == nullptr ? nullptr : valueType->deepCopy();
             return result;
@@ -69,9 +71,9 @@ namespace gulc {
             return functionReference->toString() + "(" + argumentsString + ")";
         }
 
-    protected:
-        TextPosition _startPosition;
-        TextPosition _endPosition;
+        ~ConstructorCallExpr() override {
+            delete objectRef;
+        }
 
     };
 }

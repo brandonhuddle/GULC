@@ -19,6 +19,8 @@
 #define GULC_FALLTHROUGHSTMT_HPP
 
 #include <ast/Stmt.hpp>
+#include <ast/Expr.hpp>
+#include <vector>
 
 namespace gulc {
     class FallthroughStmt : public Stmt {
@@ -34,6 +36,16 @@ namespace gulc {
 
         Stmt* deepCopy() const override {
             return new FallthroughStmt(_startPosition, _endPosition);
+        }
+
+        // TODO: Does `FallThrough` need deferred statements? I don't think so...
+        // The most common case for this will be destructor calls.
+//        std::vector<Expr*> preFallthroughDeferred;
+
+        ~FallthroughStmt() override {
+//            for (Expr* preFallthroughDeferredExpr : preFallthroughDeferred) {
+//                delete preFallthroughDeferredExpr;
+//            }
         }
 
     protected:

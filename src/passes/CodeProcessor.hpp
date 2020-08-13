@@ -89,10 +89,7 @@ namespace gulc {
     // TODO: At this point all redefinition checks for `Decl`s have already been finished so we don't have to handle
     //       those. What we do need to handle are:
     //        * Process `Stmt`
-    //        * Resolve ALL `Expr`s to their referenced `Decl` or local variables
     //        * Pass any new template instantiations back through `DeclInstantiator`?
-    //        * Resolve any operator overloading, subscript overloading, etc. to their `Decl`
-    //        * Handle giving all `Expr`s their `Type`
     //        * Validate all `Expr` usages (i.e. `12 + "44"` should error if there isn't an overload allowing it)
     //        * Apply any implicit cast
     //        * Validate `mut`, `immut`, and `const` usages. (i.e. `const` cannot be reassigned, they're constants;

@@ -24,6 +24,9 @@
 #include <passes/NameMangler.hpp>
 #include <namemangling/ItaniumMangler.hpp>
 #include <codegen/CodeGen.hpp>
+#include <passes/CodeTransformer.hpp>
+#include <objgen/ObjGen.hpp>
+#include <linker/Linker.hpp>
 #include "Target.hpp"
 
 using namespace gulc;
@@ -150,10 +153,26 @@ int main() {
     NameMangler nameMangler(&manglerBackend);
     nameMangler.processFiles(parsedFiles);
 
+    // TODO: I think we could parallelize this and `CodeGen` since they don't modify any `Decl`
+    CodeTransformer codeTransformer(target, filePaths, prototypes);
+    codeTransformer.processFiles(parsedFiles);
+
+    std::vector<ObjFile> objFiles;
+    objFiles.reserve(parsedFiles.size());
+
+    ObjGen::init();
+    ObjGen objGen = ObjGen();
+
     for (auto parsedFile : parsedFiles) {
+        // Generate LLVM IR
         CodeGen codeGen(target, filePaths);
-        codeGen.generate(&parsedFile);
+        gulc::Module module = codeGen.generate(&parsedFile);
+
+        // Generate the object files
+        objFiles.push_back(objGen.generate(module));
     }
+
+    gulc::Linker::link(objFiles);
 
     return 0;
 }

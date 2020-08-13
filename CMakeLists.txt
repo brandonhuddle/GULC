@@ -333,10 +333,18 @@ add_executable(gulc
         src/namemangling/ItaniumMangler.cpp
         src/namemangling/ItaniumMangler.hpp
 
+        src/linker/Linker.cpp
+        src/linker/Linker.hpp
+
         src/codegen/CodeGen.cpp
         src/codegen/CodeGen.hpp
         src/codegen/Module.cpp
-        src/codegen/Module.hpp)
+        src/codegen/Module.hpp
+
+        src/objgen/ObjGen.cpp
+        src/objgen/ObjGen.hpp
+        src/objgen/ObjFile.cpp
+        src/objgen/ObjFile.hpp)
 
 # MSVC doesn't require the stdc++fs.
 if (NOT MSVC AND NOT APPLE)

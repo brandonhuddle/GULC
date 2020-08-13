@@ -61,6 +61,7 @@ namespace gulc {
         bool hasContract() const { return !_contracts.empty(); }
 
         bool isMemberFunction() const;
+        bool isMainEntry() const { return _isMainEntry; }
 
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }
@@ -126,12 +127,16 @@ namespace gulc {
                        declModifiers),
                   _parameters(std::move(parameters)), returnType(returnType),
                   _contracts(std::move(contracts)), _body(body),
-                  _startPosition(startPosition), _endPosition(endPosition), _throws(false) {
+                  _startPosition(startPosition), _endPosition(endPosition), _throws(false), _isMainEntry(false) {
             for (Cont* contract : _contracts) {
                 if (llvm::isa<ThrowsCont>(contract)) {
                     _throws = true;
                     break;
                 }
+            }
+
+            if (_declKind == Decl::Kind::Function && _identifier.name() == "main") {
+                _isMainEntry = true;
             }
         }
 
@@ -141,6 +146,8 @@ namespace gulc {
         TextPosition _startPosition;
         TextPosition _endPosition;
         bool _throws;
+        // TODO: We need to make this detection a little more advanced
+        bool _isMainEntry;
 
     };
 }

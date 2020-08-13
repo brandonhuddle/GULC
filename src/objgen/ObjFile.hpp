@@ -15,11 +15,18 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-#include "Stmt.hpp"
-#include <ast/exprs/VariableDeclExpr.hpp>
+#ifndef GULC_OBJFILE_HPP
+#define GULC_OBJFILE_HPP
 
-gulc::Stmt::~Stmt()  {
-    for (VariableDeclExpr* temporaryValue : temporaryValues) {
-        delete temporaryValue;
-    }
+#include <string>
+
+namespace gulc {
+    struct ObjFile {
+        std::string filePath;
+
+        explicit ObjFile(std::string filePath) : filePath(std::move(filePath)) {}
+
+    };
 }
+
+#endif //GULC_OBJFILE_HPP

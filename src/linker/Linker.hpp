@@ -15,11 +15,18 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-#include "Stmt.hpp"
-#include <ast/exprs/VariableDeclExpr.hpp>
+#ifndef GULC_LINKER_HPP
+#define GULC_LINKER_HPP
 
-gulc::Stmt::~Stmt()  {
-    for (VariableDeclExpr* temporaryValue : temporaryValues) {
-        delete temporaryValue;
-    }
+#include <vector>
+#include <objgen/ObjFile.hpp>
+
+namespace gulc {
+    class Linker {
+    public:
+        static void link(std::vector<ObjFile>& objFiles);
+
+    };
 }
+
+#endif //GULC_LINKER_HPP

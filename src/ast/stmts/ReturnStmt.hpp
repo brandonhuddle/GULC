@@ -20,6 +20,7 @@
 
 #include <ast/Stmt.hpp>
 #include <ast/Expr.hpp>
+#include <vector>
 
 namespace gulc {
     class ReturnStmt : public Stmt {
@@ -53,7 +54,14 @@ namespace gulc {
             }
         }
 
+        // The most common case for this will be destructor calls.
+        std::vector<Expr*> preReturnDeferred;
+
         ~ReturnStmt() override {
+            for (Expr* preReturnDeferredExpr : preReturnDeferred) {
+                delete preReturnDeferredExpr;
+            }
+
             delete returnValue;
         }
 

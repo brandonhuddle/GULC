@@ -21,6 +21,8 @@
 #include <ast/Stmt.hpp>
 #include <ast/Identifier.hpp>
 #include <optional>
+#include <ast/Expr.hpp>
+#include <vector>
 
 namespace gulc {
     class ContinueStmt : public Stmt {
@@ -46,6 +48,15 @@ namespace gulc {
                 return new ContinueStmt(_startPosition, _endPosition, _continueLabel.value());
             } else {
                 return new ContinueStmt(_startPosition, _endPosition);
+            }
+        }
+
+        // The most common case for this will be destructor calls.
+        std::vector<Expr*> preContinueDeferred;
+
+        ~ContinueStmt() override {
+            for (Expr* preContinueDeferredExpr : preContinueDeferred) {
+                delete preContinueDeferredExpr;
             }
         }
 
