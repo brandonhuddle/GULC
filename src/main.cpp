@@ -40,7 +40,6 @@ using namespace gulc;
 //       * [POSTPONED] Finish adding support for extensions...
 //       * Improve error checking for Decls post-instantiation
 //       * Improve `const` solving (and simplify expressions as much as possible in trivial situations like `i + 2 + 2` == `i + 4`)
-//       * Output working executables through IR generation... sounds so quick right? Well hopefully it will be since we already have that from last years compiler...
 //       * `peekStartPosition` needs to handle removing any whitespace. Currently doing `peekStartPosition` for statements within a function will return `0, 0` for properly formatted code.
 
 // TODO: Sidenotes:
@@ -106,6 +105,60 @@ using namespace gulc;
 //       Cons:
 //        * Rust already has set the idea up as `panic` (even though earlier implementations called in `abandon` as
 //          well, such as the Midori OS's programming language)
+
+// TODO: When within a constructor we need to ALWAYS use the current type being constructed's `vtable`. NOT the `vtable`
+//       stored in memory. The reason for this is as follows:
+//           class BaseClass {
+//               var baseValue: i32
+//  .
+//               virtual func example() {
+//  .                baseValue = 4
+//               }
+//  .
+//               init() {
+//                   baseValue = 12
+//                   example()
+//               }
+//           }
+//  .
+//           class ChildClass: BaseClass {
+//               var childValue: i32
+//  .
+//               override func example() {
+//                   baseValue = childValue
+//               }
+//  .
+//               init() {
+//                   childValue = 45
+//               }
+//           }
+//       In the above example `ChildClass::init()` will implicitly call `BaseClass::init()`. If we allow `init` to use
+//       the `vtable` then `BaseClass::init::example()` will call `ChildClass::example()` which will assign `baseValue`
+//       garbage data since `childValue` hasn't been initialized by that point.
+//       To implement this my thoughts are that `init` should be a special case that completely ignores the `vtable` in
+//       its entirety. `init` should call the exact functions it references, no vtable involved. That should solve this
+//       issue.
+
+// TODO: We should make a `@copy` attribute that tells the compiler the type should be copied by default instead of
+//       moved by default.
+//       Example:
+//           @copy
+//           struct m128 {
+//               var a: f32
+//               var b: f32
+//               var c: f32
+//               var d: f32
+//           }
+//       The above is an x86/x64 SIMD type. Since it would be considered a number it shouldn't be moved by default but
+//       copied by default. Or maybe a better way to describe it is that it is a "value-type" instead of a
+//       "container-type". I would need to research it a little more but in my mind "data containers" should be moved
+//       while "value types" should be copied. We wouldn't be able to detect which is which on the compiler end I don't
+//       think
+
+// TODO: We need to clean up how we handle local variables. Anywhere where we access them we are manually regenerating
+//       the list for the context. I think we could do better than that by storing a list for each context
+// TODO: `ForStmt` currently has potential for a memory leak. We need to handle the `temporaryValues` for
+//       `condition` and `iteration`
 
 int main() {
     Target target = Target::getHostTarget();
@@ -173,6 +226,7 @@ int main() {
     }
 
     gulc::Linker::link(objFiles);
+
 
     return 0;
 }

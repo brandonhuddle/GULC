@@ -70,6 +70,7 @@
 #include <ast/exprs/LValueToRValueExpr.hpp>
 #include <ast/exprs/TryExpr.hpp>
 #include <ast/exprs/BoolLiteralExpr.hpp>
+#include <ast/exprs/DestructorCallExpr.hpp>
 
 namespace gulc {
     class CodeGen {
@@ -157,6 +158,7 @@ namespace gulc {
         void enterNestedLoop(llvm::BasicBlock* continueLoop, llvm::BasicBlock* breakLoop,
                              std::size_t* outOldNestedLoopCount);
         void leaveNestedLoop(std::size_t oldNestedLoopCount);
+        void cleanupTemporaryValues(std::vector<VariableDeclExpr*> const& temporaryValues);
 
         // Expression Generation
         llvm::Constant* generateConstant(Expr const* expr);
@@ -169,6 +171,7 @@ namespace gulc {
         llvm::Value* generateCallOperatorReferenceExpr(CallOperatorReferenceExpr const* callOperatorReferenceExpr);
         llvm::Value* generateConstructorCallExpr(ConstructorCallExpr const* constructorCallExpr);
         llvm::Value* generateCurrentSelfExpr(CurrentSelfExpr const* currentSelfExpr);
+        llvm::Value* generateDestructorCallExpr(DestructorCallExpr const* destructorCallExpr);
         llvm::Value* generateEnumConstRefExpr(EnumConstRefExpr const* enumConstRefExpr);
         llvm::Value* generateFunctionCallExpr(FunctionCallExpr const* functionCallExpr);
         llvm::Value* generateFunctionReferenceFromExpr(Expr const* expr);
@@ -203,6 +206,8 @@ namespace gulc {
                        TextPosition const& startPosition, TextPosition const& endPosition);
         llvm::AllocaInst* addLocalVariable(std::string const& varName, llvm::Type* llvmType);
         llvm::AllocaInst* getLocalVariableOrNull(std::string const& varName);
+        llvm::Function* getMoveConstructorForType(gulc::Type* type);
+        llvm::Function* getCopyConstructorForType(gulc::Type* type);
 
     };
 }

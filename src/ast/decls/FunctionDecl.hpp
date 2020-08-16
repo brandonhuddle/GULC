@@ -26,6 +26,8 @@
 #include <ast/Cont.hpp>
 #include <ast/conts/ThrowsCont.hpp>
 #include <llvm/Support/Casting.h>
+#include <ast/stmts/LabeledStmt.hpp>
+#include <map>
 #include "ParameterDecl.hpp"
 
 namespace gulc {
@@ -116,6 +118,8 @@ namespace gulc {
         }
 
         bool isInstantiated = false;
+        // These are already stored in `body()` so we don't have to free them again
+        std::map<std::string, LabeledStmt*> labeledStmts;
 
     protected:
         FunctionDecl(Decl::Kind declKind, unsigned int sourceFileID, std::vector<Attr*> attributes,

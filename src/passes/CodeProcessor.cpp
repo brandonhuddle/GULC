@@ -44,6 +44,7 @@
 #include <utilities/FunctorUtil.hpp>
 #include <ast/types/BoolType.hpp>
 #include <ast/exprs/LValueToRValueExpr.hpp>
+#include <ast/exprs/StructAssignmentOperatorExpr.hpp>
 
 void gulc::CodeProcessor::processFiles(std::vector<ASTFile>& files) {
     for (ASTFile& file : files) {
@@ -74,13 +75,21 @@ void gulc::CodeProcessor::printWarning(const std::string& message, gulc::TextPos
 
 gulc::CurrentSelfExpr* gulc::CodeProcessor::getCurrentSelfRef(TextPosition startPosition,
                                                               TextPosition endPosition) const {
+    bool isMutable = false;
+
+    if (llvm::isa<ConstructorDecl>(_currentFunction)) {
+        isMutable = true;
+    } else {
+        isMutable = _currentFunction->isMutable();
+    }
+
     if (llvm::isa<StructDecl>(_currentContainer)) {
         auto structContainer = llvm::dyn_cast<StructDecl>(_currentContainer);
         auto result = new CurrentSelfExpr(startPosition, endPosition);
 
         // We set the `result` as either `&mut Self` or `&immut Self` depending on what the current function's
         // mutability is
-        if (_currentFunction->isMutable()) {
+        if (isMutable) {
             result->valueType = new ReferenceType(Type::Qualifier::Unassigned,
                     new StructType(Type::Qualifier::Mut, structContainer, startPosition, endPosition));
         } else {
@@ -97,7 +106,7 @@ gulc::CurrentSelfExpr* gulc::CodeProcessor::getCurrentSelfRef(TextPosition start
 
         // We set the `result` as either `&mut Self` or `&immut Self` depending on what the current function's
         // mutability is
-        if (_currentFunction->isMutable()) {
+        if (isMutable) {
             result->valueType = new ReferenceType(Type::Qualifier::Unassigned,
                                                   new TraitType(Type::Qualifier::Mut, traitContainer, startPosition, endPosition));
         } else {
@@ -114,7 +123,7 @@ gulc::CurrentSelfExpr* gulc::CodeProcessor::getCurrentSelfRef(TextPosition start
 
         // We set the `result` as either `&mut Self` or `&immut Self` depending on what the current function's
         // mutability is
-        if (_currentFunction->isMutable()) {
+        if (isMutable) {
             result->valueType = new ReferenceType(Type::Qualifier::Unassigned,
                                                   new EnumType(Type::Qualifier::Mut, enumContainer, startPosition, endPosition));
         } else {
@@ -204,6 +213,151 @@ void gulc::CodeProcessor::processDecl(gulc::Decl* decl) {
     }
 }
 
+void gulc::CodeProcessor::processConstructorDecl(gulc::ConstructorDecl* constructorDecl,
+                                                 CompoundStmt* temporaryInitializersCompoundStmt) {
+    FunctionDecl* oldFunction = _currentFunction;
+    _currentFunction = constructorDecl;
+    std::vector<ParameterDecl*>* oldParameters = _currentParameters;
+    _currentParameters = &constructorDecl->parameters();
+
+    for (ParameterDecl* parameter : constructorDecl->parameters()) {
+        processParameterDecl(parameter);
+    }
+
+    auto containerStruct = llvm::dyn_cast<StructDecl>(constructorDecl->container);
+
+    switch (constructorDecl->constructorType()) {
+        case ConstructorType::Normal: {
+            bool addDefaultInitializers = true;
+
+            if (constructorDecl->baseConstructorCall == nullptr) {
+                if (containerStruct->baseStruct != nullptr) {
+                    // If there isn't a user specified base constructor call but a base constructor exists then we
+                    // create a default call to it so the struct is in a valid state without the user needing to
+                    // specify it.
+                    if (containerStruct->baseStruct->cachedDefaultConstructor == nullptr) {
+                        // NOTE: If there is no default base constructor then the current struct CANNOT define any
+                        //       constructors without specifying a valid base constructor. Any of our constructors
+                        //       found to not have a base constructor is marked deleted and will error out later.
+                        constructorDecl->constructorState = ConstructorDecl::ConstructorState::Deleted;
+                    } else {
+                        // The `processBaseConstructorCall` expects a `FunctionCallExpr` with an `IdentifierExpr` so
+                        // that what we provide instead of trying to manually do what `processBaseConstructorCall`
+                        // already does.
+                        constructorDecl->baseConstructorCall = new FunctionCallExpr(
+                                new IdentifierExpr(
+                                        Identifier(
+                                                constructorDecl->startPosition(),
+                                                constructorDecl->endPosition(),
+                                                "base"
+                                            ),
+                                        {}
+                                ),
+                                {},
+                                constructorDecl->startPosition(),
+                                constructorDecl->endPosition()
+                        );
+                    }
+
+                    addDefaultInitializers = true;
+                } else {
+                    // There is no base constructor call nor base struct to implicitly create a call to, all we need
+                    // for this constructor is to add the default initializers and validate it normally
+                    addDefaultInitializers = true;
+                }
+            } else {
+                // Check to see if the base constructor call is calling `self`, for `self` constructor calls we don't
+                // have to add default initializers since they will be initialized in the other `self` constructor.
+                if (llvm::isa<FunctionCallExpr>(constructorDecl->baseConstructorCall)) {
+                    auto checkFuncCallExpr = llvm::dyn_cast<FunctionCallExpr>(constructorDecl->baseConstructorCall);
+
+                    if (llvm::isa<IdentifierExpr>(checkFuncCallExpr->functionReference) &&
+                            llvm::dyn_cast<IdentifierExpr>(checkFuncCallExpr->functionReference)->identifier().name() ==
+                                "self") {
+                        addDefaultInitializers = false;
+                    }
+                }
+            }
+
+            // We only add the default initializers if the constructor doesn't call "self(...)" as a base constructor
+            // This is because the "self(...)" will already be populating those fields.
+            if (addDefaultInitializers) {
+                auto& statements = constructorDecl->body()->statements;
+                statements.insert(statements.begin(), temporaryInitializersCompoundStmt->deepCopy());
+            }
+
+            if (constructorDecl->baseConstructorCall != nullptr) {
+                // We process this at the end so we still have `IdentifierExpr` instead of a resolved expression at
+                // the end.
+                processBaseConstructorCall(containerStruct, constructorDecl->baseConstructorCall);
+            }
+            break;
+        }
+        case ConstructorType::Copy: {
+            if (constructorDecl->baseConstructorCall != nullptr) {
+                printError("copy constructors cannot have explicit base constructor calls!",
+                           constructorDecl->baseConstructorCall->startPosition(),
+                           constructorDecl->baseConstructorCall->endPosition());
+            }
+
+            if (containerStruct->baseStruct != nullptr) {
+                // NOTE: I don't think this will ever happen but I keep it here just in case. My plan is for there to
+                //       always at least be the constructor prototype but for it to just be marked deleted
+                //       `init copy(...) = delete`
+                if (containerStruct->baseStruct->cachedCopyConstructor == nullptr) {
+                    constructorDecl->constructorState = ConstructorDecl::ConstructorState::Deleted;
+                } else {
+                    constructorDecl->baseConstructorCall =
+                            createBaseMoveCopyConstructorCall(
+                                    containerStruct->baseStruct->cachedCopyConstructor,
+                                    constructorDecl->parameters()[0],
+                                    constructorDecl->startPosition(),
+                                    constructorDecl->endPosition()
+                            );
+                }
+            }
+            break;
+        }
+        case ConstructorType::Move: {
+            if (constructorDecl->baseConstructorCall != nullptr) {
+                printError("move constructors cannot have explicit base constructor calls!",
+                           constructorDecl->baseConstructorCall->startPosition(),
+                           constructorDecl->baseConstructorCall->endPosition());
+            }
+
+            if (containerStruct->baseStruct != nullptr) {
+                // NOTE: I don't think this will ever happen but I keep it here just in case. My plan is for there to
+                //       always at least be the constructor prototype but for it to just be marked deleted
+                //       `init move(...) = delete`
+                if (containerStruct->baseStruct->cachedMoveConstructor == nullptr) {
+                    constructorDecl->constructorState = ConstructorDecl::ConstructorState::Deleted;
+                } else {
+                    constructorDecl->baseConstructorCall =
+                            createBaseMoveCopyConstructorCall(
+                                    containerStruct->baseStruct->cachedMoveConstructor,
+                                    constructorDecl->parameters()[0],
+                                    constructorDecl->startPosition(),
+                                    constructorDecl->endPosition()
+                            );
+                }
+            }
+            break;
+        }
+    }
+
+    // Prototypes don't have bodies
+    if (!constructorDecl->isPrototype()) {
+        processCompoundStmt(constructorDecl->body());
+    }
+
+    // TODO: This is where we should check the `body()` to validate all members are assigned.
+    //  * If the constructor is auto-generated and not all members are assigned then the constructor is marked `Deleted`
+    //  * If the constructor is user-created and not all members are assigned then we error out saying such
+
+    _currentParameters = oldParameters;
+    _currentFunction = oldFunction;
+}
+
 void gulc::CodeProcessor::processEnumDecl(gulc::EnumDecl* enumDecl) {
     // TODO: I think at this point processing for `EnumDecl` should be completed, right?
     //       All instantiations should be done in `DeclInstantiator` and validation finished in `DeclInstValidator`
@@ -243,22 +397,7 @@ void gulc::CodeProcessor::processFunctionDecl(gulc::FunctionDecl* functionDecl) 
 
     // Prototypes don't have bodies
     if (!functionDecl->isPrototype()) {
-        bool returnsOnAllCodePaths = processCompoundStmt(functionDecl->body());
-
-        if (!returnsOnAllCodePaths) {
-            // If the function doesn't return on all code paths but the function returns `void` we add in a default
-            // `return` to the end.
-            // If the function returns non-void we error out saying the function doesn't return on all code paths, this
-            // is to prevent potential errors the programmer might miss.
-            if (functionDecl->returnType == nullptr ||
-                    (llvm::isa<BuiltInType>(functionDecl->returnType) &&
-                            llvm::dyn_cast<BuiltInType>(functionDecl->returnType)->sizeInBytes() == 0)) {
-                functionDecl->body()->statements.push_back(new ReturnStmt({}, {}));
-            } else {
-                printError("function `" + functionDecl->identifier().name() + "` does not return on all code paths!",
-                           functionDecl->startPosition(), functionDecl->endPosition());
-            }
-        }
+        processCompoundStmt(functionDecl->body());
     }
 
     _currentParameters = oldParameters;
@@ -302,9 +441,20 @@ void gulc::CodeProcessor::processStructDecl(gulc::StructDecl* structDecl) {
     Decl* oldContainer = _currentContainer;
     _currentContainer = structDecl;
 
+    // NOTE: For the `copy`, `move`, and `default` constructors we CANNOT validate if any called constructors are valid
+    //       or not yet. We have to wait until `CodeTransformer` to handle that. All we're doing here is creating what
+    //       the code could be if the required constructors exist.
+    //       We also CANNOT error even if a member if `ref` here. All we are doing here is prepending the body of the
+    //       constructor with default member initializers. If no defaults exist we will let the later stages validate
+    //       whether or not the member is initialized (as the user might initialize the variables themselves) we will
+    //       also let an optimization pass detect the unneeded first assignment and completely elide it.
+    auto temporaryInitializersCompoundStmt = createStructMemberInitializersCompoundStmt(structDecl);
+
     for (ConstructorDecl* constructor : structDecl->constructors()) {
-        processFunctionDecl(constructor);
+        processConstructorDecl(constructor, temporaryInitializersCompoundStmt);
     }
+
+    delete temporaryInitializersCompoundStmt;
 
     if (structDecl->destructor != nullptr) {
         processFunctionDecl(structDecl->destructor);
@@ -376,142 +526,348 @@ void gulc::CodeProcessor::processVariableDecl(gulc::VariableDecl* variableDecl) 
     }
 }
 
+void gulc::CodeProcessor::processBaseConstructorCall(gulc::StructDecl* structDecl,
+                                                     gulc::FunctionCallExpr*& functionCallExpr) {
+    for (LabeledArgumentExpr* labeledArgumentExpr : functionCallExpr->arguments) {
+        processLabeledArgumentExpr(labeledArgumentExpr);
+    }
+
+    if (llvm::isa<IdentifierExpr>(functionCallExpr->functionReference)) {
+        auto checkIdentifierExpr = llvm::dyn_cast<IdentifierExpr>(functionCallExpr->functionReference);
+
+        ConstructorDecl* foundConstructor = nullptr;
+        std::vector<MatchingDecl> foundMatches;
+
+        if (checkIdentifierExpr->identifier().name() == "self") {
+            // If there aren't any arguments we'll save ourselves the search and just use the default constructor
+            if (functionCallExpr->arguments.empty()) {
+                foundConstructor = structDecl->cachedDefaultConstructor;
+            }
+
+            if (foundConstructor == nullptr) {
+                fillListOfMatchingConstructors(structDecl, functionCallExpr->arguments, foundMatches);
+            }
+        } else if (checkIdentifierExpr->identifier().name() == "base") {
+            if (structDecl->baseStruct == nullptr) {
+                printError("struct `" + structDecl->identifier().name() + "` does not have a `base` struct!",
+                           checkIdentifierExpr->startPosition(), checkIdentifierExpr->endPosition());
+                return;
+            }
+
+            // If there aren't any arguments we'll save ourselves the search and just use the default constructor
+            if (functionCallExpr->arguments.empty()) {
+                foundConstructor = structDecl->baseStruct->cachedDefaultConstructor;
+            }
+
+            if (foundConstructor == nullptr) {
+                fillListOfMatchingConstructors(structDecl->baseStruct, functionCallExpr->arguments, foundMatches);
+            }
+        } else {
+            printError("unknown base constructor name found, expected `self` or `base`!",
+                       checkIdentifierExpr->startPosition(), checkIdentifierExpr->endPosition());
+            return;
+        }
+
+        if (foundConstructor == nullptr) {
+            if (foundMatches.size() > 1) {
+                for (MatchingDecl& checkMatch : foundMatches) {
+                    if (checkMatch.kind == MatchingDecl::Kind::Match) {
+                        if (foundConstructor == nullptr) {
+                            foundConstructor = llvm::dyn_cast<ConstructorDecl>(checkMatch.matchingDecl);
+                        } else {
+                            printError("base constructor call is ambiguous!",
+                                       functionCallExpr->startPosition(), functionCallExpr->endPosition());
+                            return;
+                        }
+                    }
+                }
+            } else if (!foundMatches.empty()) {
+                foundConstructor = llvm::dyn_cast<ConstructorDecl>(foundMatches[0].matchingDecl);
+            }
+        }
+
+        if (foundConstructor == nullptr) {
+            printError("base constructor was not found!",
+                       functionCallExpr->startPosition(), functionCallExpr->endPosition());
+            return;
+        }
+
+        auto constructorReferenceExpr = new ConstructorReferenceExpr(
+                functionCallExpr->functionReference->startPosition(),
+                functionCallExpr->functionReference->endPosition(),
+                foundConstructor
+            );
+        processConstructorReferenceExpr(constructorReferenceExpr);
+        auto constructorCallExpr = new ConstructorCallExpr(
+                constructorReferenceExpr,
+                getCurrentSelfRef(constructorReferenceExpr->startPosition(), constructorReferenceExpr->endPosition()),
+                functionCallExpr->arguments,
+                functionCallExpr->startPosition(),
+                functionCallExpr->endPosition()
+            );
+        // We steal these...
+        functionCallExpr->arguments.clear();
+
+        processConstructorCallExpr(constructorCallExpr);
+
+        // We handle argument casting and conversion no matter what. The below function will handle
+        // converting from lvalue to rvalue, casting, and other rules for us.
+        handleArgumentCasting(foundConstructor->parameters(), constructorCallExpr->arguments);
+
+        // Delete the old function call and replace it with the new constructor call
+        delete functionCallExpr;
+        functionCallExpr = constructorCallExpr;
+    }
+}
+
+gulc::ConstructorCallExpr* gulc::CodeProcessor::createBaseMoveCopyConstructorCall(ConstructorDecl* baseConstructorDecl,
+                                                                                  ParameterDecl* otherParameterDecl,
+                                                                                  TextPosition startPosition,
+                                                                                  TextPosition endPosition) {
+    // For `move` and `copy` constructors we have to manually create their calls, we can't use
+    // `processBaseConstructorCall` due to ambiguity.
+    auto constructorReferenceExpr = new ConstructorReferenceExpr(
+            startPosition,
+            endPosition,
+            baseConstructorDecl
+    );
+    processConstructorReferenceExpr(constructorReferenceExpr);
+
+    auto labeledOtherArgument = new LabeledArgumentExpr(
+            Identifier({}, {}, "_"),
+            new IdentifierExpr(otherParameterDecl->identifier(), {})
+    );
+    processLabeledArgumentExpr(labeledOtherArgument);
+
+    auto constructorCallExpr = new ConstructorCallExpr(
+            constructorReferenceExpr,
+            getCurrentSelfRef(constructorReferenceExpr->startPosition(),
+                              constructorReferenceExpr->endPosition()),
+            {
+                    labeledOtherArgument
+            },
+            startPosition,
+            endPosition
+    );
+
+    processConstructorCallExpr(constructorCallExpr);
+
+    // We handle argument casting and conversion no matter what. The below function will handle
+    // converting from lvalue to rvalue, casting, and other rules for us.
+    handleArgumentCasting(baseConstructorDecl->parameters(), constructorCallExpr->arguments);
+
+    return constructorCallExpr;
+}
+
+gulc::CompoundStmt* gulc::CodeProcessor::createStructMemberInitializersCompoundStmt(gulc::StructDecl* structDecl) {
+    std::vector<Stmt*> initializerStatements;
+
+    // TODO: Check `PropertyDecl` as well. `PropertyDecl` allows for default generation which means we will have to
+    //       create a `var` behind the scenes which we will also need to initialize here.
+    for (Decl* initializeDecl : structDecl->ownedMembers()) {
+        if (llvm::isa<VariableDecl>(initializeDecl)) {
+            auto initializeVariableDecl = llvm::dyn_cast<VariableDecl>(initializeDecl);
+            Expr* initialValue = nullptr;
+
+            switch (initializeVariableDecl->type->getTypeKind()) {
+                case Type::Kind::Bool:
+                    // false
+                    initialValue = new BoolLiteralExpr({}, {}, false);
+                    break;
+                case Type::Kind::BuiltIn:
+                    // 0
+                    initialValue = new ValueLiteralExpr(ValueLiteralExpr::LiteralType::Integer, "0", "", {}, {});
+                    break;
+                case Type::Kind::Enum:
+                    // TODO: Should this just be the first value of the enum?
+                    printError("[INTERNAL] enums not yet supported!",
+                               structDecl->startPosition(), structDecl->endPosition());
+                    break;
+                case Type::Kind::FlatArray:
+                    // TODO: What should this be?
+                    printError("[INTERNAL] flat arrays not yet supported!",
+                               structDecl->startPosition(), structDecl->endPosition());
+                    break;
+                case Type::Kind::FunctionPointer:
+                    // TODO: What should this be?
+                    printError("[INTERNAL] function pointers not yet supported!",
+                               structDecl->startPosition(), structDecl->endPosition());
+                    break;
+                case Type::Kind::Pointer:
+                    // null
+                    // TODO: Add `NullLiteralExpr`...
+                    printError("[INTERNAL] pointers not yet supported!",
+                               structDecl->startPosition(), structDecl->endPosition());
+                    break;
+                case Type::Kind::Reference:
+                    // Cannot initialize by default, let the error checking pass handle it. User might assign it
+                    // instead.
+                    break;
+                case Type::Kind::Trait:
+                    // TODO: What should this be?
+                    printError("[INTERNAL] traits not yet supported!",
+                               structDecl->startPosition(), structDecl->endPosition());
+                    break;
+                default:
+                    printError("[INTERNAL] unsupported type found in "
+                               "`CodeProcessor::createStructMemberInitializersCompoundStmt`!",
+                               structDecl->startPosition(), structDecl->endPosition());
+                    break;
+            }
+
+            if (initialValue != nullptr) {
+                initializerStatements.push_back(
+                        new AssignmentOperatorExpr(
+                                // NOTE: Without the default `self.` we could accidentally fill parameters.
+                                new MemberAccessCallExpr(
+                                        false,
+                                        new IdentifierExpr(
+                                                Identifier({}, {}, "self"),
+                                                {}
+                                        ),
+                                        new IdentifierExpr(
+                                                Identifier({}, {}, initializeVariableDecl->identifier().name()),
+                                                {}
+                                        )
+                                ),
+                                initialValue,
+                                {},
+                                {}
+                        )
+                );
+            }
+        }
+    }
+
+    return new CompoundStmt(
+            initializerStatements,
+            {},
+            {}
+        );
+}
+
 //=====================================================================================================================
 // STATEMENTS
 //=====================================================================================================================
-bool gulc::CodeProcessor::processStmt(gulc::Stmt*& stmt) {
+void gulc::CodeProcessor::processStmt(gulc::Stmt*& stmt) {
     switch (stmt->getStmtKind()) {
         case Stmt::Kind::Break:
-            return processBreakStmt(llvm::dyn_cast<BreakStmt>(stmt));
+            processBreakStmt(llvm::dyn_cast<BreakStmt>(stmt));
+            break;
         case Stmt::Kind::Case:
-            return processCaseStmt(llvm::dyn_cast<CaseStmt>(stmt));
+            processCaseStmt(llvm::dyn_cast<CaseStmt>(stmt));
+            break;
         case Stmt::Kind::Catch:
             // TODO: I don't think this should be included in the general area either...
-            return processCatchStmt(llvm::dyn_cast<CatchStmt>(stmt));
+            processCatchStmt(llvm::dyn_cast<CatchStmt>(stmt));
+            break;
         case Stmt::Kind::Compound:
-            return processCompoundStmt(llvm::dyn_cast<CompoundStmt>(stmt));
+            processCompoundStmt(llvm::dyn_cast<CompoundStmt>(stmt));
+            break;
         case Stmt::Kind::Continue:
-            return processContinueStmt(llvm::dyn_cast<ContinueStmt>(stmt));
+            processContinueStmt(llvm::dyn_cast<ContinueStmt>(stmt));
+            break;
         case Stmt::Kind::DoCatch:
-            return processDoCatchStmt(llvm::dyn_cast<DoCatchStmt>(stmt));
+            processDoCatchStmt(llvm::dyn_cast<DoCatchStmt>(stmt));
+            break;
         case Stmt::Kind::DoWhile:
-            return processDoWhileStmt(llvm::dyn_cast<DoWhileStmt>(stmt));
+            processDoWhileStmt(llvm::dyn_cast<DoWhileStmt>(stmt));
+            break;
         case Stmt::Kind::For:
-            return processForStmt(llvm::dyn_cast<ForStmt>(stmt));
+            processForStmt(llvm::dyn_cast<ForStmt>(stmt));
+            break;
         case Stmt::Kind::Goto:
-            return processGotoStmt(llvm::dyn_cast<GotoStmt>(stmt));
+            processGotoStmt(llvm::dyn_cast<GotoStmt>(stmt));
+            break;
         case Stmt::Kind::If:
-            return processIfStmt(llvm::dyn_cast<IfStmt>(stmt));
+            processIfStmt(llvm::dyn_cast<IfStmt>(stmt));
+            break;
         case Stmt::Kind::Labeled:
-            return processLabeledStmt(llvm::dyn_cast<LabeledStmt>(stmt));
+            processLabeledStmt(llvm::dyn_cast<LabeledStmt>(stmt));
+            break;
         case Stmt::Kind::Return:
-            return processReturnStmt(llvm::dyn_cast<ReturnStmt>(stmt));
+            processReturnStmt(llvm::dyn_cast<ReturnStmt>(stmt));
+            break;
         case Stmt::Kind::Switch:
-            return processSwitchStmt(llvm::dyn_cast<SwitchStmt>(stmt));
+            processSwitchStmt(llvm::dyn_cast<SwitchStmt>(stmt));
+            break;
         case Stmt::Kind::While:
-            return processWhileStmt(llvm::dyn_cast<WhileStmt>(stmt));
+            processWhileStmt(llvm::dyn_cast<WhileStmt>(stmt));
+            break;
 
         case Stmt::Kind::Expr: {
             auto castedExpr = llvm::dyn_cast<Expr>(stmt);
             processExpr(castedExpr);
             stmt = castedExpr;
-            return false;
+            break;
         }
 
         default:
             printError("[INTERNAL ERROR] unsupported `Stmt` found in `CodeProcessor::processStmt`!",
                        stmt->startPosition(), stmt->endPosition());
-            return false;
+            break;
     }
 }
 
-bool gulc::CodeProcessor::processBreakStmt(gulc::BreakStmt* breakStmt) {
-    // TODO: We will need to keep a list of all current labels and the current containing loop
-
-    // NOTE: This is an iffy scenario. We need a way to say "all code after this is unreachable" but not that there is
-    // a return
-    return false;
+void gulc::CodeProcessor::processBreakStmt(gulc::BreakStmt* breakStmt) {
+    if (breakStmt->hasBreakLabel()) {
+        addUnresolvedLabel(breakStmt->breakLabel().name());
+    }
 }
 
-bool gulc::CodeProcessor::processCaseStmt(gulc::CaseStmt* caseStmt) {
-    processExpr(caseStmt->condition);
-    bool returnsOnAllCodePaths = processStmt(caseStmt->trueStmt);
+void gulc::CodeProcessor::processCaseStmt(gulc::CaseStmt* caseStmt) {
+    if (!caseStmt->isDefault()) {
+        processExpr(caseStmt->condition);
+        // TODO: Dereference implicit references
+        caseStmt->condition = convertLValueToRValue(caseStmt->condition);
+    }
 
-    // TODO: Dereference implicit references
-    caseStmt->condition = convertLValueToRValue(caseStmt->condition);
-
-    return returnsOnAllCodePaths;
+    processStmt(caseStmt->trueStmt);
 }
 
-bool gulc::CodeProcessor::processCatchStmt(gulc::CatchStmt* catchStmt) {
-    return processCompoundStmt(catchStmt->body());
+void gulc::CodeProcessor::processCatchStmt(gulc::CatchStmt* catchStmt) {
+    processCompoundStmt(catchStmt->body());
 }
 
-bool gulc::CodeProcessor::processCompoundStmt(gulc::CompoundStmt* compoundStmt) {
-    // For compound statements since they are an array of statements that run one after the other we only have to detect
-    // if a single statement returns on its code path. If so then we return on all code paths.
-    bool returnsOnAllCodePaths = false;
+void gulc::CodeProcessor::processCompoundStmt(gulc::CompoundStmt* compoundStmt) {
+    std::size_t oldLocalVariableCount = _localVariables.size();
 
     for (Stmt*& statement : compoundStmt->statements) {
-        if (processStmt(statement)) {
-            returnsOnAllCodePaths = true;
-        }
+        processStmt(statement);
     }
 
-    return returnsOnAllCodePaths;
+    _localVariables.resize(oldLocalVariableCount);
 }
 
-bool gulc::CodeProcessor::processContinueStmt(gulc::ContinueStmt* continueStmt) {
-    // TODO: We will need to keep a list of all current labels and the current containing loop
-
-    // NOTE: This is an iffy scenario. We need a way to say "all code after this is unreachable" but not that there is
-    // a return
-    return false;
-}
-
-bool gulc::CodeProcessor::processDoCatchStmt(gulc::DoCatchStmt* doCatchStmt) {
-    // For `do { ... } catch { ... } finally { ... }` ALL blocks must return for the `DoCatchStmt` to return on all code
-    // paths. If a block is missing then we can ignore it.
-    // TODO: Can we ignore it?? What if we return in `finally`, doesn't that mean we return in all code paths? Since
-    //       `finally` ALWAYS runs?
-    bool returnsOnAllCodePaths = true;
-
-    if (!processCompoundStmt(doCatchStmt->body())) {
-        returnsOnAllCodePaths = false;
+void gulc::CodeProcessor::processContinueStmt(gulc::ContinueStmt* continueStmt) {
+    if (continueStmt->hasContinueLabel()) {
+        addUnresolvedLabel(continueStmt->continueLabel().name());
     }
+}
+
+void gulc::CodeProcessor::processDoCatchStmt(gulc::DoCatchStmt* doCatchStmt) {
+    processCompoundStmt(doCatchStmt->body());
 
     for (CatchStmt* catchStmt : doCatchStmt->catchStatements()) {
-        if (!processCatchStmt(catchStmt)) {
-            returnsOnAllCodePaths = false;
-        }
+        processCatchStmt(catchStmt);
     }
 
     if (doCatchStmt->hasFinallyStatement()) {
-        // TODO: Is this correct? If there is a `finally` block then we can detect `returnsOnAllCodePaths` based off of
-        //       it since it will always run?
-        returnsOnAllCodePaths = true;
-
-        if (!processCompoundStmt(doCatchStmt->finallyStatement())) {
-            returnsOnAllCodePaths = false;
-        }
+        processCompoundStmt(doCatchStmt->finallyStatement());
     }
-
-    return returnsOnAllCodePaths;
 }
 
-bool gulc::CodeProcessor::processDoWhileStmt(gulc::DoWhileStmt* doWhileStmt) {
-    bool returnsOnAllCodePaths = processCompoundStmt(doWhileStmt->body());
+void gulc::CodeProcessor::processDoWhileStmt(gulc::DoWhileStmt* doWhileStmt) {
+    processCompoundStmt(doWhileStmt->body());
     processExpr(doWhileStmt->condition);
 
     // TODO: Dereference implicit references
     doWhileStmt->condition = convertLValueToRValue(doWhileStmt->condition);
-
-    // TODO: Is this true? My logic is that the `condition` could be false therefore we don't know if it returns on all
-    //       code paths.
-    return false;
 }
 
-bool gulc::CodeProcessor::processForStmt(gulc::ForStmt* forStmt) {
+void gulc::CodeProcessor::processForStmt(gulc::ForStmt* forStmt) {
+    std::size_t oldLocalVariableCount = _localVariables.size();
+
     if (forStmt->init != nullptr) {
         processExpr(forStmt->init);
     }
@@ -529,44 +885,41 @@ bool gulc::CodeProcessor::processForStmt(gulc::ForStmt* forStmt) {
 
     processCompoundStmt(forStmt->body());
 
-    // TODO: Is this true? My logic is that the `condition` could be false therefore we don't know if it returns on all
-    //       code paths.
-    return false;
+    _localVariables.resize(oldLocalVariableCount);
 }
 
-bool gulc::CodeProcessor::processGotoStmt(gulc::GotoStmt* gotoStmt) {
-    // TODO: Keep track of all labels... I think we could do this through a lookup? Maybe?
-    return false;
+void gulc::CodeProcessor::processGotoStmt(gulc::GotoStmt* gotoStmt) {
+    addUnresolvedLabel(gotoStmt->label().name());
 }
 
-bool gulc::CodeProcessor::processIfStmt(gulc::IfStmt* ifStmt) {
+void gulc::CodeProcessor::processIfStmt(gulc::IfStmt* ifStmt) {
     processExpr(ifStmt->condition);
-    bool trueBodyReturnsOnAllCodePaths = processCompoundStmt(ifStmt->trueBody());
-    bool falseBodyReturnsOnAllCodePaths = false;
+    processCompoundStmt(ifStmt->trueBody());
 
     if (ifStmt->hasFalseBody()) {
         // NOTE: `falseBody` can only be `IfStmt` or `CompoundStmt`
         if (llvm::isa<IfStmt>(ifStmt->falseBody())) {
-            falseBodyReturnsOnAllCodePaths = processIfStmt(llvm::dyn_cast<IfStmt>(ifStmt->falseBody()));
+            processIfStmt(llvm::dyn_cast<IfStmt>(ifStmt->falseBody()));
         } else if (llvm::isa<CompoundStmt>(ifStmt->falseBody())) {
-            falseBodyReturnsOnAllCodePaths = processCompoundStmt(llvm::dyn_cast<CompoundStmt>(ifStmt->falseBody()));
+            processCompoundStmt(llvm::dyn_cast<CompoundStmt>(ifStmt->falseBody()));
         }
     }
 
     // TODO: Dereference implicit references
     ifStmt->condition = convertLValueToRValue(ifStmt->condition);
-
-    // NOTE: Both sides must return on all code paths for us to return on all code paths.
-    //       If there is an `if` statement without an `else` then the `if` CANNOT return on all code paths. The `if`
-    //       might be `false`
-    return trueBodyReturnsOnAllCodePaths && falseBodyReturnsOnAllCodePaths;
 }
 
-bool gulc::CodeProcessor::processLabeledStmt(gulc::LabeledStmt* labeledStmt) {
-    return processStmt(labeledStmt->labeledStmt);
+void gulc::CodeProcessor::processLabeledStmt(gulc::LabeledStmt* labeledStmt) {
+    labeledStmt->currentNumLocalVariables = _localVariables.size();
+
+    _currentFunction->labeledStmts.insert({labeledStmt->label().name(), labeledStmt});
+
+    labelResolved(labeledStmt->label().name());
+
+    processStmt(labeledStmt->labeledStmt);
 }
 
-bool gulc::CodeProcessor::processReturnStmt(gulc::ReturnStmt* returnStmt) {
+void gulc::CodeProcessor::processReturnStmt(gulc::ReturnStmt* returnStmt) {
     if (returnStmt->returnValue != nullptr) {
         processExpr(returnStmt->returnValue);
 
@@ -575,32 +928,31 @@ bool gulc::CodeProcessor::processReturnStmt(gulc::ReturnStmt* returnStmt) {
         // TODO: Dereference implicit references
         returnStmt->returnValue = convertLValueToRValue(returnStmt->returnValue);
     }
-
-    return true;
 }
 
-bool gulc::CodeProcessor::processSwitchStmt(gulc::SwitchStmt* switchStmt) {
-    // NOTE: If there is a single case in the switch then we start with the idea that it COULD return on all code paths
-    //       We then loop to check if it does. If a single case doesn't return then we revert to `false`
-    //       Obviously if there are no cases then the switch doesn't return.
-    bool returnsOnAllCodePaths = !switchStmt->statements.empty();
-
+void gulc::CodeProcessor::processSwitchStmt(gulc::SwitchStmt* switchStmt) {
     processExpr(switchStmt->condition);
 
     // TODO: We should really strengthen `SwitchStmt` and make `CaseStmt` the list of statements. I hate how it is just
     //       `Stmt` at the moment.
     for (Stmt*& stmt : switchStmt->statements) {
-        if (!processStmt(stmt)) {
-            returnsOnAllCodePaths = false;
-        }
+        processStmt(stmt);
     }
-
-    return returnsOnAllCodePaths;
 }
 
-bool gulc::CodeProcessor::processWhileStmt(gulc::WhileStmt* whileStmt) {
+void gulc::CodeProcessor::processWhileStmt(gulc::WhileStmt* whileStmt) {
     processExpr(whileStmt->condition);
-    return processCompoundStmt(whileStmt->body());
+    processCompoundStmt(whileStmt->body());
+}
+
+void gulc::CodeProcessor::labelResolved(std::string const& labelName) {
+    _labelNames.insert_or_assign(labelName, true);
+}
+
+void gulc::CodeProcessor::addUnresolvedLabel(std::string const& labelName) {
+    if (_labelNames.find(labelName) == _labelNames.end()) {
+        _labelNames.insert({ labelName, false });
+    }
 }
 
 //=====================================================================================================================
@@ -614,9 +966,12 @@ void gulc::CodeProcessor::processExpr(gulc::Expr*& expr) {
         case Expr::Kind::As:
             processAsExpr(llvm::dyn_cast<AsExpr>(expr));
             break;
-        case Expr::Kind::AssignmentOperator:
-            processAssignmentOperatorExpr(llvm::dyn_cast<AssignmentOperatorExpr>(expr));
+        case Expr::Kind::AssignmentOperator: {
+            auto assignmentOperatorExpr = llvm::dyn_cast<AssignmentOperatorExpr>(expr);
+            processAssignmentOperatorExpr(assignmentOperatorExpr);
+            expr = assignmentOperatorExpr;
             break;
+        }
         case Expr::Kind::BoolLiteral:
             processBoolLiteralExpr(llvm::dyn_cast<BoolLiteralExpr>(expr));
             break;
@@ -772,22 +1127,81 @@ void gulc::CodeProcessor::processAsExpr(gulc::AsExpr* asExpr) {
     asExpr->valueType = asExpr->asType->deepCopy();
 }
 
-void gulc::CodeProcessor::processAssignmentOperatorExpr(gulc::AssignmentOperatorExpr* assignmentOperatorExpr) {
+void gulc::CodeProcessor::processAssignmentOperatorExpr(gulc::AssignmentOperatorExpr*& assignmentOperatorExpr) {
     processExpr(assignmentOperatorExpr->leftValue);
     processExpr(assignmentOperatorExpr->rightValue);
 
-    Type* rightType = assignmentOperatorExpr->rightValue->valueType;
+    Type* checkType = assignmentOperatorExpr->leftValue->valueType;
 
-    if (assignmentOperatorExpr->hasNestedOperator()) {
-        // TODO: Handle nested operator the same as our infix operator
-        //       Also change `rightType` if the nested operator is overloaded.
+    if (llvm::isa<ReferenceType>(checkType)) {
+        checkType = llvm::dyn_cast<ReferenceType>(checkType)->nestedType;
     }
 
-    // TODO: Validate that `rightType` can be casted to `leftType` (if they aren't the same type)
+    // If the left side is a `Struct` then we handle assignments differently. A struct assignment uses copy/move
+    // constructors for assignment.
+    if (llvm::isa<StructType>(checkType)) {
+        if (assignmentOperatorExpr->hasNestedOperator()) {
+            // TODO: Handle nested operator the same as our infix operator
+            //       Also change `rightType` if the nested operator is overloaded.
+        }
 
-    assignmentOperatorExpr->valueType = assignmentOperatorExpr->leftValue->valueType->deepCopy();
-    // TODO: Is this right? I believe we'll end up returning the actual alloca from CodeGen so this seems right to me.
-    assignmentOperatorExpr->valueType->setIsLValue(true);
+        // TODO: If `rightValue->valueType` isn't the same as `checkType` search for a valid cast
+
+        // We only convert lvalue to rvalue if the type is a reference. We still need some kind of underlying
+        // reference-type.
+        if (llvm::isa<ReferenceType>(assignmentOperatorExpr->rightValue->valueType)) {
+            assignmentOperatorExpr->rightValue = convertLValueToRValue(assignmentOperatorExpr->rightValue);
+        }
+
+        StructAssignmentOperatorExpr* newStructAssignment;
+
+        // TODO: Default is `move`, not `copy`. Change to `move` when we handle it properly.
+        if (assignmentOperatorExpr->hasNestedOperator()) {
+            newStructAssignment = new StructAssignmentOperatorExpr(
+                    StructAssignmentType::Copy,
+                    assignmentOperatorExpr->leftValue,
+                    assignmentOperatorExpr->rightValue,
+                    assignmentOperatorExpr->nestedOperator(),
+                    assignmentOperatorExpr->startPosition(),
+                    assignmentOperatorExpr->endPosition()
+            );
+        } else {
+            newStructAssignment = new StructAssignmentOperatorExpr(
+                    StructAssignmentType::Copy,
+                    assignmentOperatorExpr->leftValue,
+                    assignmentOperatorExpr->rightValue,
+                    assignmentOperatorExpr->startPosition(),
+                    assignmentOperatorExpr->endPosition()
+            );
+        }
+
+        newStructAssignment->temporaryValues = assignmentOperatorExpr->temporaryValues;
+
+        // Remove any stolen pointers and delete the old assignment
+        assignmentOperatorExpr->leftValue = nullptr;
+        assignmentOperatorExpr->rightValue = nullptr;
+        assignmentOperatorExpr->temporaryValues.clear();
+        delete assignmentOperatorExpr;
+
+        newStructAssignment->valueType = checkType->deepCopy();
+        newStructAssignment->valueType->setIsLValue(true);
+
+        assignmentOperatorExpr = newStructAssignment;
+        return;
+    } else {
+        if (assignmentOperatorExpr->hasNestedOperator()) {
+            // TODO: Handle nested operator the same as our infix operator
+            //       Also change `rightType` if the nested operator is overloaded.
+        } else {
+            assignmentOperatorExpr->rightValue = convertLValueToRValue(assignmentOperatorExpr->rightValue);
+        }
+
+        // TODO: Validate that `rightType` can be casted to `leftType` (if they aren't the same type)
+
+        assignmentOperatorExpr->valueType = assignmentOperatorExpr->leftValue->valueType->deepCopy();
+        // TODO: Is this right? I believe we'll end up returning the actual alloca from CodeGen so this seems right to me.
+        assignmentOperatorExpr->valueType->setIsLValue(true);
+    }
 }
 
 void gulc::CodeProcessor::processBoolLiteralExpr(gulc::BoolLiteralExpr* boolLiteralExpr) {
@@ -803,6 +1217,10 @@ void gulc::CodeProcessor::processCheckExtendsTypeExpr(gulc::CheckExtendsTypeExpr
 }
 
 void gulc::CodeProcessor::processConstructorCallExpr(gulc::ConstructorCallExpr* constructorCallExpr) {
+
+}
+
+void gulc::CodeProcessor::processConstructorReferenceExpr(gulc::ConstructorReferenceExpr* constructorReferenceExpr) {
 
 }
 
@@ -2515,6 +2933,7 @@ void gulc::CodeProcessor::processInfixOperatorExpr(gulc::InfixOperatorExpr* infi
             }
 
             infixOperatorExpr->valueType = new BoolType(Type::Qualifier::Immut, {}, {});
+            infixOperatorExpr->valueType->setIsLValue(false);
             return;
         default:
             // We continue, looking for built in type instead.
@@ -2609,9 +3028,10 @@ void gulc::CodeProcessor::processInfixOperatorExpr(gulc::InfixOperatorExpr* infi
             break;
         default:
             infixOperatorExpr->valueType = resultType->deepCopy();
-            infixOperatorExpr->valueType->setIsLValue(false);
             break;
     }
+
+    infixOperatorExpr->valueType->setIsLValue(false);
 
     // At this point is properly validated and any required casts are complete.
 }
@@ -2886,8 +3306,12 @@ void gulc::CodeProcessor::processMemberAccessCallExpr(gulc::Expr*& expr) {
 
         // If we've reached this point we need to convert any lvalue object references to rvalues and dereference any
         // implicit references
-        // TODO: Dereference implicit references
-        memberAccessCallExpr->objectRef = convertLValueToRValue(memberAccessCallExpr->objectRef);
+        // We only convert lvalue to rvalue if the object is a reference type. The reason for this is because we
+        // actually need SOME type of reference to actually index tha data out of the struct. So `objectRef` either
+        // needs to be an `lvalue` or a `ref`. If it is neither something is wrong
+        if (llvm::isa<ReferenceType>(memberAccessCallExpr->objectRef->valueType)) {
+            memberAccessCallExpr->objectRef = convertLValueToRValue(memberAccessCallExpr->objectRef);
+        }
 
         // Support:
         //  * `prop`
@@ -3819,9 +4243,22 @@ void gulc::CodeProcessor::processVariableDeclExpr(gulc::VariableDeclExpr* variab
     if (variableDeclExpr->initialValue != nullptr) {
         processExpr(variableDeclExpr->initialValue);
 
-        // We convert lvalue to rvalue but we DO NOT remove `ref` UNLESS `variableDeclExpr->type` isn't `ref`
-        // TODO: Handle implicit references
-        variableDeclExpr->initialValue = convertLValueToRValue(variableDeclExpr->initialValue);
+        Type* checkType = variableDeclExpr->type;
+
+        if (checkType == nullptr) {
+            checkType = variableDeclExpr->initialValue->valueType;
+        }
+
+        // If the variable is a struct type we have to handle initial value differently. Initial value assignments MUST
+        // be done through a struct assignment, meaning we either `copy` or `move`
+        if (llvm::isa<StructType>(checkType)) {
+            // TODO: Default struct assignment type should be `move` when possible.
+            variableDeclExpr->initialValueAssignmentType = InitialValueAssignmentType::Copy;
+        } else {
+            // We convert lvalue to rvalue but we DO NOT remove `ref` UNLESS `variableDeclExpr->type` isn't `ref`
+            // TODO: Handle implicit references
+            variableDeclExpr->initialValue = convertLValueToRValue(variableDeclExpr->initialValue);
+        }
 
         if (variableDeclExpr->type == nullptr) {
             // If the type wasn't explicitly set then we infer the type from the value type of the initial value
@@ -3830,6 +4267,8 @@ void gulc::CodeProcessor::processVariableDeclExpr(gulc::VariableDeclExpr* variab
     }
 
     // TODO: Should we support local variable shadowing like Rust (and partially like Swift?)
+    //       I really like the idea, especially with immut-by-default. Just need emit warnings in scenarios where the
+    //       shadowing looks unintentional (as ambiguous as that is)...
     for (VariableDeclExpr* checkVariable : _localVariables) {
         if (checkVariable->identifier().name() == variableDeclExpr->identifier().name()) {
             printError("local variable `" + variableDeclExpr->identifier().name() + "` redefined!",

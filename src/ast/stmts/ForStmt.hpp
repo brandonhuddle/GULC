@@ -52,11 +52,21 @@ namespace gulc {
                                _startPosition, _endPosition);
         }
 
+        // This is used by the passes to store the number of local variables that exist in the context of the for loop
+        // This SHOULD contain the number of variables declared in `preLoop`
+        unsigned int currentNumLocalVariables;
+        // This is used to call the destructors on any local variables that were declared in the `init`
+        std::vector<Expr*> postLoopCleanup;
+
         ~ForStmt() override {
             delete init;
             delete condition;
             delete iteration;
             delete _body;
+
+            for (auto expr : postLoopCleanup) {
+                delete expr;
+            }
         }
 
     protected:

@@ -62,7 +62,7 @@ namespace gulc {
         ///       ALWAYS `const`, making them an unassignable `lvalue`.
         bool isLValue() const { return _isLValue; }
         void setQualifier(Qualifier qualifier) { _qualifier = qualifier; }
-        void setIsLValue(bool isLValue) { _isLValue = true; }
+        void setIsLValue(bool isLValue) { _isLValue = isLValue; }
 
         virtual std::string toString() const = 0;
         virtual Type* deepCopy() const = 0;

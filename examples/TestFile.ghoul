@@ -15,6 +15,23 @@ struct vec3 {
         self.z = 0
     }
 
+    init copy(_ other: ref Self) {
+        self.x = other.x
+        self.y = other.y
+        self.z = other.z
+    }
+
+    init move(_ other: ref mut Self) {
+        self.x = other.x
+        self.y = other.y
+        self.z = other.z
+
+        // These are unneeded but I'm including them just for filler
+        other.x = 0
+        other.y = 0
+        other.z = 0
+    }
+
     init(x: i32, y: i32, z: i32) {
         self.x = x
         self.y = y
@@ -38,12 +55,13 @@ func boolTest() -> bool {
 
 func main() -> i32 {
     let testVec: vec3 = vec3(x: 0, y: 12, z: 44)
-    //let templateTest = TemplateTest<i32>()
-    let testFloat: f32 = 12.0
-    let testInt: i32 = 44
-
-    //goto test
-
-test:
-    return try manglerTest(arg: testInt)
+    return testVec.y
+//    let templateTest = TemplateTest<i32>()
+//    let testFloat: f32 = 12.0
+//    let testInt: i32 = 44
+//
+//    goto test
+//
+//test:
+//    return try manglerTest(arg: testInt)
 }

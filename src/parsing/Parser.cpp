@@ -706,6 +706,46 @@ ConstructorDecl* Parser::parseConstructorDecl(std::vector<Attr*> attributes, Dec
     TextPosition endPosition;
 
     std::vector<ParameterDecl*> parameters(parseParameters(&endPosition));
+    FunctionCallExpr* baseConstructorCall = nullptr;
+
+    // Example: `init() : base() throws {}`
+    if (_lexer.consumeType(TokenType::COLON)) {
+        std::string const& checkSymbol = _lexer.peekCurrentSymbol();
+        Expr* functionRef = nullptr;
+
+        if (checkSymbol == "base" || checkSymbol == "self") {
+            functionRef = new IdentifierExpr(
+                    Identifier(
+                            _lexer.peekStartPosition(),
+                            _lexer.peekEndPosition(),
+                            checkSymbol
+                        ),
+                    {}
+                );
+
+            _lexer.consumeType(TokenType::SYMBOL);
+        } else {
+            printError("expected `base` or `self` after `:`, found `" + checkSymbol + "`!",
+                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
+        }
+
+        std::vector<LabeledArgumentExpr*> arguments = parseCallArguments(TokenType::RPAREN);
+
+        TextPosition baseConstructorCallEndPosition = _lexer.peekToken().endPosition;
+
+        if (!_lexer.consumeType(TokenType::RPAREN)) {
+            printError("expected ending ')' for base constructor call! "
+                       "(found '" + _lexer.peekToken().currentSymbol + "')",
+                       _lexer.peekToken().startPosition, _lexer.peekToken().endPosition);
+            return nullptr;
+        }
+
+        baseConstructorCall = new FunctionCallExpr(
+                functionRef, arguments,
+                functionRef->startPosition(), baseConstructorCallEndPosition
+            );
+    }
+
     std::vector<Cont*> contracts(parseConts());
     CompoundStmt* body = nullptr;
 
@@ -720,8 +760,8 @@ ConstructorDecl* Parser::parseConstructorDecl(std::vector<Attr*> attributes, Dec
     }
 
     return new ConstructorDecl(_fileID, std::move(attributes), visibility, isConstExpr, initKeyword,
-                               declModifiers, parameters, contracts, body, startPosition, endPosition,
-                               constructorType);
+                               declModifiers, parameters, baseConstructorCall, contracts, body,
+                               startPosition, endPosition, constructorType);
 }
 
 DestructorDecl* Parser::parseDestructorDecl(std::vector<Attr*> attributes, Decl::Visibility visibility,

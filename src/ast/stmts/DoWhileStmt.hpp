@@ -51,6 +51,9 @@ namespace gulc {
                                    _whileStartPosition, _whileEndPosition);
         }
 
+        // This is used by the passes to store the number of local variables that exist in the context of the for loop
+        unsigned int currentNumLocalVariables;
+
         ~DoWhileStmt() override {
             delete condition;
             delete _body;

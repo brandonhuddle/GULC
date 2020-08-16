@@ -170,6 +170,10 @@ add_executable(gulc
         src/ast/exprs/ConstructorReferenceExpr.hpp
         src/ast/exprs/CurrentSelfExpr.cpp
         src/ast/exprs/CurrentSelfExpr.hpp
+        src/ast/exprs/DestructorCallExpr.cpp
+        src/ast/exprs/DestructorCallExpr.hpp
+        src/ast/exprs/DestructorReferenceExpr.cpp
+        src/ast/exprs/DestructorReferenceExpr.hpp
         src/ast/exprs/FunctionCallExpr.cpp
         src/ast/exprs/FunctionCallExpr.hpp
         src/ast/exprs/FunctionReferenceExpr.cpp
@@ -216,6 +220,8 @@ add_executable(gulc
         src/ast/exprs/PrefixOperatorExpr.hpp
         src/ast/exprs/PropertyRefExpr.cpp
         src/ast/exprs/PropertyRefExpr.hpp
+        src/ast/exprs/StructAssignmentOperatorExpr.cpp
+        src/ast/exprs/StructAssignmentOperatorExpr.hpp
         src/ast/exprs/SubscriptCallExpr.cpp
         src/ast/exprs/SubscriptCallExpr.hpp
         src/ast/exprs/SubscriptRefExpr.cpp

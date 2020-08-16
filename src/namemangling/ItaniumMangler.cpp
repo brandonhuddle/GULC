@@ -211,7 +211,19 @@ void gulc::ItaniumMangler::mangleConstructor(gulc::ConstructorDecl* constructorD
     mangledName += nameSuffix;
     mangledNameVTable += nameSuffix;
 
-    std::string bareFunctionTypeResult = bareFunctionType(constructorDecl->parameters());
+    std::string bareFunctionTypeResult;
+
+    switch (constructorDecl->constructorType()) {
+        case ConstructorType::Normal:
+            bareFunctionTypeResult = bareFunctionType(constructorDecl->parameters());
+            break;
+        case ConstructorType::Copy:
+            bareFunctionTypeResult = "RKS_";
+            break;
+        case ConstructorType::Move:
+            bareFunctionTypeResult = "OS_";
+            break;
+    }
 
     // We only have to use <bare-function-name> since there isn't a namespace yet.
     mangledName += bareFunctionTypeResult;

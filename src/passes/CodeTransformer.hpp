@@ -65,6 +65,10 @@
 #include <ast/exprs/MemberFunctionCallExpr.hpp>
 #include <ast/exprs/IsExpr.hpp>
 #include <ast/exprs/LocalVariableRefExpr.hpp>
+#include <ast/exprs/DestructorCallExpr.hpp>
+#include <ast/stmts/BreakStmt.hpp>
+#include <ast/stmts/ContinueStmt.hpp>
+#include <ast/stmts/GotoStmt.hpp>
 
 namespace gulc {
     /**
@@ -80,7 +84,9 @@ namespace gulc {
     public:
         CodeTransformer(gulc::Target const& target, std::vector<std::string> const& filePaths,
                         std::vector<NamespaceDecl*>& namespacePrototypes)
-                : _target(target), _filePaths(filePaths), _namespacePrototypes(namespacePrototypes), _currentFile() {}
+                : _target(target), _filePaths(filePaths), _namespacePrototypes(namespacePrototypes),
+                  _currentFile(nullptr), _currentFunction(nullptr), _currentParameters(nullptr),
+                  _currentLoop(nullptr) {}
 
         void processFiles(std::vector<ASTFile>& files);
 
@@ -97,6 +103,7 @@ namespace gulc {
         std::vector<std::vector<VariableDeclExpr*>> _temporaryValues;
         // This is a number kept just to keep temporary value variable names unique
         int _temporaryValueVarNumber = 0;
+        Stmt* _currentLoop;
 
         void printError(std::string const& message, TextPosition startPosition, TextPosition endPosition) const;
         void printWarning(std::string const& message, TextPosition startPosition, TextPosition endPosition) const;
@@ -120,24 +127,32 @@ namespace gulc {
         void processTraitDecl(TraitDecl* traitDecl);
         void processVariableDecl(VariableDecl* variableDecl);
 
-        void processStmt(Stmt*& stmt);
-        void processCaseStmt(CaseStmt* caseStmt);
-        void processCatchStmt(CatchStmt* catchStmt);
-        void processCompoundStmt(CompoundStmt* compoundStmt);
+        // NOTE: Returns true if the statement returns on all code paths.
+        bool processStmt(Stmt*& stmt);
+        bool processBreakStmt(BreakStmt* breakStmt);
+        bool processCaseStmt(CaseStmt* caseStmt);
+        bool processCatchStmt(CatchStmt* catchStmt);
+        bool processCompoundStmt(CompoundStmt* compoundStmt);
         // NOTE: This is a special case to process `processCompoundStmt` with temporary value awareness without
         //       allowing the compound statement to be replaced (like `processStmt` allows)
-        void processCompoundStmtHandleTempValues(CompoundStmt* compoundStmt);
-        void processDoCatchStmt(DoCatchStmt* doCatchStmt);
-        void processDoWhileStmt(DoWhileStmt* doWhileStmt);
-        void processForStmt(ForStmt* forStmt);
-        void processIfStmt(IfStmt* ifStmt);
+        bool processCompoundStmtHandleTempValues(CompoundStmt* compoundStmt);
+        bool processContinueStmt(ContinueStmt* continueStmt);
+        bool processDoCatchStmt(DoCatchStmt* doCatchStmt);
+        bool processDoWhileStmt(DoWhileStmt* doWhileStmt);
+        bool processForStmt(ForStmt* forStmt);
+        bool processGotoStmt(GotoStmt* gotoStmt);
+        bool processIfStmt(IfStmt* ifStmt);
         // NOTE: This is a special case to process `processIfStmt` with temporary value awareness without
         //       allowing the if statement to be replaced (like `processStmt` allows)
-        void processIfStmtHandleTempValues(IfStmt* ifStmt);
-        void processLabeledStmt(LabeledStmt* labeledStmt);
-        void processReturnStmt(ReturnStmt* returnStmt);
-        void processSwitchStmt(SwitchStmt* switchStmt);
-        void processWhileStmt(WhileStmt* whileStmt);
+        bool processIfStmtHandleTempValues(IfStmt* ifStmt);
+        bool processLabeledStmt(LabeledStmt* labeledStmt);
+        bool processReturnStmt(ReturnStmt* returnStmt);
+        bool processSwitchStmt(SwitchStmt* switchStmt);
+        bool processWhileStmt(WhileStmt* whileStmt);
+
+        void destructLocalVariablesDeclaredAfterLoop(Stmt* loop, std::vector<Expr*>& addToList);
+        DestructorCallExpr* destructLocalVariable(VariableDeclExpr* localVariable);
+        DestructorCallExpr* destructParameter(std::size_t paramIndex, ParameterDecl* parameterDecl);
 
         void processExpr(Expr*& expr);
         void processArrayLiteralExpr(ArrayLiteralExpr* arrayLiteralExpr);

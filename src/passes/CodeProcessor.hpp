@@ -138,6 +138,8 @@ namespace gulc {
         std::vector<std::vector<TemplateParameterDecl*>*> _allTemplateParameters;
         std::vector<ParameterDecl*>* _currentParameters;
         std::vector<VariableDeclExpr*> _localVariables;
+        // List of resolved and unresolved labels (if the boolean is true then it is resolved, else it isn't found)
+        std::map<std::string, bool> _labelNames;
 
         void printError(std::string const& message, TextPosition startPosition, TextPosition endPosition) const;
         void printWarning(std::string const& message, TextPosition startPosition, TextPosition endPosition) const;
@@ -146,6 +148,7 @@ namespace gulc {
         CurrentSelfExpr* getCurrentSelfRef(TextPosition startPosition, TextPosition endPosition) const;
 
         void processDecl(Decl* decl);
+        void processConstructorDecl(ConstructorDecl* constructorDecl, CompoundStmt* temporaryInitializersCompoundStmt);
         void processEnumDecl(EnumDecl* enumDecl);
         void processExtensionDecl(ExtensionDecl* extensionDecl);
         void processFunctionDecl(FunctionDecl* functionDecl);
@@ -164,31 +167,46 @@ namespace gulc {
         void processTraitDecl(TraitDecl* traitDecl);
         void processVariableDecl(VariableDecl* variableDecl);
 
+        void processBaseConstructorCall(StructDecl* structDecl, FunctionCallExpr*& functionCallExpr);
+        ConstructorCallExpr* createBaseMoveCopyConstructorCall(ConstructorDecl* baseConstructorDecl,
+                                                               ParameterDecl* otherParameterDecl,
+                                                               TextPosition startPosition,
+                                                               TextPosition endPosition);
+
+        // Creates a compound statement containing initializers for every member in the struct.
+        // NOTE: The compound statement will NOT already be processed by `CodeProcessor` you will have to do that
+        //       yourself!
+        CompoundStmt* createStructMemberInitializersCompoundStmt(StructDecl* structDecl);
+
         // NOTE: Returns true if the statement returns on all code paths.
-        bool processStmt(Stmt*& stmt);
-        bool processBreakStmt(BreakStmt* breakStmt);
-        bool processCaseStmt(CaseStmt* caseStmt);
-        bool processCatchStmt(CatchStmt* catchStmt);
-        bool processCompoundStmt(CompoundStmt* compoundStmt);
-        bool processContinueStmt(ContinueStmt* continueStmt);
-        bool processDoCatchStmt(DoCatchStmt* doCatchStmt);
-        bool processDoWhileStmt(DoWhileStmt* doWhileStmt);
-        bool processForStmt(ForStmt* forStmt);
-        bool processGotoStmt(GotoStmt* gotoStmt);
-        bool processIfStmt(IfStmt* ifStmt);
-        bool processLabeledStmt(LabeledStmt* labeledStmt);
-        bool processReturnStmt(ReturnStmt* returnStmt);
-        bool processSwitchStmt(SwitchStmt* switchStmt);
-        bool processWhileStmt(WhileStmt* whileStmt);
+        void processStmt(Stmt*& stmt);
+        void processBreakStmt(BreakStmt* breakStmt);
+        void processCaseStmt(CaseStmt* caseStmt);
+        void processCatchStmt(CatchStmt* catchStmt);
+        void processCompoundStmt(CompoundStmt* compoundStmt);
+        void processContinueStmt(ContinueStmt* continueStmt);
+        void processDoCatchStmt(DoCatchStmt* doCatchStmt);
+        void processDoWhileStmt(DoWhileStmt* doWhileStmt);
+        void processForStmt(ForStmt* forStmt);
+        void processGotoStmt(GotoStmt* gotoStmt);
+        void processIfStmt(IfStmt* ifStmt);
+        void processLabeledStmt(LabeledStmt* labeledStmt);
+        void processReturnStmt(ReturnStmt* returnStmt);
+        void processSwitchStmt(SwitchStmt* switchStmt);
+        void processWhileStmt(WhileStmt* whileStmt);
+
+        void labelResolved(std::string const& labelName);
+        void addUnresolvedLabel(std::string const& labelName);
 
         void processExpr(Expr*& expr);
         void processArrayLiteralExpr(ArrayLiteralExpr* arrayLiteralExpr);
         void processAsExpr(AsExpr* asExpr);
-        void processAssignmentOperatorExpr(AssignmentOperatorExpr* assignmentOperatorExpr);
+        void processAssignmentOperatorExpr(AssignmentOperatorExpr*& assignmentOperatorExpr);
         void processBoolLiteralExpr(BoolLiteralExpr* boolLiteralExpr);
         void processCallOperatorReferenceExpr(CallOperatorReferenceExpr* callOperatorReferenceExpr);
         void processCheckExtendsTypeExpr(CheckExtendsTypeExpr* checkExtendsTypeExpr);
         void processConstructorCallExpr(ConstructorCallExpr* constructorCallExpr);
+        void processConstructorReferenceExpr(ConstructorReferenceExpr* constructorReferenceExpr);
         void processEnumConstRefExpr(EnumConstRefExpr* enumConstRefExpr);
         void processFunctionCallExpr(FunctionCallExpr*& functionCallExpr);
         Decl* findMatchingFunctorDecl(std::vector<Decl*>& searchDecls, IdentifierExpr* identifierExpr,

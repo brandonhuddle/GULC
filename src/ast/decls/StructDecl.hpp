@@ -76,6 +76,16 @@ namespace gulc {
         std::vector<ConstructorDecl*> const& constructors() const { return _constructors; }
         DestructorDecl* destructor;
 
+        // NOTE: `cachedDefaultConstructor` is only "cached" so you don't need to look it up in `constructors`
+        //       multiple times. I does NOT need to be freed as it is still stored in `constructors`.
+        ConstructorDecl* cachedDefaultConstructor;
+        // NOTE: `cachedMoveConstructor` is only "cached" so you don't need to look it up in `constructors`
+        //       multiple times. I does NOT need to be freed as it is still stored in `constructors`.
+        ConstructorDecl* cachedMoveConstructor;
+        // NOTE: `cachedCopyConstructor` is only "cached" so you don't need to look it up in `constructors`
+        //       multiple times. I does NOT need to be freed as it is still stored in `constructors`.
+        ConstructorDecl* cachedCopyConstructor;
+
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }
 

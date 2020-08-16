@@ -31,14 +31,19 @@ namespace gulc {
 
         LabeledStmt(Identifier label, Stmt* labeledStmt)
                 : Stmt(Stmt::Kind::Labeled),
-                  _label(std::move(label)), labeledStmt(labeledStmt) {}
+                  _label(std::move(label)), labeledStmt(labeledStmt), currentNumLocalVariables(0) {}
 
         TextPosition startPosition() const override { return _label.startPosition(); }
         TextPosition endPosition() const override { return _label.endPosition(); }
 
         Stmt* deepCopy() const override {
-            return new LabeledStmt(_label, labeledStmt->deepCopy());
+            auto result = new LabeledStmt(_label, labeledStmt->deepCopy());
+            result->currentNumLocalVariables = currentNumLocalVariables;
+            return result;
         }
+
+        // This is used by the passes to store the number of local variables that were declared before the label
+        unsigned int currentNumLocalVariables;
 
         ~LabeledStmt() override {
             delete labeledStmt;

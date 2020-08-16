@@ -23,17 +23,27 @@
 #include <ast/Type.hpp>
 
 namespace gulc {
+    // For structs we have to handle assignments differently. We do so by storing how the initial value should be
+    // handled specially. `Normal` is used for all non-structs.
+    enum class InitialValueAssignmentType {
+        Normal,
+        Move,
+        Copy,
+    };
+
     class VariableDeclExpr : public Expr {
     public:
         static bool classof(const Expr* expr) { return expr->getExprKind() == Expr::Kind::VariableDecl; }
 
         Type* type;
         Expr* initialValue;
+        InitialValueAssignmentType initialValueAssignmentType;
 
         VariableDeclExpr(Identifier identifier, Type* type, Expr* initialValue, bool isAssignable,
                          TextPosition startPosition, TextPosition endPosition)
                 : Expr(Expr::Kind::VariableDecl),
-                  type(type), initialValue(initialValue), _identifier(std::move(identifier)),
+                  type(type), initialValue(initialValue),
+                  initialValueAssignmentType(InitialValueAssignmentType::Normal), _identifier(std::move(identifier)),
                   _isAssignable(isAssignable), _startPosition(startPosition), _endPosition(endPosition) {}
 
         Identifier const& identifier() const { return _identifier; }

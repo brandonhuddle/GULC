@@ -35,15 +35,15 @@ namespace gulc {
 
         AssignmentOperatorExpr(Expr* leftValue, Expr* rightValue, InfixOperators nestedOperator,
                                TextPosition startPosition, TextPosition endPosition)
-                : Expr(Expr::Kind::AssignmentOperator),
-                  leftValue(leftValue), rightValue(rightValue), _startPosition(startPosition),
-                  _endPosition(endPosition), _hasNestedOperator(true), _nestedOperator(nestedOperator) {}
+                : AssignmentOperatorExpr(Expr::Kind::AssignmentOperator, leftValue, rightValue,
+                                         startPosition, endPosition,
+                                         true, nestedOperator) {}
 
         AssignmentOperatorExpr(Expr* leftValue, Expr* rightValue,
                                TextPosition startPosition, TextPosition endPosition)
-                : Expr(Expr::Kind::AssignmentOperator),
-                  leftValue(leftValue), rightValue(rightValue), _startPosition(startPosition),
-                  _endPosition(endPosition), _hasNestedOperator(false), _nestedOperator(InfixOperators::Unknown) {}
+                : AssignmentOperatorExpr(Expr::Kind::AssignmentOperator, leftValue, rightValue,
+                                         startPosition, endPosition,
+                                         false, InfixOperators::Unknown) {}
 
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }
@@ -83,6 +83,13 @@ namespace gulc {
         TextPosition _endPosition;
         bool _hasNestedOperator;
         InfixOperators _nestedOperator;
+
+        AssignmentOperatorExpr(Expr::Kind exprKind, Expr* leftValue, Expr* rightValue,
+                               TextPosition startPosition, TextPosition endPosition,
+                               bool hasNestedOperator, InfixOperators nestedOperator)
+                : Expr(exprKind),
+                  leftValue(leftValue), rightValue(rightValue), _startPosition(startPosition),
+                  _endPosition(endPosition), _hasNestedOperator(hasNestedOperator), _nestedOperator(nestedOperator) {}
 
     };
 }

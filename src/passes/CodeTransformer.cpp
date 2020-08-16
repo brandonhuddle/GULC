@@ -17,7 +17,11 @@
  */
 #include <iostream>
 #include <ast/types/BuiltInType.hpp>
+#include <ast/exprs/ParameterRefExpr.hpp>
 #include "CodeTransformer.hpp"
+#include <make_reverse_iterator.hpp>
+#include <ast/exprs/CurrentSelfExpr.hpp>
+#include <ast/types/ReferenceType.hpp>
 
 void gulc::CodeTransformer::processFiles(std::vector<ASTFile>& files) {
     for (ASTFile& file : files) {
@@ -133,7 +137,27 @@ void gulc::CodeTransformer::processFunctionDecl(gulc::FunctionDecl* functionDecl
 
     // Prototypes don't have bodies
     if (!functionDecl->isPrototype()) {
-        processCompoundStmtHandleTempValues(functionDecl->body());
+        bool returnsOnAllCodePaths = processCompoundStmtHandleTempValues(functionDecl->body());
+
+        if (!returnsOnAllCodePaths) {
+            // If the function doesn't return on all code paths but the function returns `void` we add in a default
+            // `return` to the end.
+            // If the function returns non-void we error out saying the function doesn't return on all code paths, this
+            // is to prevent potential errors the programmer might miss.
+            if (functionDecl->returnType == nullptr ||
+                    (llvm::isa<BuiltInType>(functionDecl->returnType) &&
+                     llvm::dyn_cast<BuiltInType>(functionDecl->returnType)->sizeInBytes() == 0)) {
+                auto defaultReturn = new ReturnStmt({}, {});
+                // We pass it in to `processReturnStmt` so that all values are properly destructed.
+                // I don't believe we need to tell it not to destruct local variables as `processCompoundStmt` should
+                // clean up any local variables already. `processReturnStmt` shouldn't be able to seel the old locals
+                processReturnStmt(defaultReturn);
+                functionDecl->body()->statements.push_back(defaultReturn);
+            } else {
+                printError("function `" + functionDecl->identifier().name() + "` does not return on all code paths!",
+                           functionDecl->startPosition(), functionDecl->endPosition());
+            }
+        }
     }
 
     _currentParameters = oldParameters;
@@ -231,53 +255,55 @@ void gulc::CodeTransformer::processVariableDecl(gulc::VariableDecl* variableDecl
     }
 }
 
-void gulc::CodeTransformer::processStmt(gulc::Stmt*& stmt) {
+bool gulc::CodeTransformer::processStmt(gulc::Stmt*& stmt) {
     std::size_t oldTemporaryValuesSize = _temporaryValues.size();
-    _temporaryValues.push_back(std::vector<VariableDeclExpr*>());
+    _temporaryValues.emplace_back(std::vector<VariableDeclExpr*>());
+
+    bool returnsOnAllCodePaths = false;
 
     switch (stmt->getStmtKind()) {
         case Stmt::Kind::Break:
-            // NOTE: There isn't anything in `break` that we need to process here.
+            returnsOnAllCodePaths = processBreakStmt(llvm::dyn_cast<BreakStmt>(stmt));
             break;
         case Stmt::Kind::Case:
-            processCaseStmt(llvm::dyn_cast<CaseStmt>(stmt));
+            returnsOnAllCodePaths = processCaseStmt(llvm::dyn_cast<CaseStmt>(stmt));
             break;
         case Stmt::Kind::Catch:
             // TODO: I don't think this should be included in the general area either...
-            processCatchStmt(llvm::dyn_cast<CatchStmt>(stmt));
+            returnsOnAllCodePaths = processCatchStmt(llvm::dyn_cast<CatchStmt>(stmt));
             break;
         case Stmt::Kind::Compound:
-            processCompoundStmt(llvm::dyn_cast<CompoundStmt>(stmt));
+            returnsOnAllCodePaths = processCompoundStmt(llvm::dyn_cast<CompoundStmt>(stmt));
             break;
         case Stmt::Kind::Continue:
-            // NOTE: There isn't anything in `continue` that we need to process here.
+            returnsOnAllCodePaths = processContinueStmt(llvm::dyn_cast<ContinueStmt>(stmt));
             break;
         case Stmt::Kind::DoCatch:
-            processDoCatchStmt(llvm::dyn_cast<DoCatchStmt>(stmt));
+            returnsOnAllCodePaths = processDoCatchStmt(llvm::dyn_cast<DoCatchStmt>(stmt));
             break;
         case Stmt::Kind::DoWhile:
-            processDoWhileStmt(llvm::dyn_cast<DoWhileStmt>(stmt));
+            returnsOnAllCodePaths = processDoWhileStmt(llvm::dyn_cast<DoWhileStmt>(stmt));
             break;
         case Stmt::Kind::For:
-            processForStmt(llvm::dyn_cast<ForStmt>(stmt));
+            returnsOnAllCodePaths = processForStmt(llvm::dyn_cast<ForStmt>(stmt));
             break;
         case Stmt::Kind::Goto:
-            // NOTE: There isn't anything in `goto` that we need to process here.
+            returnsOnAllCodePaths = processGotoStmt(llvm::dyn_cast<GotoStmt>(stmt));
             break;
         case Stmt::Kind::If:
-            processIfStmt(llvm::dyn_cast<IfStmt>(stmt));
+            returnsOnAllCodePaths = processIfStmt(llvm::dyn_cast<IfStmt>(stmt));
             break;
         case Stmt::Kind::Labeled:
-            processLabeledStmt(llvm::dyn_cast<LabeledStmt>(stmt));
+            returnsOnAllCodePaths = processLabeledStmt(llvm::dyn_cast<LabeledStmt>(stmt));
             break;
         case Stmt::Kind::Return:
-            processReturnStmt(llvm::dyn_cast<ReturnStmt>(stmt));
+            returnsOnAllCodePaths = processReturnStmt(llvm::dyn_cast<ReturnStmt>(stmt));
             break;
         case Stmt::Kind::Switch:
-            processSwitchStmt(llvm::dyn_cast<SwitchStmt>(stmt));
+            returnsOnAllCodePaths = processSwitchStmt(llvm::dyn_cast<SwitchStmt>(stmt));
             break;
         case Stmt::Kind::While:
-            processWhileStmt(llvm::dyn_cast<WhileStmt>(stmt));
+            returnsOnAllCodePaths = processWhileStmt(llvm::dyn_cast<WhileStmt>(stmt));
             break;
 
         case Stmt::Kind::Expr: {
@@ -301,49 +327,133 @@ void gulc::CodeTransformer::processStmt(gulc::Stmt*& stmt) {
     }
 
     _temporaryValues.resize(oldTemporaryValuesSize);
+
+    return returnsOnAllCodePaths;
 }
 
-void gulc::CodeTransformer::processCaseStmt(gulc::CaseStmt* caseStmt) {
+bool gulc::CodeTransformer::processBreakStmt(gulc::BreakStmt* breakStmt) {
+    if (!breakStmt->hasBreakLabel()) {
+        destructLocalVariablesDeclaredAfterLoop(_currentLoop, breakStmt->preBreakDeferred);
+    } else {
+        LabeledStmt* breakLabel = _currentFunction->labeledStmts[breakStmt->breakLabel().name()];
+        // If the labeled statement isn't a loop that will be handled in the `CodeVerifier` since that isn't allowed.
+        destructLocalVariablesDeclaredAfterLoop(breakLabel->labeledStmt, breakStmt->preBreakDeferred);
+    }
+
+    // NOTE: This is an iffy scenario. We need a way to say "all code after this is unreachable" but not that there is
+    // a return
+    return false;
+}
+
+bool gulc::CodeTransformer::processCaseStmt(gulc::CaseStmt* caseStmt) {
     if (!caseStmt->isDefault()) {
         processExpr(caseStmt->condition);
     }
 
-    processStmt(caseStmt->trueStmt);
+    return processStmt(caseStmt->trueStmt);
 }
 
-void gulc::CodeTransformer::processCatchStmt(gulc::CatchStmt* catchStmt) {
-    processCompoundStmtHandleTempValues(catchStmt->body());
+bool gulc::CodeTransformer::processCatchStmt(gulc::CatchStmt* catchStmt) {
+    return processCompoundStmtHandleTempValues(catchStmt->body());
 }
 
-void gulc::CodeTransformer::processCompoundStmt(gulc::CompoundStmt* compoundStmt) {
+bool gulc::CodeTransformer::processCompoundStmt(gulc::CompoundStmt* compoundStmt) {
+    // For compound statements since they are an array of statements that run one after the other we only have to detect
+    // if a single statement returns on its code path. If so then we return on all code paths.
+    bool returnsOnAllCodePaths = false;
+    std::size_t oldLocalVariableCount = _localVariables.size();
+
     for (Stmt* stmt : compoundStmt->statements) {
-        processStmt(stmt);
+        if (processStmt(stmt)) {
+            returnsOnAllCodePaths = true;
+        }
     }
+
+    if (!returnsOnAllCodePaths) {
+        for (std::int64_t i = static_cast<std::int64_t>(_localVariables.size()) - 1;
+                i >= static_cast<std::int64_t>(oldLocalVariableCount); --i) {
+            auto destructLocalVariableExpr = destructLocalVariable(_localVariables[i]);
+
+            if (destructLocalVariableExpr != nullptr) {
+                compoundStmt->statements.push_back(destructLocalVariableExpr);
+            }
+        }
+    }
+
+    _localVariables.resize(oldLocalVariableCount);
+
+    return returnsOnAllCodePaths;
 }
 
-void gulc::CodeTransformer::processCompoundStmtHandleTempValues(gulc::CompoundStmt* compoundStmt) {
+bool gulc::CodeTransformer::processCompoundStmtHandleTempValues(gulc::CompoundStmt* compoundStmt) {
     Stmt* stmt = compoundStmt;
-    processStmt(stmt);
+    return processStmt(stmt);
 }
 
-void gulc::CodeTransformer::processDoCatchStmt(gulc::DoCatchStmt* doCatchStmt) {
-    processCompoundStmtHandleTempValues(doCatchStmt->body());
+bool gulc::CodeTransformer::processContinueStmt(gulc::ContinueStmt* continueStmt) {
+    if (continueStmt->hasContinueLabel()) {
+        destructLocalVariablesDeclaredAfterLoop(_currentLoop, continueStmt->preContinueDeferred);
+    } else {
+        LabeledStmt* continueLabel = _currentFunction->labeledStmts[continueStmt->continueLabel().name()];
+        // If the labeled statement isn't a loop that will be handled in the `CodeVerifier` since that isn't allowed.
+        destructLocalVariablesDeclaredAfterLoop(continueLabel->labeledStmt, continueStmt->preContinueDeferred);
+    }
+
+    // NOTE: This is an iffy scenario. We need a way to say "all code after this is unreachable" but not that there is
+    // a return
+    return false;
+}
+
+bool gulc::CodeTransformer::processDoCatchStmt(gulc::DoCatchStmt* doCatchStmt) {
+    // For `do { ... } catch { ... } finally { ... }` ALL blocks must return for the `DoCatchStmt` to return on all code
+    // paths. If a block is missing then we can ignore it.
+    // TODO: Can we ignore it?? What if we return in `finally`, doesn't that mean we return in all code paths? Since
+    //       `finally` ALWAYS runs?
+    bool returnsOnAllCodePaths = true;
+
+    if (!processCompoundStmtHandleTempValues(doCatchStmt->body())) {
+        returnsOnAllCodePaths = false;
+    }
 
     for (CatchStmt* catchStmt : doCatchStmt->catchStatements()) {
-        processCatchStmt(catchStmt);
+        if (!processCatchStmt(catchStmt)) {
+            returnsOnAllCodePaths = false;
+        }
     }
 
     if (doCatchStmt->hasFinallyStatement()) {
-        processCompoundStmtHandleTempValues(doCatchStmt->finallyStatement());
+        // TODO: Is this correct? If there is a `finally` block then we can detect `returnsOnAllCodePaths` based off of
+        //       it since it will always run?
+        returnsOnAllCodePaths = true;
+
+        if (!processCompoundStmtHandleTempValues(doCatchStmt->finallyStatement())) {
+            returnsOnAllCodePaths = false;
+        }
     }
+
+    return returnsOnAllCodePaths;
 }
 
-void gulc::CodeTransformer::processDoWhileStmt(gulc::DoWhileStmt* doWhileStmt) {
+bool gulc::CodeTransformer::processDoWhileStmt(gulc::DoWhileStmt* doWhileStmt) {
+    Stmt* oldLoop = _currentLoop;
+    _currentLoop = doWhileStmt;
+
+    doWhileStmt->currentNumLocalVariables = _localVariables.size();
     processCompoundStmtHandleTempValues(doWhileStmt->body());
     processExpr(doWhileStmt->condition);
+
+    _currentLoop = oldLoop;
+
+    // TODO: Is this true? My logic is that the `condition` could be false therefore we don't know if it returns on all
+    //       code paths.
+    return false;
 }
 
-void gulc::CodeTransformer::processForStmt(gulc::ForStmt* forStmt) {
+bool gulc::CodeTransformer::processForStmt(gulc::ForStmt* forStmt) {
+    Stmt* oldLoop = _currentLoop;
+    _currentLoop = forStmt;
+    std::size_t oldLocalVariableCount = _localVariables.size();
+
     if (forStmt->init != nullptr) {
         processExpr(forStmt->init);
     }
@@ -356,61 +466,287 @@ void gulc::CodeTransformer::processForStmt(gulc::ForStmt* forStmt) {
         processExpr(forStmt->iteration);
     }
 
+    forStmt->currentNumLocalVariables = _localVariables.size();
+
     processCompoundStmtHandleTempValues(forStmt->body());
+
+    // Delete the old local variables
+    for (std::int64_t i = static_cast<std::int64_t>(_localVariables.size()) - 1;
+            i >= static_cast<std::int64_t>(oldLocalVariableCount); --i) {
+        auto destructLocalVariableExpr = destructLocalVariable(_localVariables[i]);
+
+        if (destructLocalVariableExpr != nullptr) {
+            forStmt->postLoopCleanup.push_back(destructLocalVariableExpr);
+        }
+    }
+
+    _localVariables.resize(oldLocalVariableCount);
+    _currentLoop = oldLoop;
+
+    // TODO: Is this true? My logic is that the `condition` could be false therefore we don't know if it returns on all
+    //       code paths.
+    return false;
 }
 
-void gulc::CodeTransformer::processIfStmt(gulc::IfStmt* ifStmt) {
+bool gulc::CodeTransformer::processGotoStmt(gulc::GotoStmt* gotoStmt) {
+    LabeledStmt* gotoLabel = _currentFunction->labeledStmts[gotoStmt->label().name()];
+
+    // The `CodeVerifier` pass should handle verifying that no new variable have been declared between us and the
+    // labeled statement
+    for (std::int64_t i = static_cast<int64_t>(_localVariables.size()) - 1;
+            i >= static_cast<int64_t>(gotoLabel->currentNumLocalVariables); --i) {
+        // Add the destructor call to the end of the compound statement...
+        auto destructLocalVariableExpr = destructLocalVariable(_localVariables[i]);
+
+        if (destructLocalVariableExpr != nullptr) {
+            gotoStmt->preGotoDeferred.push_back(destructLocalVariableExpr);
+        }
+    }
+
+    return false;
+}
+
+bool gulc::CodeTransformer::processIfStmt(gulc::IfStmt* ifStmt) {
     processExpr(ifStmt->condition);
-    processCompoundStmtHandleTempValues(ifStmt->trueBody());
+    bool trueBodyReturnsOnAllCodePaths = processCompoundStmtHandleTempValues(ifStmt->trueBody());
+    bool falseBodyReturnsOnAllCodePaths = false;
 
     if (ifStmt->hasFalseBody()) {
         // NOTE: `falseBody` can only be `IfStmt` or `CompoundStmt`
         if (llvm::isa<IfStmt>(ifStmt->falseBody())) {
-            processIfStmtHandleTempValues(llvm::dyn_cast<IfStmt>(ifStmt->falseBody()));
+            falseBodyReturnsOnAllCodePaths =
+                    processIfStmtHandleTempValues(llvm::dyn_cast<IfStmt>(ifStmt->falseBody()));
         } else if (llvm::isa<CompoundStmt>(ifStmt->falseBody())) {
-            processCompoundStmtHandleTempValues(llvm::dyn_cast<CompoundStmt>(ifStmt->falseBody()));
+            falseBodyReturnsOnAllCodePaths =
+                    processCompoundStmtHandleTempValues(llvm::dyn_cast<CompoundStmt>(ifStmt->falseBody()));
+        }
+    }
+
+    // NOTE: Both sides must return on all code paths for us to return on all code paths.
+    //       If there is an `if` statement without an `else` then the `if` CANNOT return on all code paths. The `if`
+    //       might be `false`
+    return trueBodyReturnsOnAllCodePaths && falseBodyReturnsOnAllCodePaths;
+}
+
+bool gulc::CodeTransformer::processIfStmtHandleTempValues(gulc::IfStmt* ifStmt) {
+    Stmt* stmt = ifStmt;
+    return processStmt(stmt);
+}
+
+bool gulc::CodeTransformer::processLabeledStmt(gulc::LabeledStmt* labeledStmt) {
+    return processStmt(labeledStmt->labeledStmt);
+}
+
+bool gulc::CodeTransformer::processReturnStmt(gulc::ReturnStmt* returnStmt) {
+    if (returnStmt->returnValue != nullptr) {
+        processExpr(returnStmt->returnValue);
+    }
+
+    // Add the destructor calls to the pre return expression list
+    for (VariableDeclExpr* localVariable : gulc::reverse(_localVariables)) {
+        auto destructLocalVariableExpr = destructLocalVariable(localVariable);
+
+        if (destructLocalVariableExpr != nullptr) {
+            returnStmt->preReturnDeferred.push_back(destructLocalVariableExpr);
+        }
+    }
+
+    // We only destruct parameters on return statements
+    if (_currentParameters != nullptr) {
+        for (std::int64_t i = static_cast<int64_t>(_currentParameters->size()) - 1; i >= 0; --i) {
+            auto destructParameterExpr = destructParameter(i, (*_currentParameters)[i]);
+
+            if (destructParameterExpr != nullptr) {
+                returnStmt->preReturnDeferred.push_back(destructParameterExpr);
+            }
+        }
+    }
+
+    // If the current function is a destructor we have to clean up the members automatically
+    if (llvm::isa<DestructorDecl>(_currentFunction)) {
+        auto currentStruct = llvm::dyn_cast<StructDecl>(_currentFunction->container);
+
+        // TODO: We also need to support properties...
+        for (Decl* checkDecl : gulc::reverse(currentStruct->ownedMembers())) {
+            if (llvm::isa<VariableDecl>(checkDecl)) {
+                auto destructMember = llvm::dyn_cast<VariableDecl>(checkDecl);
+
+                if (llvm::isa<StructType>(destructMember->type)) {
+                    auto structType = llvm::dyn_cast<StructType>(destructMember->type);
+                    auto foundDestructor = structType->decl()->destructor;
+
+                    if (foundDestructor == nullptr) {
+                        printError("[INTERNAL] struct `" + structType->decl()->identifier().name() + "` "
+                                   "is missing a destructor!",
+                                   destructMember->startPosition(), destructMember->endPosition());
+                    }
+
+                    auto destructorReferenceExpr = new DestructorReferenceExpr(
+                            foundDestructor->startPosition(),
+                            foundDestructor->endPosition(),
+                            foundDestructor
+                    );
+                    auto selfRef = new CurrentSelfExpr(destructMember->startPosition(), destructMember->endPosition());
+                    selfRef->valueType = new ReferenceType(
+                            Type::Qualifier::Unassigned,
+                            new StructType(
+                                    Type::Qualifier::Mut,
+                                    structType->decl(),
+                                    destructMember->startPosition(),
+                                    destructMember->endPosition()
+                                )
+                            );
+                    selfRef->valueType->setIsLValue(true);
+                    auto memberVariableRefExpr = new MemberVariableRefExpr(
+                            destructMember->startPosition(),
+                            destructMember->endPosition(),
+                            selfRef,
+                            llvm::dyn_cast<StructType>(structType->deepCopy()),
+                            destructMember
+                        );
+                    memberVariableRefExpr->valueType = destructMember->type->deepCopy();
+                    // A local variable reference is an lvalue.
+                    memberVariableRefExpr->valueType->setIsLValue(true);
+
+                    // TODO: We need to account for extern
+//        if (foundDestructor != nullptr) {
+//            currentFileAst->addImportExtern(foundDestructor);
+//        }
+
+                    returnStmt->preReturnDeferred.push_back(
+                            new DestructorCallExpr(destructorReferenceExpr, memberVariableRefExpr, {}, {}));
+                }
+            }
+        }
+    }
+
+    return true;
+}
+
+bool gulc::CodeTransformer::processSwitchStmt(gulc::SwitchStmt* switchStmt) {
+    // NOTE: If there is a single case in the switch then we start with the idea that it COULD return on all code paths
+    //       We then loop to check if it does. If a single case doesn't return then we revert to `false`
+    //       Obviously if there are no cases then the switch doesn't return.
+    bool returnsOnAllCodePaths = !switchStmt->statements.empty();
+
+    processExpr(switchStmt->condition);
+
+    for (Stmt* stmt : switchStmt->statements) {
+        if (!processStmt(stmt)) {
+            returnsOnAllCodePaths = false;
+        }
+    }
+
+    return returnsOnAllCodePaths;
+}
+
+bool gulc::CodeTransformer::processWhileStmt(gulc::WhileStmt* whileStmt) {
+    Stmt* oldLoop = _currentLoop;
+    _currentLoop = whileStmt;
+
+    whileStmt->currentNumLocalVariables = _localVariables.size();
+    processExpr(whileStmt->condition);
+    processCompoundStmtHandleTempValues(whileStmt->body());
+
+    _currentLoop = oldLoop;
+
+    // TODO: Is this true? My logic is that the `condition` could be false therefore we don't know if it returns on all
+    //       code paths.
+    return false;
+}
+
+void gulc::CodeTransformer::destructLocalVariablesDeclaredAfterLoop(gulc::Stmt* loop, std::vector<Expr*>& addToList) {
+    unsigned int numLocalVariables = 0;
+
+    if (llvm::isa<ForStmt>(loop)) {
+        numLocalVariables = llvm::dyn_cast<ForStmt>(loop)->currentNumLocalVariables;
+    } else if (llvm::isa<DoWhileStmt>(loop)) {
+        numLocalVariables = llvm::dyn_cast<DoWhileStmt>(loop)->currentNumLocalVariables;
+    } else if (llvm::isa<WhileStmt>(loop)) {
+        numLocalVariables = llvm::dyn_cast<WhileStmt>(loop)->currentNumLocalVariables;
+    }
+
+    // If we've created new local variables then we have to destruct them
+    for (std::int64_t i = static_cast<int64_t>(_localVariables.size()) - 1;
+            i >= static_cast<int64_t>(numLocalVariables); --i) {
+        // Add the destructor call to the end of the compound statement...
+        auto destructLocalVariableExpr = destructLocalVariable(_localVariables[i]);
+
+        if (destructLocalVariableExpr != nullptr) {
+            addToList.push_back(destructLocalVariableExpr);
         }
     }
 }
 
-void gulc::CodeTransformer::processIfStmtHandleTempValues(gulc::IfStmt* ifStmt) {
-    Stmt* stmt = ifStmt;
-    processStmt(stmt);
-}
+gulc::DestructorCallExpr* gulc::CodeTransformer::destructLocalVariable(gulc::VariableDeclExpr* localVariable) {
+    if (llvm::isa<StructType>(localVariable->type)) {
+        auto structType = llvm::dyn_cast<StructType>(localVariable->type);
+        auto foundDestructor = structType->decl()->destructor;
 
-void gulc::CodeTransformer::processLabeledStmt(gulc::LabeledStmt* labeledStmt) {
-    processStmt(labeledStmt->labeledStmt);
-}
+        if (foundDestructor == nullptr) {
+            printError("[INTERNAL] struct `" + structType->decl()->identifier().name() + "` is missing a destructor!",
+                       localVariable->startPosition(), localVariable->endPosition());
+        }
 
-void gulc::CodeTransformer::processReturnStmt(gulc::ReturnStmt* returnStmt) {
-    if (returnStmt->returnValue != nullptr) {
-        processExpr(returnStmt->returnValue);
+        auto destructorReferenceExpr = new DestructorReferenceExpr(
+                foundDestructor->startPosition(),
+                foundDestructor->endPosition(),
+                foundDestructor
+            );
+        auto localVariableRefExpr = new LocalVariableRefExpr(
+                {}, {},
+                localVariable->identifier().name()
+            );
+        localVariableRefExpr->valueType = localVariable->type->deepCopy();
+        // A local variable reference is an lvalue.
+        localVariableRefExpr->valueType->setIsLValue(true);
+
+        // TODO: We need to account for extern
+//        if (foundDestructor != nullptr) {
+//            currentFileAst->addImportExtern(foundDestructor);
+//        }
+
+        return new DestructorCallExpr(destructorReferenceExpr, localVariableRefExpr, {}, {});
+    } else {
+        return nullptr;
     }
 }
 
-void gulc::CodeTransformer::processSwitchStmt(gulc::SwitchStmt* switchStmt) {
-    processExpr(switchStmt->condition);
+gulc::DestructorCallExpr* gulc::CodeTransformer::destructParameter(std::size_t paramIndex,
+                                                                   gulc::ParameterDecl* parameterDecl) {
+    if (llvm::isa<StructType>(parameterDecl->type)) {
+        auto structType = llvm::dyn_cast<StructType>(parameterDecl->type);
+        auto foundDestructor = structType->decl()->destructor;
 
-    for (Stmt* stmt : switchStmt->statements) {
-        processStmt(stmt);
+        if (foundDestructor == nullptr) {
+            printError("[INTERNAL] struct `" + structType->decl()->identifier().name() + "` is missing a destructor!",
+                       parameterDecl->startPosition(), parameterDecl->endPosition());
+        }
+
+        auto destructorReferenceExpr = new DestructorReferenceExpr(
+                foundDestructor->startPosition(),
+                foundDestructor->endPosition(),
+                foundDestructor
+        );
+        auto parameterRefExpr = new ParameterRefExpr(
+                {}, {},
+                paramIndex, parameterDecl->identifier().name()
+        );
+        parameterRefExpr->valueType = parameterDecl->type->deepCopy();
+        // A local variable reference is an lvalue.
+        parameterRefExpr->valueType->setIsLValue(true);
+
+        // TODO: We need to account for extern
+//        if (foundDestructor != nullptr) {
+//            currentFileAst->addImportExtern(foundDestructor);
+//        }
+
+        return new DestructorCallExpr(destructorReferenceExpr, parameterRefExpr, {}, {});
+    } else {
+        return nullptr;
     }
 }
 
-void gulc::CodeTransformer::processWhileStmt(gulc::WhileStmt* whileStmt) {
-    processExpr(whileStmt->condition);
-    processCompoundStmtHandleTempValues(whileStmt->body());
-}
-
-// TODO: So I think the way we need to do temporaries is:
-//        1. An `Expr` that can potentially create a new destructable object should add that to a list of temporaries
-//        2. In `processStmt` after the statement is processed we should steal the list of temporaries (so we can
-//           delete them)
-//        3. Use this new list of temporaries to destruct the temporaries. Also keep a list of local variables to
-//           destruct them as well.
-// TODO: I think `CodeTransformer` should do the following:
-//        1. Insert temporary values
-//        2. Destruct local variables
-//        3. Handle `DeferStmt`
 void gulc::CodeTransformer::processExpr(gulc::Expr*& expr) {
     switch (expr->getExprKind()) {
         case Expr::Kind::ArrayLiteral:
@@ -765,6 +1101,9 @@ void gulc::CodeTransformer::processVariableDeclExpr(gulc::VariableDeclExpr* vari
     if (variableDeclExpr->initialValue != nullptr) {
         processExpr(variableDeclExpr->initialValue);
     }
+
+    // The local variable list has already been validated so we just add to the list.
+    _localVariables.push_back(variableDeclExpr);
 }
 
 gulc::LocalVariableRefExpr* gulc::CodeTransformer::createTemporaryValue(gulc::Type* type,

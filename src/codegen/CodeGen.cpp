@@ -778,8 +778,9 @@ void gulc::CodeGen::generateStmt(gulc::Stmt const* stmt, std::string const& stmt
             break;
     }
 
-    // TODO: Need to call deferred
-//    cleanupTemporaryValues();
+    if (!stmt->temporaryValues.empty()) {
+        cleanupTemporaryValues(stmt->temporaryValues);
+    }
 }
 
 void gulc::CodeGen::generateBreakStmt(gulc::BreakStmt const* breakStmt) {
@@ -1054,8 +1055,7 @@ void gulc::CodeGen::generateReturnStmt(gulc::ReturnStmt const* returnStmt) {
             generateExpr(deferredExpr);
         }
 
-        // TODO: Need to call deferred
-//    cleanupTemporaryValues();
+        cleanupTemporaryValues(returnStmt->temporaryValues);
 
         _irBuilder->CreateRet(returnValue);
     } else {
@@ -1063,8 +1063,7 @@ void gulc::CodeGen::generateReturnStmt(gulc::ReturnStmt const* returnStmt) {
             generateExpr(deferredExpr);
         }
 
-        // TODO: Need to call deferred
-//    cleanupTemporaryValues();
+        cleanupTemporaryValues(returnStmt->temporaryValues);
 
         _irBuilder->CreateRetVoid();
     }
@@ -1137,6 +1136,32 @@ void gulc::CodeGen::enterNestedLoop(llvm::BasicBlock* continueLoop, llvm::BasicB
 void gulc::CodeGen::leaveNestedLoop(std::size_t oldNestedLoopCount) {
     _nestedLoopContinues.resize(oldNestedLoopCount);
     _nestedLoopBreaks.resize(oldNestedLoopCount);
+}
+
+void gulc::CodeGen::cleanupTemporaryValues(std::vector<VariableDeclExpr*> const& temporaryValues) {
+    for (auto temporaryValue : temporaryValues) {
+        llvm::AllocaInst* localVariableAlloca = getLocalVariableOrNull(temporaryValue->identifier().name());
+
+        if (localVariableAlloca == nullptr) {
+            printError("[INTERNAL] temporary value variable was not found!",
+                       temporaryValue->startPosition(), temporaryValue->endPosition());
+        }
+
+        if (llvm::isa<StructType>(temporaryValue->type)) {
+            auto structDecl = llvm::dyn_cast<StructType>(temporaryValue->type)->decl();
+
+            // Because we only work on by value structs we don't have to deal with the vtable, we can know the
+            // struct is the correct type.
+            // TODO: Is this a correct assumption?
+            auto destructorFunc = _llvmModule->getFunction(structDecl->destructor->mangledName());
+
+            std::vector<llvm::Value*> llvmArgs {
+                    localVariableAlloca
+            };
+
+            _irBuilder->CreateCall(destructorFunc, llvmArgs);
+        }
+    }
 }
 
 bool gulc::CodeGen::currentFunctionLabelsContains(std::string const& labelName) {
@@ -1241,6 +1266,8 @@ llvm::Value* gulc::CodeGen::generateExpr(gulc::Expr const* expr) {
             return generateConstructorCallExpr(llvm::dyn_cast<ConstructorCallExpr>(expr));
         case Expr::Kind::CurrentSelf:
             return generateCurrentSelfExpr(llvm::dyn_cast<CurrentSelfExpr>(expr));
+        case Expr::Kind::DestructorCall:
+            return generateDestructorCallExpr(llvm::dyn_cast<DestructorCallExpr>(expr));
         case Expr::Kind::EnumConstRef:
             return generateEnumConstRefExpr(llvm::dyn_cast<EnumConstRefExpr>(expr));
         case Expr::Kind::FunctionCall:
@@ -1369,6 +1396,17 @@ llvm::Value* gulc::CodeGen::generateCurrentSelfExpr(gulc::CurrentSelfExpr const*
     // NOTE: `self` is always parameter `0`. Error checking to make sure a `self` parameter exists should be performed
     //       in a prior check.
     return _currentLlvmFunctionParameters[0];
+}
+
+llvm::Value* gulc::CodeGen::generateDestructorCallExpr(gulc::DestructorCallExpr const* destructorCallExpr) {
+    auto destructorReferenceExpr = llvm::dyn_cast<DestructorReferenceExpr>(destructorCallExpr->functionReference);
+    llvm::Function* destructorFunc = _llvmModule->getFunction(destructorReferenceExpr->destructor->mangledName());
+
+    std::vector<llvm::Value*> llvmArgs {
+        generateExpr(destructorCallExpr->objectRef)
+    };
+
+    return _irBuilder->CreateCall(destructorFunc, llvmArgs);
 }
 
 llvm::Value* gulc::CodeGen::generateEnumConstRefExpr(gulc::EnumConstRefExpr const* enumConstRefExpr) {
@@ -1959,8 +1997,29 @@ llvm::Value* gulc::CodeGen::generateVariableDeclExpr(gulc::VariableDeclExpr cons
     if (variableDeclExpr->initialValue != nullptr) {
         llvm::Value* initialValue = generateExpr(variableDeclExpr->initialValue);
 
-        // Return the assignment...
-        return _irBuilder->CreateStore(initialValue, newLocalVariable, false);
+        switch (variableDeclExpr->initialValueAssignmentType) {
+            case InitialValueAssignmentType::Normal:
+                // Return the assignment...
+                return _irBuilder->CreateStore(initialValue, newLocalVariable, false);
+            case InitialValueAssignmentType::Move: {
+                auto moveConstructorFunc = getMoveConstructorForType(variableDeclExpr->type);
+                std::vector<llvm::Value*> llvmArgs {
+                    newLocalVariable,
+                    initialValue
+                };
+
+                return _irBuilder->CreateCall(moveConstructorFunc, llvmArgs);
+            }
+            case InitialValueAssignmentType::Copy: {
+                auto moveConstructorFunc = getCopyConstructorForType(variableDeclExpr->type);
+                std::vector<llvm::Value*> llvmArgs {
+                        newLocalVariable,
+                        initialValue
+                };
+
+                return _irBuilder->CreateCall(moveConstructorFunc, llvmArgs);
+            }
+        }
     }
 
     return newLocalVariable;
@@ -2086,4 +2145,40 @@ llvm::AllocaInst* gulc::CodeGen::getLocalVariableOrNull(std::string const& varNa
     }
 
     return nullptr;
+}
+
+llvm::Function* gulc::CodeGen::getMoveConstructorForType(gulc::Type* type) {
+    if (!llvm::isa<StructType>(type)) {
+        printError("[INTERNAL] `CodeGen::getMoveConstructorForType` received non-struct type!",
+                   type->startPosition(), type->endPosition());
+    }
+
+    auto structType = llvm::dyn_cast<StructType>(type);
+    auto structDecl = structType->decl();
+
+    if (structDecl->cachedMoveConstructor == nullptr ||
+            structDecl->cachedMoveConstructor->constructorState == ConstructorDecl::ConstructorState::Deleted) {
+        printError("[INTERNAL] `CodeGen::getMoveConstructorForType` received struct with deleted move constructor!",
+                   type->startPosition(), type->endPosition());
+    }
+
+    return _llvmModule->getFunction(structDecl->cachedMoveConstructor->mangledName());
+}
+
+llvm::Function* gulc::CodeGen::getCopyConstructorForType(gulc::Type* type) {
+    if (!llvm::isa<StructType>(type)) {
+        printError("[INTERNAL] `CodeGen::getCopyConstructorForType` received non-struct type!",
+                   type->startPosition(), type->endPosition());
+    }
+
+    auto structType = llvm::dyn_cast<StructType>(type);
+    auto structDecl = structType->decl();
+
+    if (structDecl->cachedCopyConstructor == nullptr ||
+            structDecl->cachedCopyConstructor->constructorState == ConstructorDecl::ConstructorState::Deleted) {
+        printError("[INTERNAL] `CodeGen::getCopyConstructorForType` received struct with deleted copy constructor!",
+                   type->startPosition(), type->endPosition());
+    }
+
+    return _llvmModule->getFunction(structDecl->cachedCopyConstructor->mangledName());
 }
