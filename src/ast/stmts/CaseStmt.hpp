@@ -27,25 +27,36 @@ namespace gulc {
         static bool classof(const Stmt* stmt) { return stmt->getStmtKind() == Stmt::Kind::Case; }
 
         Expr* condition;
-        Stmt* trueStmt;
+        std::vector<Stmt*> body;
         bool isDefault() const { return _isDefault; }
 
-        CaseStmt(TextPosition startPosition, TextPosition endPosition, bool isDefault, Expr* condition, Stmt* trueStmt)
+        CaseStmt(TextPosition startPosition, TextPosition endPosition, bool isDefault, Expr* condition,
+                 std::vector<Stmt*> body)
                 : Stmt(Stmt::Kind::Case),
-                  condition(condition), trueStmt(trueStmt), _isDefault(isDefault),
+                  condition(condition), body(std::move(body)), _isDefault(isDefault),
                   _startPosition(startPosition), _endPosition(endPosition) {}
 
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }
 
         Stmt* deepCopy() const override {
+            std::vector<Stmt*> copiedBody;
+            copiedBody.reserve(body.size());
+
+            for (Stmt* statement : body) {
+                copiedBody.push_back(statement->deepCopy());
+            }
+
             return new CaseStmt(_startPosition, _endPosition, _isDefault,
-                                condition->deepCopy(), trueStmt->deepCopy());
+                                condition->deepCopy(), copiedBody);
         }
 
         ~CaseStmt() override {
             delete condition;
-            delete trueStmt;
+
+            for (Stmt* statement : body) {
+                delete statement;
+            }
         }
 
     protected:

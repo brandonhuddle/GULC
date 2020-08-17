@@ -2090,7 +2090,10 @@ void gulc::DeclInstantiator::processStmt(gulc::Stmt* stmt) {
 
 void gulc::DeclInstantiator::processCaseStmt(gulc::CaseStmt* caseStmt) {
     processExpr(caseStmt->condition);
-    processStmt(caseStmt->trueStmt);
+
+    for (Stmt* statement : caseStmt->body) {
+        processStmt(statement);
+    }
 }
 
 void gulc::DeclInstantiator::processCatchStmt(gulc::CatchStmt* catchStmt) {
@@ -2169,8 +2172,8 @@ void gulc::DeclInstantiator::processReturnStmt(gulc::ReturnStmt* returnStmt) {
 void gulc::DeclInstantiator::processSwitchStmt(gulc::SwitchStmt* switchStmt) {
     processExpr(switchStmt->condition);
 
-    for (Stmt* statement : switchStmt->statements) {
-        processStmt(statement);
+    for (CaseStmt* caseStmt : switchStmt->cases) {
+        processStmt(caseStmt);
     }
 }
 

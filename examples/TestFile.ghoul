@@ -1,8 +1,8 @@
-enum TestEnum {
-    case Val1 = 23
-    case Val2 = 4
-    case Val = 5454
-}
+//enum TestEnum {
+//    case Val1 = 23
+//    case Val2 = 4
+//    case Val = 5454
+//}
 
 @copy
 struct vec3 {
@@ -46,22 +46,25 @@ struct vec3 {
 //    }
 //}
 
-func manglerTest(arg param: i32) -> i32 {
-    return param
-}
+//func manglerTest(arg param: i32) -> i32 {
+//    return param
+//}
 
-func boolTest() -> bool {
-    return true
-}
+//func boolTest() -> bool {
+//    return true
+//}
 
 func main() -> i32 {
-    let testVec: vec3 = vec3(x: 0, y: 12, z: 44)
+    let testVec = vec3(x: 0, y: 12, z: 44)
 //    let templateTest = TemplateTest<i32>()
 //    let testFloat: f32 = 12.0
     let testInt: i32 = 44
 
-    //goto test
+    let testRef = ref testInt
 
-test:
-    return try manglerTest(arg: testInt)
+    if testInt == testRef {
+        return 12
+    } else {
+        return 90
+    }
 }

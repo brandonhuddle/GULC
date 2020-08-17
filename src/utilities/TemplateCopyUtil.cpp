@@ -590,7 +590,10 @@ void gulc::TemplateCopyUtil::instantiateVariableDecl(gulc::VariableDecl* variabl
 
 void gulc::TemplateCopyUtil::instantiateCaseStmt(gulc::CaseStmt* caseStmt) const {
     instantiateExpr(caseStmt->condition);
-    instantiateStmt(caseStmt->trueStmt);
+
+    for (Stmt*& statement : caseStmt->body) {
+        instantiateStmt(statement);
+    }
 }
 
 void gulc::TemplateCopyUtil::instantiateCatchStmt(gulc::CatchStmt* catchStmt) const {
@@ -662,8 +665,8 @@ void gulc::TemplateCopyUtil::instantiateReturnStmt(gulc::ReturnStmt* returnStmt)
 void gulc::TemplateCopyUtil::instantiateSwitchStmt(gulc::SwitchStmt* switchStmt) const {
     instantiateExpr(switchStmt->condition);
 
-    for (Stmt* statement : switchStmt->statements) {
-        instantiateStmt(statement);
+    for (CaseStmt* caseStmt : switchStmt->cases) {
+        instantiateStmt(caseStmt);
     }
 }
 

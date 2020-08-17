@@ -72,6 +72,8 @@
 #include <ast/exprs/BoolLiteralExpr.hpp>
 #include <ast/exprs/DestructorCallExpr.hpp>
 #include <ast/exprs/TemporaryValueRefExpr.hpp>
+#include <ast/exprs/RefExpr.hpp>
+#include <ast/exprs/ImplicitDerefExpr.hpp>
 
 namespace gulc {
     class CodeGen {
@@ -178,6 +180,7 @@ namespace gulc {
         llvm::Value* generateFunctionCallExpr(FunctionCallExpr const* functionCallExpr);
         llvm::Value* generateFunctionReferenceFromExpr(Expr const* expr);
         llvm::Value* generateImplicitCastExpr(ImplicitCastExpr const* implicitCastExpr);
+        llvm::Value* generateImplicitDerefExpr(ImplicitDerefExpr const* implicitDerefExpr);
         llvm::Value* generateInfixOperatorExpr(InfixOperatorExpr const* infixOperatorExpr);
         llvm::Value* generateBuiltInInfixOperator(InfixOperators infixOperators, gulc::Type* operationType,
                                                   gulc::Type* leftType, llvm::Value* leftValue,
@@ -195,6 +198,7 @@ namespace gulc {
         llvm::Value* generateParenExpr(ParenExpr const* parenExpr);
         llvm::Value* generatePostfixOperatorExpr(PostfixOperatorExpr const* postfixOperatorExpr);
         llvm::Value* generatePrefixOperatorExpr(PrefixOperatorExpr const* prefixOperatorExpr);
+        llvm::Value* generateRefExpr(RefExpr const* refExpr);
         llvm::Value* generateTemporaryValueRefExpr(TemporaryValueRefExpr const* temporaryValueRefExpr);
         llvm::Value* generateTemporaryValueVariableDeclExpr(VariableDeclExpr const* variableDeclExpr);
         llvm::Value* generateTernaryExpr(TernaryExpr const* ternaryExpr);

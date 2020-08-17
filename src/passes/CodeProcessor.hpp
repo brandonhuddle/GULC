@@ -80,6 +80,7 @@
 #include <ast/exprs/MemberPrefixOperatorCallExpr.hpp>
 #include <ast/exprs/TryExpr.hpp>
 #include <ast/exprs/BoolLiteralExpr.hpp>
+#include <ast/exprs/RefExpr.hpp>
 
 namespace gulc {
     /**
@@ -259,6 +260,7 @@ namespace gulc {
         void processPostfixOperatorExpr(PostfixOperatorExpr*& postfixOperatorExpr);
         void processPrefixOperatorExpr(PrefixOperatorExpr*& prefixOperatorExpr);
         void processPropertyRefExpr(PropertyRefExpr* propertyRefExpr);
+        void processRefExpr(RefExpr* refExpr);
         void processSubscriptCallExpr(Expr*& expr);
         SubscriptOperatorDecl* findMatchingSubscriptOperator(std::vector<Decl*>& searchDecls,
                                                              std::vector<LabeledArgumentExpr*>& arguments,
@@ -279,6 +281,8 @@ namespace gulc {
         ///       `ref mut`
         void handleArgumentCasting(std::vector<ParameterDecl*> const& parameters,
                                    std::vector<LabeledArgumentExpr*>& arguments);
+        // If the expression is a reference we dereference it.
+        Expr* dereferenceReference(Expr* potentialReference) const;
 
     };
 }

@@ -64,6 +64,7 @@
 #include <ast/stmts/GotoStmt.hpp>
 #include <ast/exprs/TryExpr.hpp>
 #include <ast/exprs/BoolLiteralExpr.hpp>
+#include <ast/exprs/RefExpr.hpp>
 
 namespace gulc {
     /**
@@ -175,6 +176,7 @@ namespace gulc {
         void processParenExpr(ParenExpr* parenExpr);
         void processPostfixOperatorExpr(PostfixOperatorExpr* postfixOperatorExpr);
         void processPrefixOperatorExpr(PrefixOperatorExpr* prefixOperatorExpr);
+        void processRefExpr(RefExpr* refExpr);
         void processSubscriptCallExpr(SubscriptCallExpr* indexerCallExpr);
         void processTernaryExpr(TernaryExpr* ternaryExpr);
         void processTryExpr(TryExpr* tryExpr);

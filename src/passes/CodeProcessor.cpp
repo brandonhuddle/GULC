@@ -45,6 +45,7 @@
 #include <ast/types/BoolType.hpp>
 #include <ast/exprs/LValueToRValueExpr.hpp>
 #include <ast/exprs/StructAssignmentOperatorExpr.hpp>
+#include <ast/exprs/ImplicitDerefExpr.hpp>
 
 void gulc::CodeProcessor::processFiles(std::vector<ASTFile>& files) {
     for (ASTFile& file : files) {
@@ -822,7 +823,9 @@ void gulc::CodeProcessor::processCaseStmt(gulc::CaseStmt* caseStmt) {
         caseStmt->condition = convertLValueToRValue(caseStmt->condition);
     }
 
-    processStmt(caseStmt->trueStmt);
+    for (Stmt* statement : caseStmt->body) {
+        processStmt(statement);
+    }
 }
 
 void gulc::CodeProcessor::processCatchStmt(gulc::CatchStmt* catchStmt) {
@@ -933,10 +936,8 @@ void gulc::CodeProcessor::processReturnStmt(gulc::ReturnStmt* returnStmt) {
 void gulc::CodeProcessor::processSwitchStmt(gulc::SwitchStmt* switchStmt) {
     processExpr(switchStmt->condition);
 
-    // TODO: We should really strengthen `SwitchStmt` and make `CaseStmt` the list of statements. I hate how it is just
-    //       `Stmt` at the moment.
-    for (Stmt*& stmt : switchStmt->statements) {
-        processStmt(stmt);
+    for (CaseStmt*& caseStmt : switchStmt->cases) {
+        processCaseStmt(caseStmt);
     }
 }
 
@@ -1018,6 +1019,9 @@ void gulc::CodeProcessor::processExpr(gulc::Expr*& expr) {
             expr = prefixOperatorExpr;
             break;
         }
+        case Expr::Kind::Ref:
+            processRefExpr(llvm::dyn_cast<RefExpr>(expr));
+            break;
         case Expr::Kind::SubscriptCall:
             processSubscriptCallExpr(expr);
             break;
@@ -1039,6 +1043,7 @@ void gulc::CodeProcessor::processExpr(gulc::Expr*& expr) {
         case Expr::Kind::VariableDecl:
             processVariableDeclExpr(llvm::dyn_cast<VariableDeclExpr>(expr));
             break;
+
         default:
             printError("[INTERNAL ERROR] unsupported `Expr` found in `CodeProcessor::processExpr`!",
                        expr->startPosition(), expr->endPosition());
@@ -2917,6 +2922,13 @@ void gulc::CodeProcessor::processInfixOperatorExpr(gulc::InfixOperatorExpr* infi
     switch (infixOperatorExpr->infixOperator()) {
         case InfixOperators::LogicalAnd: // &&
         case InfixOperators::LogicalOr: // ||
+            // Once we've reached this point we need to convert any lvalues to rvalues and dereference any implicit references
+            infixOperatorExpr->leftValue = convertLValueToRValue(infixOperatorExpr->leftValue);
+            infixOperatorExpr->rightValue = convertLValueToRValue(infixOperatorExpr->rightValue);
+            // Dereference the references (if there are any references)
+            infixOperatorExpr->leftValue = dereferenceReference(infixOperatorExpr->leftValue);
+            infixOperatorExpr->rightValue = dereferenceReference(infixOperatorExpr->rightValue);
+
             // For logical and and logical or we need both sides to be `bool`
             if (!llvm::isa<BoolType>(leftType)) {
                 printError("left operand for `&&` must be of type `bool`! (it is of type `" +
@@ -3011,9 +3023,11 @@ void gulc::CodeProcessor::processInfixOperatorExpr(gulc::InfixOperatorExpr* infi
     }
 
     // Once we've reached this point we need to convert any lvalues to rvalues and dereference any implicit references
-    // TODO: Deference implicit reference
     infixOperatorExpr->leftValue = convertLValueToRValue(infixOperatorExpr->leftValue);
     infixOperatorExpr->rightValue = convertLValueToRValue(infixOperatorExpr->rightValue);
+    // Dereference the references (if there are any references)
+    infixOperatorExpr->leftValue = dereferenceReference(infixOperatorExpr->leftValue);
+    infixOperatorExpr->rightValue = dereferenceReference(infixOperatorExpr->rightValue);
 
     // We need to change `resultType` if the operator is a logical (i.e. `bool`) operator.
     switch (infixOperatorExpr->infixOperator()) {
@@ -3961,6 +3975,26 @@ void gulc::CodeProcessor::processPropertyRefExpr(gulc::PropertyRefExpr* property
     //       references to only their getter forms.
 }
 
+void gulc::CodeProcessor::processRefExpr(gulc::RefExpr* refExpr) {
+    processExpr(refExpr->nestedExpr);
+
+    if (refExpr->nestedExpr->valueType->isLValue()) {
+        // TODO: What about Unassigned?
+        if (refExpr->isMutable && refExpr->nestedExpr->valueType->qualifier() != Type::Qualifier::Mut) {
+            printError("cannot create `ref mut` from immutable expression!",
+                       refExpr->startPosition(), refExpr->endPosition());
+        }
+
+        auto valueType = refExpr->nestedExpr->valueType->deepCopy();
+        valueType->setIsLValue(false);
+
+        refExpr->valueType = new ReferenceType(Type::Qualifier::Unassigned, valueType);
+    } else {
+        printError("cannot create reference to non-lvalue expression!",
+                   refExpr->startPosition(), refExpr->endPosition());
+    }
+}
+
 void gulc::CodeProcessor::processSubscriptCallExpr(gulc::Expr*& expr) {
     auto subscriptCallExpr = llvm::dyn_cast<SubscriptCallExpr>(expr);
 
@@ -4316,5 +4350,24 @@ void gulc::CodeProcessor::handleArgumentCasting(std::vector<ParameterDecl*> cons
                 // TODO: Dereference any references as well.
             }
         }
+    }
+}
+
+gulc::Expr* gulc::CodeProcessor::dereferenceReference(gulc::Expr* potentialReference) const {
+    // All lvalues must be converted to rvalues before dereferencing
+    if (potentialReference->valueType->isLValue()) {
+        printError("[INTERNAL] `CodeProcessor::dereferenceReference` cannot be called with an lvalue!",
+                   potentialReference->startPosition(), potentialReference->endPosition());
+    }
+
+    if (llvm::isa<ReferenceType>(potentialReference->valueType)) {
+        auto derefType = llvm::dyn_cast<ReferenceType>(potentialReference->valueType)->nestedType->deepCopy();
+
+        auto derefExpr = new ImplicitDerefExpr(potentialReference);
+        derefExpr->valueType = derefType;
+
+        return derefExpr;
+    } else {
+        return potentialReference;
     }
 }

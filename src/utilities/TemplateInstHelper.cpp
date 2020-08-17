@@ -843,7 +843,10 @@ void gulc::TemplateInstHelper::instantiateVariableDecl(gulc::VariableDecl* varia
 
 void gulc::TemplateInstHelper::instantiateCaseStmt(gulc::CaseStmt* caseStmt) const {
     instantiateExpr(caseStmt->condition);
-    instantiateStmt(caseStmt->trueStmt);
+
+    for (Stmt* statement : caseStmt->body) {
+        instantiateStmt(statement);
+    }
 }
 
 void gulc::TemplateInstHelper::instantiateCatchStmt(gulc::CatchStmt* catchStmt) const {
@@ -915,8 +918,8 @@ void gulc::TemplateInstHelper::instantiateReturnStmt(gulc::ReturnStmt* returnStm
 void gulc::TemplateInstHelper::instantiateSwitchStmt(gulc::SwitchStmt* switchStmt) const {
     instantiateExpr(switchStmt->condition);
 
-    for (Stmt* statement : switchStmt->statements) {
-        instantiateStmt(statement);
+    for (CaseStmt* caseStmt : switchStmt->cases) {
+        instantiateStmt(caseStmt);
     }
 }
 

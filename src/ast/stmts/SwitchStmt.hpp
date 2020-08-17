@@ -21,6 +21,8 @@
 #include <ast/Stmt.hpp>
 #include <ast/Expr.hpp>
 #include <vector>
+#include <llvm/Support/Casting.h>
+#include "CaseStmt.hpp"
 
 namespace gulc {
     class SwitchStmt : public Stmt {
@@ -29,32 +31,33 @@ namespace gulc {
 
         Expr* condition;
         // We keep this out as it might be modified...
-        std::vector<Stmt*> statements;
+        std::vector<CaseStmt*> cases;
 
-        SwitchStmt(TextPosition startPosition, TextPosition endPosition, Expr* condition, std::vector<Stmt*> statements)
+        SwitchStmt(TextPosition startPosition, TextPosition endPosition, Expr* condition, std::vector<CaseStmt*> cases)
                 : Stmt(Stmt::Kind::Switch),
-                  condition(condition), statements(std::move(statements)) {}
+                  condition(condition), cases(std::move(cases)),
+                  _startPosition(startPosition), _endPosition(endPosition) {}
 
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }
 
         Stmt* deepCopy() const override {
-            std::vector<Stmt*> copiedStatements;
-            copiedStatements.reserve(statements.size());
+            std::vector<CaseStmt*> copiedCases;
+            copiedCases.reserve(cases.size());
 
-            for (Stmt* statement : statements) {
-                copiedStatements.push_back(statement->deepCopy());
+            for (CaseStmt* caseStmt : cases) {
+                copiedCases.push_back(llvm::dyn_cast<CaseStmt>(caseStmt->deepCopy()));
             }
 
             return new SwitchStmt(_startPosition, _endPosition, condition->deepCopy(),
-                                  copiedStatements);
+                                  copiedCases);
         }
 
         ~SwitchStmt() override {
             delete condition;
 
-            for (Stmt* statement : statements) {
-                delete statement;
+            for (CaseStmt* caseStmt : cases) {
+                delete caseStmt;
             }
         }
 

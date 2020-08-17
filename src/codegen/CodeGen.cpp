@@ -34,11 +34,11 @@
 #include <ast/exprs/FunctionReferenceExpr.hpp>
 #include <ast/types/FunctionPointerType.hpp>
 #include <utilities/TypeCompareUtil.hpp>
+#include <ast/types/BoolType.hpp>
 
 gulc::Module gulc::CodeGen::generate(gulc::ASTFile* file) {
     auto llvmContext = new llvm::LLVMContext();
     auto irBuilder = llvm::IRBuilder<>(*llvmContext);
-    // TODO: Should we remove the ending file extension?
     auto genModule = new llvm::Module(_filePaths[file->sourceFileID], *llvmContext);
     //llvm::PassManager<llvm::Function>* funcPassManager = new llvm::PassManager<llvm::Function>();
     auto funcPassManager = new llvm::legacy::FunctionPassManager(genModule);
@@ -102,13 +102,6 @@ llvm::Type* gulc::CodeGen::generateLlvmType(gulc::Type const* type) {
             if (builtInType->sizeInBytes() == 0) {
                 return llvm::Type::getVoidTy(*_llvmContext);
             }
-
-            // TODO: Bool is special...
-//            if (builtInType->isBool()) {
-//                // TODO: Should we support making booleans int1?
-////                return llvm::Type::getInt1Ty(*llvmContext);
-//                return llvm::Type::getInt8Ty(*_llvmContext);
-//            }
 
             // Floats...
             if (builtInType->isFloating()) {
@@ -371,13 +364,16 @@ void gulc::CodeGen::generateConstructorDecl(gulc::ConstructorDecl const* constru
         setCurrentFunction(function, constructorDecl);
 
         // If there is a base constructor we HAVE to call it as the first line of the constructor
-        // TODO: Support the base constructors
-//        if (constructorDecl->baseConstructor != nullptr) {
-//            generateBaseConstructorCallExpr(constructorDecl->baseConstructorCall);
-//        }
+        if (constructorDecl->baseConstructorCall != nullptr) {
+            generateStmt(constructorDecl->baseConstructorCall);
+        }
 
         // Generate the function body
         generateStmt(constructorDecl->body());
+
+        // NOTE: We now always add a generic `return void` to stop LLVM from segfaulting. LLVM seems to expect us to create
+        //       our own internal IR before generating LLVM IR to prevent LLVM IR from segfaulting.
+        _irBuilder->CreateRetVoid();
 
         verifyFunction(*function);
         _funcPassManager->run(*function);
@@ -444,13 +440,16 @@ void gulc::CodeGen::generateConstructorDecl(gulc::ConstructorDecl const* constru
             }
 
             // If there is a base constructor we HAVE to call it as the first line of the constructor
-            // TODO: Support base constructor call
-//            if (constructorDecl->baseConstructor != nullptr) {
-//                generateBaseConstructorCallExpr(constructorDecl->baseConstructorCall);
-//            }
+            if (constructorDecl->baseConstructorCall != nullptr) {
+                generateStmt(constructorDecl->baseConstructorCall);
+            }
 
             // Generate the function body
             generateStmt(constructorDecl->body());
+
+            // NOTE: We now always add a generic `return void` to stop LLVM from segfaulting. LLVM seems to expect us to create
+            //       our own internal IR before generating LLVM IR to prevent LLVM IR from segfaulting.
+            _irBuilder->CreateRetVoid();
 
             verifyFunction(*functionVTable);
             _funcPassManager->run(*functionVTable);
@@ -491,6 +490,10 @@ void gulc::CodeGen::generateDestructorDecl(gulc::DestructorDecl const* destructo
 
     // Generate the function body
     generateStmt(destructorDecl->body());
+
+    // NOTE: We now always add a generic `return void` to stop LLVM from segfaulting. LLVM seems to expect us to create
+    //       our own internal IR before generating LLVM IR to prevent LLVM IR from segfaulting.
+    _irBuilder->CreateRetVoid();
 
     verifyFunction(*function);
     _funcPassManager->run(*function);
@@ -533,6 +536,10 @@ void gulc::CodeGen::generateFunctionDecl(gulc::FunctionDecl const* functionDecl,
 
     // Generate the function body
     generateStmt(functionDecl->body());
+
+    // NOTE: We now always add a generic `return void` to stop LLVM from segfaulting. LLVM seems to expect us to create
+    //       our own internal IR before generating LLVM IR to prevent LLVM IR from segfaulting.
+    _irBuilder->CreateRetVoid();
 
     verifyFunction(*function);
     _funcPassManager->run(*function);
@@ -723,7 +730,6 @@ llvm::Function* gulc::CodeGen::getFunction(gulc::FunctionDecl* functionDecl) {
 
 // Statement Generation
 void gulc::CodeGen::generateStmt(gulc::Stmt const* stmt, std::string const& stmtName) {
-    // TODO: I don't think we need this?
     std::size_t oldTemporaryValueCount = _currentStmtTemporaryValues.size();
 
     if (!stmt->temporaryValues.empty()) {
@@ -901,7 +907,6 @@ void gulc::CodeGen::generateDoWhileStmt(gulc::DoWhileStmt const* doWhileStmt, st
 }
 
 void gulc::CodeGen::generateForStmt(gulc::ForStmt const* forStmt, std::string const& loopName) {
-    // TODO: I don't think we need this?
     std::size_t oldTemporaryValueCount = _currentStmtTemporaryValues.size();
 
     // We create the allocations for `condition` and `iteration` temporary values before the loop begins just as a
@@ -1000,7 +1005,6 @@ void gulc::CodeGen::generateForStmt(gulc::ForStmt const* forStmt, std::string co
     _currentLlvmFunction->getBasicBlockList().push_back(breakLoop);
     _irBuilder->SetInsertPoint(breakLoop);
 
-    // TODO: Post loop cleanup
     for (Expr* postLoopCleanupExpr : forStmt->postLoopCleanup) {
         generateExpr(postLoopCleanupExpr);
     }
@@ -1100,8 +1104,6 @@ void gulc::CodeGen::generateReturnStmt(gulc::ReturnStmt const* returnStmt) {
 
         _irBuilder->CreateRet(returnValue);
     } else {
-        // TODO: I don't think this can ever have any values? `returnValue` is null so temporary values shouldn't be
-        //       filled
         cleanupTemporaryValues(returnStmt->temporaryValues);
 
         for (Expr* deferredExpr : returnStmt->preReturnDeferred) {
@@ -1113,8 +1115,6 @@ void gulc::CodeGen::generateReturnStmt(gulc::ReturnStmt const* returnStmt) {
 }
 
 void gulc::CodeGen::generateSwitchStmt(gulc::SwitchStmt const* switchStmt) {
-    // TODO: Make `switch` only support `CaseStmt` and `DefaultCaseStmt`. No more having a list of unknown statements,
-    //       it's too hard to deal with.
     printError("`switch` statement not yet supported!",
                switchStmt->startPosition(), switchStmt->endPosition());
 }
@@ -1317,6 +1317,8 @@ llvm::Value* gulc::CodeGen::generateExpr(gulc::Expr const* expr) {
             return generateFunctionCallExpr(llvm::dyn_cast<FunctionCallExpr>(expr));
         case Expr::Kind::ImplicitCast:
             return generateImplicitCastExpr(llvm::dyn_cast<ImplicitCastExpr>(expr));
+        case Expr::Kind::ImplicitDeref:
+            return generateImplicitDerefExpr(llvm::dyn_cast<ImplicitDerefExpr>(expr));
         case Expr::Kind::InfixOperator:
             return generateInfixOperatorExpr(llvm::dyn_cast<InfixOperatorExpr>(expr));
         case Expr::Kind::LocalVariableRef:
@@ -1339,6 +1341,8 @@ llvm::Value* gulc::CodeGen::generateExpr(gulc::Expr const* expr) {
             return generatePostfixOperatorExpr(llvm::dyn_cast<PostfixOperatorExpr>(expr));
         case Expr::Kind::PrefixOperator:
             return generatePrefixOperatorExpr(llvm::dyn_cast<PrefixOperatorExpr>(expr));
+        case Expr::Kind::Ref:
+            return generateRefExpr(llvm::dyn_cast<RefExpr>(expr));
         case Expr::Kind::TemporaryValueRef:
             return generateTemporaryValueRefExpr(llvm::dyn_cast<TemporaryValueRefExpr>(expr));
         case Expr::Kind::Ternary:
@@ -1353,6 +1357,7 @@ llvm::Value* gulc::CodeGen::generateExpr(gulc::Expr const* expr) {
             return generateVariableRefExpr(llvm::dyn_cast<VariableRefExpr>(expr));
         case Expr::Kind::VTableFunctionReference:
             return generateVTableFunctionReferenceExpr(llvm::dyn_cast<VTableFunctionReferenceExpr>(expr));
+
         default:
             printError("unsupported expression!",
                        expr->startPosition(), expr->endPosition());
@@ -1369,7 +1374,6 @@ llvm::Value* gulc::CodeGen::generateArrayLiteralExpr(gulc::ArrayLiteralExpr cons
 llvm::Value* gulc::CodeGen::generateAsExpr(gulc::AsExpr const* asExpr) {
     llvm::Value* value = generateExpr(asExpr->expr);
 
-    // TODO: Should we be dereferencing any references here?
     castValue(asExpr->asType, asExpr->expr->valueType, value,
               asExpr->startPosition(), asExpr->endPosition());
 
@@ -1499,6 +1503,11 @@ llvm::Value* gulc::CodeGen::generateImplicitCastExpr(gulc::ImplicitCastExpr cons
     return value;
 }
 
+llvm::Value* gulc::CodeGen::generateImplicitDerefExpr(gulc::ImplicitDerefExpr const* implicitDerefExpr) {
+    auto refResult = generateExpr(implicitDerefExpr->nestedExpr);
+    return _irBuilder->CreateLoad(refResult);
+}
+
 llvm::Value* gulc::CodeGen::generateInfixOperatorExpr(gulc::InfixOperatorExpr const* infixOperatorExpr) {
     llvm::Value* leftValue = generateExpr(infixOperatorExpr->leftValue);
     llvm::Value* rightValue = generateExpr(infixOperatorExpr->rightValue);
@@ -1529,7 +1538,7 @@ llvm::Value* gulc::CodeGen::generateBuiltInInfixOperator(InfixOperators infixOpe
 
         isFloat = builtInType->isFloating();
         isSigned = builtInType->isSigned();
-    } else if (!llvm::isa<PointerType>(operationType)) {
+    } else if (!llvm::isa<PointerType>(operationType) && !llvm::isa<BoolType>(operationType)) {
         printError("unknown infix operator expression!",
                    startPosition, endPosition);
         return nullptr;
@@ -1558,7 +1567,6 @@ llvm::Value* gulc::CodeGen::generateBuiltInInfixOperator(InfixOperators infixOpe
             if (isFloat) {
                 return _irBuilder->CreateFDiv(leftValue, rightValue);
             } else {
-                // TODO: What are the `Exact` variants?
                 if (isSigned) {
                     return _irBuilder->CreateSDiv(leftValue, rightValue);
                 } else {
@@ -1569,7 +1577,6 @@ llvm::Value* gulc::CodeGen::generateBuiltInInfixOperator(InfixOperators infixOpe
             if (isFloat) {
                 return _irBuilder->CreateFRem(leftValue, rightValue);
             } else {
-                // TODO: What are the `Exact` variants?
                 if (isSigned) {
                     return _irBuilder->CreateSRem(leftValue, rightValue);
                 } else {
@@ -1974,6 +1981,12 @@ llvm::Value* gulc::CodeGen::generatePrefixOperatorExpr(gulc::PrefixOperatorExpr 
         }
     }
     return nullptr;
+}
+
+llvm::Value* gulc::CodeGen::generateRefExpr(gulc::RefExpr const* refExpr) {
+    // At this point everything should be processed and valid. All this should be doing is logically changing the
+    // underlying type from an `lvalue` to an implicit `reference`. This isn't something that requires an operation
+    return generateExpr(refExpr->nestedExpr);
 }
 
 llvm::Value* gulc::CodeGen::generateTemporaryValueRefExpr(gulc::TemporaryValueRefExpr const* temporaryValueRefExpr) {

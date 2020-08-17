@@ -353,7 +353,43 @@ bool gulc::CodeTransformer::processCaseStmt(gulc::CaseStmt* caseStmt) {
         processExpr(caseStmt->condition);
     }
 
-    return processStmt(caseStmt->trueStmt);
+    bool returnsOnAllCodePaths = false;
+    std::size_t oldLocalVariableCount = _localVariables.size();
+
+    for (Stmt* stmt : caseStmt->body) {
+        if (processStmt(stmt)) {
+            returnsOnAllCodePaths = true;
+        }
+    }
+
+    // TODO: Is this correct for case statements?
+    if (!returnsOnAllCodePaths) {
+        for (std::int64_t i = static_cast<std::int64_t>(_localVariables.size()) - 1;
+             i >= static_cast<std::int64_t>(oldLocalVariableCount); --i) {
+            auto destructLocalVariableExpr = destructLocalVariable(_localVariables[i]);
+
+            if (destructLocalVariableExpr != nullptr) {
+                caseStmt->body.push_back(destructLocalVariableExpr);
+            }
+        }
+    }
+
+    _localVariables.resize(oldLocalVariableCount);
+
+    for (GotoStmt* gotoStmt : _validateGotoVariables) {
+        // Only lower the number of local variables, never raise it
+        // This is to make it so we find the common parent between the `goto` and the labeled statement
+        if (_localVariables.size() < gotoStmt->currentNumLocalVariables) {
+            gotoStmt->currentNumLocalVariables = _localVariables.size();
+        }
+    }
+
+    return returnsOnAllCodePaths;
+}
+
+bool gulc::CodeTransformer::processCaseStmtHandleTempValues(gulc::CaseStmt* caseStmt) {
+    Stmt* stmt = caseStmt;
+    return processStmt(stmt);
 }
 
 bool gulc::CodeTransformer::processCatchStmt(gulc::CatchStmt* catchStmt) {
@@ -687,12 +723,12 @@ bool gulc::CodeTransformer::processSwitchStmt(gulc::SwitchStmt* switchStmt) {
     // NOTE: If there is a single case in the switch then we start with the idea that it COULD return on all code paths
     //       We then loop to check if it does. If a single case doesn't return then we revert to `false`
     //       Obviously if there are no cases then the switch doesn't return.
-    bool returnsOnAllCodePaths = !switchStmt->statements.empty();
+    bool returnsOnAllCodePaths = !switchStmt->cases.empty();
 
     processExpr(switchStmt->condition);
 
-    for (Stmt* stmt : switchStmt->statements) {
-        if (!processStmt(stmt)) {
+    for (CaseStmt* caseStmt : switchStmt->cases) {
+        if (!processCaseStmtHandleTempValues(caseStmt)) {
             returnsOnAllCodePaths = false;
         }
     }
@@ -857,6 +893,9 @@ void gulc::CodeTransformer::processExpr(gulc::Expr*& expr) {
         case Expr::Kind::ImplicitCast:
             processImplicitCastExpr(llvm::dyn_cast<ImplicitCastExpr>(expr));
             break;
+        case Expr::Kind::ImplicitDeref:
+            processImplicitDerefExpr(llvm::dyn_cast<ImplicitDerefExpr>(expr));
+            break;
         case Expr::Kind::InfixOperator:
             processInfixOperatorExpr(llvm::dyn_cast<InfixOperatorExpr>(expr));
             break;
@@ -910,6 +949,9 @@ void gulc::CodeTransformer::processExpr(gulc::Expr*& expr) {
             break;
         case Expr::Kind::PropertyRef:
             // Property ref is a reference to a global `PropertyDecl`, nothing we need to do here.
+            break;
+        case Expr::Kind::Ref:
+            processRefExpr(llvm::dyn_cast<RefExpr>(expr));
             break;
         case Expr::Kind::SubscriptCall:
             printError("[INTERNAL] `SubscriptCallExpr` found in `CodeTransformer::processExpr`, "
@@ -1013,6 +1055,10 @@ void gulc::CodeTransformer::processFunctionCallExpr(gulc::Expr*& expr) {
 
 void gulc::CodeTransformer::processImplicitCastExpr(gulc::ImplicitCastExpr* implicitCastExpr) {
     processExpr(implicitCastExpr->expr);
+}
+
+void gulc::CodeTransformer::processImplicitDerefExpr(gulc::ImplicitDerefExpr* implicitDerefExpr) {
+    processExpr(implicitDerefExpr->nestedExpr);
 }
 
 void gulc::CodeTransformer::processInfixOperatorExpr(gulc::InfixOperatorExpr* infixOperatorExpr) {
@@ -1145,6 +1191,10 @@ void gulc::CodeTransformer::processPostfixOperatorExpr(gulc::PostfixOperatorExpr
 
 void gulc::CodeTransformer::processPrefixOperatorExpr(gulc::PrefixOperatorExpr* prefixOperatorExpr) {
     processExpr(prefixOperatorExpr->nestedExpr);
+}
+
+void gulc::CodeTransformer::processRefExpr(gulc::RefExpr* refExpr) {
+    processExpr(refExpr->nestedExpr);
 }
 
 void gulc::CodeTransformer::processTernaryExpr(gulc::TernaryExpr* ternaryExpr) {

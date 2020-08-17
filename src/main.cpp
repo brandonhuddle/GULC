@@ -71,6 +71,11 @@ using namespace gulc;
 
 // TODO: We need to clean up how we handle local variables. Anywhere where we access them we are manually regenerating
 //       the list for the context. I think we could do better than that by storing a list for each context
+// TODO: Templates need extended to support specialization. The `where` should NOT specialize.
+//           struct partial_ref<T> { var m: ref T }
+//           struct partial_ref<T: i32> { var m: T }
+//       The idea is mainly just to give a way to specialize a template for certain types that might be better off
+//       treated differently.
 
 int main() {
     Target target = Target::getHostTarget();

@@ -34,6 +34,13 @@ struct Example {
     //    return 12;
     //}
 
+    // TODO: I think this could potentially be good too
+    //       Or at least some variation of it. It would be good for any wrapper types that want to allow for runtime
+    //       type checking which we won't be providing by default.
+    //public operator is<T> {
+    //
+    //}
+
     // Callable as `x()`
     public call() -> i32 {
         return 55;

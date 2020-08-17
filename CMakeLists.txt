@@ -188,6 +188,8 @@ add_executable(gulc
         src/ast/exprs/IdentifierExpr.hpp
         src/ast/exprs/ImplicitCastExpr.cpp
         src/ast/exprs/ImplicitCastExpr.hpp
+        src/ast/exprs/ImplicitDerefExpr.cpp
+        src/ast/exprs/ImplicitDerefExpr.hpp
         src/ast/exprs/InfixOperatorExpr.cpp
         src/ast/exprs/InfixOperatorExpr.hpp
         src/ast/exprs/IsExpr.cpp
@@ -222,6 +224,8 @@ add_executable(gulc
         src/ast/exprs/PrefixOperatorExpr.hpp
         src/ast/exprs/PropertyRefExpr.cpp
         src/ast/exprs/PropertyRefExpr.hpp
+        src/ast/exprs/RefExpr.cpp
+        src/ast/exprs/RefExpr.hpp
         src/ast/exprs/StructAssignmentOperatorExpr.cpp
         src/ast/exprs/StructAssignmentOperatorExpr.hpp
         src/ast/exprs/SubscriptCallExpr.cpp

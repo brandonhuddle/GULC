@@ -70,6 +70,8 @@
 #include <ast/stmts/ContinueStmt.hpp>
 #include <ast/stmts/GotoStmt.hpp>
 #include <ast/exprs/TemporaryValueRefExpr.hpp>
+#include <ast/exprs/RefExpr.hpp>
+#include <ast/exprs/ImplicitDerefExpr.hpp>
 
 namespace gulc {
     /**
@@ -153,6 +155,7 @@ namespace gulc {
         bool processStmt(Stmt*& stmt);
         bool processBreakStmt(BreakStmt* breakStmt);
         bool processCaseStmt(CaseStmt* caseStmt);
+        bool processCaseStmtHandleTempValues(CaseStmt* caseStmt);
         bool processCatchStmt(CatchStmt* catchStmt);
         bool processCompoundStmt(CompoundStmt* compoundStmt);
         // NOTE: This is a special case to process `processCompoundStmt` with temporary value awareness without
@@ -183,6 +186,7 @@ namespace gulc {
         void processConstructorCallExpr(ConstructorCallExpr* constructorCallExpr);
         void processFunctionCallExpr(Expr*& expr);
         void processImplicitCastExpr(ImplicitCastExpr* implicitCastExpr);
+        void processImplicitDerefExpr(ImplicitDerefExpr* implicitDerefExpr);
         void processInfixOperatorExpr(InfixOperatorExpr* infixOperatorExpr);
         void processIsExpr(IsExpr* isExpr);
         void processLabeledArgumentExpr(LabeledArgumentExpr* labeledArgumentExpr);
@@ -196,6 +200,7 @@ namespace gulc {
         void processParenExpr(ParenExpr* parenExpr);
         void processPostfixOperatorExpr(PostfixOperatorExpr* postfixOperatorExpr);
         void processPrefixOperatorExpr(PrefixOperatorExpr* prefixOperatorExpr);
+        void processRefExpr(RefExpr* refExpr);
         void processTernaryExpr(TernaryExpr* ternaryExpr);
         void processTryExpr(TryExpr* tryExpr);
         void processVariableDeclExpr(VariableDeclExpr* variableDeclExpr);

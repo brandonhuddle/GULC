@@ -45,6 +45,7 @@
 #include <ast/types/UnresolvedNestedType.hpp>
 #include <ast/exprs/CheckExtendsTypeExpr.hpp>
 #include <ast/exprs/TryExpr.hpp>
+#include <ast/exprs/RefExpr.hpp>
 #include "Parser.hpp"
 
 using namespace gulc;
@@ -2032,18 +2033,31 @@ CaseStmt* Parser::parseCaseStmt() {
     TextPosition startPosition = _lexer.peekStartPosition();
     TextPosition endPosition = _lexer.peekEndPosition();
 
-    _lexer.consumeType(TokenType::CASE);
+    bool isDefault = false;
+    Expr* condition = nullptr;
 
-    Expr* condition = parseExpr();
-
-    if (!_lexer.consumeType(TokenType::COLON)) {
-        printError("expected `:` after `case`, found `" + _lexer.peekCurrentSymbol() + "`!",
+    if (_lexer.consumeType(TokenType::CASE)) {
+        condition = parseExpr();
+    } else if (_lexer.consumeType(TokenType::DEFAULT)) {
+        isDefault = true;
+    } else {
+        printError("expected `case` or `default`, found `" + _lexer.peekCurrentSymbol() + "`!",
                    _lexer.peekStartPosition(), _lexer.peekEndPosition());
     }
 
-    Stmt* trueStmt = parseStmt();
+    if (!_lexer.consumeType(TokenType::COLON)) {
+        printError("expected `:`, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
 
-    return new CaseStmt(startPosition, endPosition, false, condition, trueStmt);
+    std::vector<Stmt*> body;
+
+    while (_lexer.peekType() != TokenType::RCURLY && _lexer.peekType() != TokenType::ENDOFFILE &&
+            _lexer.peekType() != TokenType::CASE && _lexer.peekType() != TokenType::DEFAULT) {
+        body.push_back(parseStmt());
+    }
+
+    return new CaseStmt(startPosition, endPosition, isDefault, condition, body);
 }
 
 CatchStmt* Parser::parseCatchStmt() {
@@ -2346,10 +2360,20 @@ SwitchStmt* Parser::parseSwitchStmt() {
                    _lexer.peekStartPosition(), _lexer.peekEndPosition());
     }
 
-    std::vector<Stmt*> statements;
+    std::vector<CaseStmt*> cases;
 
     while (_lexer.peekType() != TokenType::RCURLY && _lexer.peekType() != TokenType::ENDOFFILE) {
-        statements.push_back(parseStmt());
+        switch (_lexer.peekType()) {
+            case TokenType::CASE:
+            case TokenType::DEFAULT:
+                cases.push_back(parseCaseStmt());
+                break;
+            default:
+                printError("`switch` can only contain `case` or `default` statements, "
+                           "all other statements must be contained in either a `case` or `default` block!",
+                           _lexer.peekStartPosition(), _lexer.peekEndPosition());
+                break;
+        }
     }
 
     if (!_lexer.consumeType(TokenType::RCURLY)) {
@@ -2357,7 +2381,7 @@ SwitchStmt* Parser::parseSwitchStmt() {
                    _lexer.peekStartPosition(), _lexer.peekEndPosition());
     }
 
-    return new SwitchStmt(startPosition, endPosition, condition, statements);
+    return new SwitchStmt(startPosition, endPosition, condition, cases);
 }
 
 DoCatchStmt* Parser::parseTryStmt(TextPosition doStartPosition, TextPosition doEndPosition, CompoundStmt* doStmt) {
@@ -2975,6 +2999,15 @@ Expr* Parser::parsePrefixes() {
             Expr* expr = parsePrefixes();
 
             return new TryExpr(expr, startPosition, endPosition);
+        }
+        case TokenType::REF: {
+            _lexer.consumeType(TokenType::REF);
+
+            bool isMutable = _lexer.consumeType(TokenType::MUT);
+            // NOTE: I'm passing back in to `parsePrefixes` to allow `ref try member.property`
+            Expr* expr = parsePrefixes();
+
+            return new RefExpr(isMutable, expr, startPosition, endPosition);
         }
         default:
             return parseCallPostfixOrMemberAccess();

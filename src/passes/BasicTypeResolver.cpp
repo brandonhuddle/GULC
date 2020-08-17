@@ -627,7 +627,9 @@ void gulc::BasicTypeResolver::processCaseStmt(gulc::CaseStmt* caseStmt) {
         processExpr(caseStmt->condition);
     }
 
-    processStmt(caseStmt->trueStmt);
+    for (Stmt*& statement : caseStmt->body) {
+        processStmt(statement);
+    }
 }
 
 void gulc::BasicTypeResolver::processCatchStmt(gulc::CatchStmt* catchStmt) {
@@ -738,8 +740,8 @@ void gulc::BasicTypeResolver::processReturnStmt(gulc::ReturnStmt* returnStmt) {
 void gulc::BasicTypeResolver::processSwitchStmt(gulc::SwitchStmt* switchStmt) {
     processExpr(switchStmt->condition);
 
-    for (Stmt* statement : switchStmt->statements) {
-        processStmt(statement);
+    for (CaseStmt* statement : switchStmt->cases) {
+        processCaseStmt(statement);
     }
 }
 
@@ -824,6 +826,9 @@ void gulc::BasicTypeResolver::processExpr(gulc::Expr* expr) {
             break;
         case Expr::Kind::PrefixOperator:
             processPrefixOperatorExpr(llvm::dyn_cast<PrefixOperatorExpr>(expr));
+            break;
+        case Expr::Kind::Ref:
+            processRefExpr(llvm::dyn_cast<RefExpr>(expr));
             break;
         case Expr::Kind::SubscriptCall:
             processSubscriptCallExpr(llvm::dyn_cast<SubscriptCallExpr>(expr));
@@ -940,6 +945,10 @@ void gulc::BasicTypeResolver::processPostfixOperatorExpr(gulc::PostfixOperatorEx
 
 void gulc::BasicTypeResolver::processPrefixOperatorExpr(gulc::PrefixOperatorExpr* prefixOperatorExpr) {
     processExpr(prefixOperatorExpr->nestedExpr);
+}
+
+void gulc::BasicTypeResolver::processRefExpr(gulc::RefExpr* refExpr) {
+    processExpr(refExpr->nestedExpr);
 }
 
 void gulc::BasicTypeResolver::processSubscriptCallExpr(gulc::SubscriptCallExpr* subscriptCallExpr) {
