@@ -37,6 +37,8 @@ add_executable(gulc
 
         src/ast/Attr.cpp
         src/ast/Attr.hpp
+        src/ast/attrs/CopyAttr.cpp
+        src/ast/attrs/CopyAttr.hpp
         src/ast/attrs/CustomAttr.cpp
         src/ast/attrs/CustomAttr.hpp
         src/ast/attrs/UnresolvedAttr.cpp
@@ -228,6 +230,8 @@ add_executable(gulc
         src/ast/exprs/SubscriptRefExpr.hpp
         src/ast/exprs/TemplateConstRefExpr.cpp
         src/ast/exprs/TemplateConstRefExpr.hpp
+        src/ast/exprs/TemporaryValueRefExpr.cpp
+        src/ast/exprs/TemporaryValueRefExpr.hpp
         src/ast/exprs/TernaryExpr.cpp
         src/ast/exprs/TernaryExpr.hpp
         src/ast/exprs/TryExpr.cpp

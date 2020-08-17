@@ -109,20 +109,8 @@ void Parser::printWarning(const std::string &warningMessage, TextPosition startP
 std::vector<Attr*> Parser::parseAttrs() {
     std::vector<Attr*> result;
 
-    while (_lexer.consumeType(TokenType::LSQUARE)) {
-        // Parse the first and potentially only attribute
+    while (_lexer.consumeType(TokenType::ATSYMBOL)) {
         result.push_back(parseAttr());
-
-        // If there is a comma then that means they're specifying multiple attributes in the same `[...]` which is
-        // allowed
-        while (_lexer.consumeType(TokenType::COMMA)) {
-            result.push_back(parseAttr());
-        }
-
-        if (!_lexer.consumeType(TokenType::RSQUARE)) {
-            printError("expected ending `]` for attribute! (found `" + _lexer.peekToken().currentSymbol + "`)",
-                       _lexer.peekToken().startPosition, _lexer.peekToken().endPosition);
-        }
     }
 
     return result;
@@ -191,7 +179,7 @@ std::vector<Identifier> Parser::parseDotSeparatedIdentifiers() {
 }
 
 Identifier Parser::parseIdentifier() {
-    if (_lexer.consumeType(TokenType::ATSYMBOL)) {
+    if (_lexer.consumeType(TokenType::GRAVE)) {
         Token currentToken = _lexer.peekToken();
         std::string identifier = currentToken.currentSymbol;
 
@@ -202,6 +190,11 @@ Identifier Parser::parseIdentifier() {
         }
 
         _lexer.consumeType(currentToken.tokenType);
+
+        if (!_lexer.consumeType(TokenType::GRAVE)) {
+            printError("expected closing ` but found `" + _lexer.peekCurrentSymbol() + "`!",
+                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
+        }
 
         return Identifier(currentToken.startPosition, currentToken.endPosition, currentToken.currentSymbol);
     } else {
@@ -815,7 +808,7 @@ EnumDecl* Parser::parseEnumDecl(std::vector<Attr*> attributes, Decl::Visibility 
                    _lexer.peekStartPosition(), _lexer.peekEndPosition());
     }
 
-    if (_lexer.peekType() != TokenType::SYMBOL && _lexer.peekType() != TokenType::ATSYMBOL) {
+    if (_lexer.peekType() != TokenType::SYMBOL && _lexer.peekType() != TokenType::GRAVE) {
         printError("expected enum identifier, found `" + _lexer.peekCurrentSymbol() + "`!",
                    _lexer.peekStartPosition(), _lexer.peekEndPosition());
     }
@@ -845,7 +838,7 @@ EnumDecl* Parser::parseEnumDecl(std::vector<Attr*> attributes, Decl::Visibility 
 
     // NOTE: We now use the Swift syntax for enum declarations
     //       BUT we are still keeping them separate with the Swift and Rust style enums being `enum union` in Ghoul.
-    while (_lexer.peekType() == TokenType::CASE || _lexer.peekType() == TokenType::LSQUARE) {
+    while (_lexer.peekType() == TokenType::CASE || _lexer.peekType() == TokenType::ATSYMBOL) {
         std::vector<Attr*> enumConstAttrs = parseAttrs();
 
         if (!_lexer.consumeType(TokenType::CASE)) {
@@ -853,7 +846,7 @@ EnumDecl* Parser::parseEnumDecl(std::vector<Attr*> attributes, Decl::Visibility 
                        _lexer.peekStartPosition(), _lexer.peekEndPosition());
         }
 
-        if (_lexer.peekType() != TokenType::SYMBOL && _lexer.peekType() != TokenType::ATSYMBOL) {
+        if (_lexer.peekType() != TokenType::SYMBOL && _lexer.peekType() != TokenType::GRAVE) {
             printError("expected enum const identifier, found `" + _lexer.peekCurrentSymbol() + "`!",
                        _lexer.peekStartPosition(), _lexer.peekEndPosition());
         }
@@ -1229,17 +1222,17 @@ std::vector<ParameterDecl*> Parser::parseParameters(TextPosition* paramsEndPosit
             _lexer.peekType() == TokenType::IMMUT ||
             _lexer.peekType() == TokenType::CONST) {
             printError("`in`, `out`, `inout`, `const`, `mut`, and `immut` must be placed before the parameter type! "
-                       "(if this was meant to be the argument label prefix it with `@` instead)",
+                       "(if this was meant to be the argument label wrap it with ` such as `mut`)",
                        _lexer.peekStartPosition(), _lexer.peekEndPosition());
         }
 
-        // If there is an `@` it will parse it, if not nothing will happen and we keep going.
-        _lexer.consumeType(TokenType::ATSYMBOL);
+        // `parseGrave` tells us if we need an ending ` or not.
+        bool parseGrave = _lexer.consumeType(TokenType::GRAVE);
 
         Identifier argumentLabel;
 
         if (_lexer.peekMeta() == TokenMetaType::KEYWORD || _lexer.peekMeta() == TokenMetaType::MODIFIER ||
-            _lexer.peekType() == TokenType::SYMBOL) {
+                _lexer.peekType() == TokenType::SYMBOL) {
             argumentLabel = Identifier(_lexer.peekStartPosition(),
                                        _lexer.peekEndPosition(),
                                        _lexer.peekCurrentSymbol());
@@ -1250,6 +1243,11 @@ std::vector<ParameterDecl*> Parser::parseParameters(TextPosition* paramsEndPosit
             printError("expected argument label or parameter name, found `" + _lexer.peekCurrentSymbol() + "`!",
                        _lexer.peekStartPosition(), _lexer.peekEndPosition());
             return {};
+        }
+
+        if (parseGrave && !_lexer.consumeType(TokenType::GRAVE)) {
+            printError("expected ending ` but found `" + _lexer.peekCurrentSymbol() + "`!",
+                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
         }
 
         Identifier paramName;
@@ -1449,7 +1447,7 @@ StructDecl* Parser::parseStructDecl(std::vector<Attr*> attributes, Decl::Visibil
         errorName = "union";
     }
 
-    if (_lexer.peekType() != TokenType::SYMBOL && _lexer.peekType() != TokenType::ATSYMBOL) {
+    if (_lexer.peekType() != TokenType::SYMBOL && _lexer.peekType() != TokenType::GRAVE) {
         printError("expected identifier after `" + errorName + "`, found `" + _lexer.peekCurrentSymbol() + "`!",
                    _lexer.peekStartPosition(), _lexer.peekEndPosition());
     }
@@ -1645,7 +1643,7 @@ TraitDecl* Parser::parseTraitDecl(std::vector<Attr*> attributes, Decl::Visibilit
                    _lexer.peekStartPosition(), _lexer.peekEndPosition());
     }
 
-    if (_lexer.peekType() != TokenType::SYMBOL && _lexer.peekType() != TokenType::ATSYMBOL) {
+    if (_lexer.peekType() != TokenType::SYMBOL && _lexer.peekType() != TokenType::GRAVE) {
         printError("expected identifier after `trait`, found `" + _lexer.peekCurrentSymbol() + "`!",
                    _lexer.peekStartPosition(), _lexer.peekEndPosition());
     }
@@ -1735,7 +1733,7 @@ TypeAliasDecl* Parser::parseTypeAliasDecl(std::vector<Attr*> attributes, Decl::V
     } else {
         typeAliasType = TypeAliasType::Normal;
 
-        if (_lexer.peekType() != TokenType::SYMBOL && _lexer.peekType() != TokenType::ATSYMBOL) {
+        if (_lexer.peekType() != TokenType::SYMBOL && _lexer.peekType() != TokenType::GRAVE) {
             printError("expected identifier after `trait`, found `" + _lexer.peekCurrentSymbol() + "`!",
                        _lexer.peekStartPosition(), _lexer.peekEndPosition());
         }
@@ -1813,7 +1811,7 @@ TypeSuffixDecl* Parser::parseTypeSuffixDecl(std::vector<Attr*> attributes, Decl:
 
 VariableDecl* Parser::parseVariableDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
                                         TextPosition startPosition, DeclModifiers declModifiers) {
-    if (_lexer.peekType() != TokenType::SYMBOL && _lexer.peekType() != TokenType::ATSYMBOL) {
+    if (_lexer.peekType() != TokenType::SYMBOL && _lexer.peekType() != TokenType::GRAVE) {
         printError("expected variable identifier, found `" + _lexer.peekCurrentSymbol() + "`!",
                    _lexer.peekStartPosition(), _lexer.peekEndPosition());
     }
@@ -2316,7 +2314,7 @@ ReturnStmt* Parser::parseReturnStmt() {
     //
     //  LSQUARE
     //  LPAREN
-    //  ATSYMBOL
+    //  GRAVE
 
     // We call `parseExpr` if the token after `return` is an operator, value ("a", 12, etc.), symbol,
     // `sizeof`, `alignof`, `offsetof`, `nameof`, `traitsof`, `try ...` (NOT `try {`), `[`, `(` or `@`
@@ -2326,7 +2324,7 @@ ReturnStmt* Parser::parseReturnStmt() {
             checkTokenType == TokenType::TRAITSOF || checkTokenType == TokenType::TRY ||
             checkTokenType == TokenType::TRUE || checkTokenType == TokenType::FALSE ||
             checkTokenType == TokenType::LSQUARE || checkTokenType == TokenType::LPAREN ||
-            checkTokenType == TokenType::ATSYMBOL) {
+            checkTokenType == TokenType::GRAVE) {
         Expr* returnValue = parseExpr();
 
         return new ReturnStmt(startPosition, endPosition, returnValue);
@@ -3113,8 +3111,8 @@ Expr* Parser::parseIdentifierOrLiteralExpr() {
     Token const& peekedToken = _lexer.peekToken();
 
     switch (peekedToken.tokenType) {
-        // `@` is used to allow keywords as names
-        case TokenType::ATSYMBOL:
+        // Grave is used to allow keywords as names
+        case TokenType::GRAVE:
         case TokenType::SYMBOL:
             return parseIdentifierExpr();
         case TokenType::NUMBER:

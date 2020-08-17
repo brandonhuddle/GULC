@@ -723,9 +723,12 @@ llvm::Function* gulc::CodeGen::getFunction(gulc::FunctionDecl* functionDecl) {
 
 // Statement Generation
 void gulc::CodeGen::generateStmt(gulc::Stmt const* stmt, std::string const& stmtName) {
+    // TODO: I don't think we need this?
+    std::size_t oldTemporaryValueCount = _currentStmtTemporaryValues.size();
+
     if (!stmt->temporaryValues.empty()) {
         for (auto tempValLocalVar : stmt->temporaryValues) {
-            generateVariableDeclExpr(tempValLocalVar);
+            generateTemporaryValueVariableDeclExpr(tempValLocalVar);
         }
     }
 
@@ -781,6 +784,8 @@ void gulc::CodeGen::generateStmt(gulc::Stmt const* stmt, std::string const& stmt
     if (!stmt->temporaryValues.empty()) {
         cleanupTemporaryValues(stmt->temporaryValues);
     }
+
+    _currentStmtTemporaryValues.resize(oldTemporaryValueCount);
 }
 
 void gulc::CodeGen::generateBreakStmt(gulc::BreakStmt const* breakStmt) {
@@ -896,6 +901,27 @@ void gulc::CodeGen::generateDoWhileStmt(gulc::DoWhileStmt const* doWhileStmt, st
 }
 
 void gulc::CodeGen::generateForStmt(gulc::ForStmt const* forStmt, std::string const& loopName) {
+    // TODO: I don't think we need this?
+    std::size_t oldTemporaryValueCount = _currentStmtTemporaryValues.size();
+
+    // We create the allocations for `condition` and `iteration` temporary values before the loop begins just as a
+    // quick and easy micro-optimization.
+    if (forStmt->condition != nullptr) {
+        if (!forStmt->condition->temporaryValues.empty()) {
+            for (auto tempValLocalVar : forStmt->condition->temporaryValues) {
+                generateTemporaryValueVariableDeclExpr(tempValLocalVar);
+            }
+        }
+    }
+
+    if (forStmt->iteration != nullptr) {
+        if (!forStmt->iteration->temporaryValues.empty()) {
+            for (auto tempValLocalVar : forStmt->iteration->temporaryValues) {
+                generateTemporaryValueVariableDeclExpr(tempValLocalVar);
+            }
+        }
+    }
+
     if (forStmt->init != nullptr) {
         generateExpr(forStmt->init);
     }
@@ -920,6 +946,12 @@ void gulc::CodeGen::generateForStmt(gulc::ForStmt const* forStmt, std::string co
 
     if (forStmt->condition != nullptr) {
         llvm::Value *cond = generateExpr(forStmt->condition);
+
+        // The condition is regenerated every loop so we need to cleanup the temporaries every loop
+        if (!forStmt->condition->temporaryValues.empty()) {
+            cleanupTemporaryValues(forStmt->condition->temporaryValues);
+        }
+
         // If the condition is true we continue the loop, if not we break from the loop...
         _irBuilder->CreateCondBr(cond, hiddenContinueLoop, breakLoop);
     } else {
@@ -952,7 +984,14 @@ void gulc::CodeGen::generateForStmt(gulc::ForStmt const* forStmt, std::string co
     _irBuilder->SetInsertPoint(continueLoop);
 
     // Generate the iteration expression (usually `++i`)
-    if (forStmt->iteration != nullptr) generateExpr(forStmt->iteration);
+    if (forStmt->iteration != nullptr) {
+        generateExpr(forStmt->iteration);
+
+        // The iteration is regenerated every loop so we need to cleanup the temporaries every loop
+        if (!forStmt->iteration->temporaryValues.empty()) {
+            cleanupTemporaryValues(forStmt->iteration->temporaryValues);
+        }
+    }
 
     // Branch back to the beginning of our loop...
     _irBuilder->CreateBr(loop);
@@ -962,9 +1001,11 @@ void gulc::CodeGen::generateForStmt(gulc::ForStmt const* forStmt, std::string co
     _irBuilder->SetInsertPoint(breakLoop);
 
     // TODO: Post loop cleanup
-//    for (Expr* postLoopCleanupExpr : forStmt->postLoopCleanup) {
-//        generateExpr(postLoopCleanupExpr);
-//    }
+    for (Expr* postLoopCleanupExpr : forStmt->postLoopCleanup) {
+        generateExpr(postLoopCleanupExpr);
+    }
+
+    _currentStmtTemporaryValues.resize(oldTemporaryValueCount);
 }
 
 void gulc::CodeGen::generateGotoStmt(gulc::GotoStmt const* gotoStmt) {
@@ -1051,19 +1092,21 @@ void gulc::CodeGen::generateReturnStmt(gulc::ReturnStmt const* returnStmt) {
     if (returnStmt->returnValue != nullptr) {
         llvm::Value* returnValue = generateExpr(returnStmt->returnValue);
 
+        cleanupTemporaryValues(returnStmt->temporaryValues);
+
         for (Expr* deferredExpr : returnStmt->preReturnDeferred) {
             generateExpr(deferredExpr);
         }
-
-        cleanupTemporaryValues(returnStmt->temporaryValues);
 
         _irBuilder->CreateRet(returnValue);
     } else {
+        // TODO: I don't think this can ever have any values? `returnValue` is null so temporary values shouldn't be
+        //       filled
+        cleanupTemporaryValues(returnStmt->temporaryValues);
+
         for (Expr* deferredExpr : returnStmt->preReturnDeferred) {
             generateExpr(deferredExpr);
         }
-
-        cleanupTemporaryValues(returnStmt->temporaryValues);
 
         _irBuilder->CreateRetVoid();
     }
@@ -1140,9 +1183,9 @@ void gulc::CodeGen::leaveNestedLoop(std::size_t oldNestedLoopCount) {
 
 void gulc::CodeGen::cleanupTemporaryValues(std::vector<VariableDeclExpr*> const& temporaryValues) {
     for (auto temporaryValue : temporaryValues) {
-        llvm::AllocaInst* localVariableAlloca = getLocalVariableOrNull(temporaryValue->identifier().name());
+        llvm::AllocaInst* temporaryValueAlloca = getTemporaryValueOrNull(temporaryValue->identifier().name());
 
-        if (localVariableAlloca == nullptr) {
+        if (temporaryValueAlloca == nullptr) {
             printError("[INTERNAL] temporary value variable was not found!",
                        temporaryValue->startPosition(), temporaryValue->endPosition());
         }
@@ -1156,7 +1199,7 @@ void gulc::CodeGen::cleanupTemporaryValues(std::vector<VariableDeclExpr*> const&
             auto destructorFunc = _llvmModule->getFunction(structDecl->destructor->mangledName());
 
             std::vector<llvm::Value*> llvmArgs {
-                    localVariableAlloca
+                    temporaryValueAlloca
             };
 
             _irBuilder->CreateCall(destructorFunc, llvmArgs);
@@ -1296,6 +1339,8 @@ llvm::Value* gulc::CodeGen::generateExpr(gulc::Expr const* expr) {
             return generatePostfixOperatorExpr(llvm::dyn_cast<PostfixOperatorExpr>(expr));
         case Expr::Kind::PrefixOperator:
             return generatePrefixOperatorExpr(llvm::dyn_cast<PrefixOperatorExpr>(expr));
+        case Expr::Kind::TemporaryValueRef:
+            return generateTemporaryValueRefExpr(llvm::dyn_cast<TemporaryValueRefExpr>(expr));
         case Expr::Kind::Ternary:
             return generateTernaryExpr(llvm::dyn_cast<TernaryExpr>(expr));
         case Expr::Kind::Try:
@@ -1931,7 +1976,30 @@ llvm::Value* gulc::CodeGen::generatePrefixOperatorExpr(gulc::PrefixOperatorExpr 
     return nullptr;
 }
 
+llvm::Value* gulc::CodeGen::generateTemporaryValueRefExpr(gulc::TemporaryValueRefExpr const* temporaryValueRefExpr) {
+    llvm::AllocaInst* temporaryValueAlloca = getTemporaryValueOrNull(temporaryValueRefExpr->temporaryName());
+
+    if (temporaryValueAlloca != nullptr) {
+        return temporaryValueAlloca;
+    } else {
+        printError("[INTERNAL] temporary value was not found!",
+                   temporaryValueRefExpr->startPosition(), temporaryValueRefExpr->endPosition());
+    }
+
+    return nullptr;
+}
+
+llvm::Value* gulc::CodeGen::generateTemporaryValueVariableDeclExpr(gulc::VariableDeclExpr const* variableDeclExpr) {
+    llvm::AllocaInst* newLocalVariable = addTemporaryValue(variableDeclExpr->identifier().name(),
+                                                           generateLlvmType(variableDeclExpr->type));
+
+    // NOTE: Temporary values cannot have initial values so we don't check for it.
+
+    return newLocalVariable;
+}
+
 llvm::Value* gulc::CodeGen::generateTernaryExpr(gulc::TernaryExpr const* ternaryExpr) {
+    // TODO: Temporary values need to be cleaned up conditionally...
     printError("ternary operator not yet supported!",
                ternaryExpr->startPosition(), ternaryExpr->endPosition());
     return nullptr;
@@ -2140,6 +2208,24 @@ llvm::AllocaInst* gulc::CodeGen::getLocalVariableOrNull(std::string const& varNa
     //           lead to a negligible speed improvement
     for (auto checkVariable : gulc::reverse(_currentLlvmFunctionLocalVariables)) {
         if (checkVariable->getName() == varName) {
+            return checkVariable;
+        }
+    }
+
+    return nullptr;
+}
+
+llvm::AllocaInst* gulc::CodeGen::addTemporaryValue(std::string const& tmpName, llvm::Type* llvmType) {
+    llvm::AllocaInst* allocaInst = _irBuilder->CreateAlloca(llvmType, nullptr, tmpName);
+
+    _currentStmtTemporaryValues.push_back(allocaInst);
+
+    return allocaInst;
+}
+
+llvm::AllocaInst* gulc::CodeGen::getTemporaryValueOrNull(std::string const& tmpName) {
+    for (auto checkVariable : gulc::reverse(_currentStmtTemporaryValues)) {
+        if (checkVariable->getName() == tmpName) {
             return checkVariable;
         }
     }

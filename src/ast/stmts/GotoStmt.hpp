@@ -46,6 +46,7 @@ namespace gulc {
 
         // The most common case for this will be destructor calls.
         std::vector<Expr*> preGotoDeferred;
+        std::size_t currentNumLocalVariables;
 
         ~GotoStmt() override {
             for (Expr* preGotoDeferredExpr : preGotoDeferred) {

@@ -26,6 +26,7 @@ namespace gulc {
         static bool classof(const Node* node) { return node->getNodeKind() == Node::Kind::Attr; }
 
         enum class Kind {
+            Copy,
             // References an `AttributeDecl`...
             Custom,
             // An unresolved attribute. Could be `pod` or something custom

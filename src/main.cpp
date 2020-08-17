@@ -48,43 +48,6 @@ using namespace gulc;
 //         the C compiler and other language compilers)
 //       * Basically `ghoul` should be a compiler, a build system, and a project creation tool
 
-// TODO: We need to disable implicit string literal concatenation for `[ ... ]` array literals:
-//       [
-//           "This "
-//           "should error on the above line saying it expected `,`"
-//       ]
-//       This should be allowed everywhere else EXCEPT in an array literal. If you use parenthesis the error goes away
-//       [
-//           ("This "
-//           "is allowed sense it won't allow accidental concatenation")
-//       ]
-//       The reason we need to do this is because with us no longer needing `;` at the end of every line someone might
-//       THINK we allow implicit `,` in this scenario. This also wouldn't error out so they would THINK everything
-//       worked until runtime when they realize the array is now:
-//       [ "This should error on the above line saying it expected `,`" ]
-//       If we can avoid runtime errors I would like to as much as possible. So within `[ ... ]` array literals
-//       disallow implicit string concatenation UNLESS the strings are contained within `(...)`.
-
-// TODO: Should we consider changing attributes to an `@...` system instead of `[...]` like Swift?
-//       Pros:
-//           * Less confusing syntax for parameters
-//             `func test([Escaping] _ callback: func())`
-//             vs
-//             `func test(_ callback: @escaping func())`
-//             We couldn't do `func test(_ callback: [Escaping] func())` as it would be confused for array syntax
-//           * Could be extended to allow fully custom syntax
-//             i.e. `@xmlClass Example {}` for an XML serializable class (AWFUL practice, don't do it. But basic
-//             example.)
-//           * Could potential be used to replace the rust macros `foreach!` stuff to allow:
-//             @for i in 0..<12 {}
-//           * More common. Swift, Kotlin, Java, etc. all use `@` nearly exactly the same way. C# uses `[...]`, Rust
-//             uses `#[]`, C++ uses `[[...]]`, etc. It would be more uniform and well known to use `@...`
-//       Cons:
-//           * Uglier. Coming from C# I like `[XmlRoot] class AmazonEnvelope { ... }` better but I could grow to like
-//             `@xmlRoot class AmazonEnvelope { ... }`
-//           * That's really it. I just don't like how it looks. But having macros use `@...` as well would be nice I
-//             guess. I do like `@for <item> in <iterator/enumerable> { ... }`
-
 // TODO: For templates I think we should stop modifying them after `DeclInstantiator` and instead create a fake
 //       instantiation with special parameters to handle validating the template. This would help with:
 //        1. Further processing of a template will make creating new instantiations difficult to impossible
@@ -106,59 +69,8 @@ using namespace gulc;
 //        * Rust already has set the idea up as `panic` (even though earlier implementations called in `abandon` as
 //          well, such as the Midori OS's programming language)
 
-// TODO: When within a constructor we need to ALWAYS use the current type being constructed's `vtable`. NOT the `vtable`
-//       stored in memory. The reason for this is as follows:
-//           class BaseClass {
-//               var baseValue: i32
-//  .
-//               virtual func example() {
-//  .                baseValue = 4
-//               }
-//  .
-//               init() {
-//                   baseValue = 12
-//                   example()
-//               }
-//           }
-//  .
-//           class ChildClass: BaseClass {
-//               var childValue: i32
-//  .
-//               override func example() {
-//                   baseValue = childValue
-//               }
-//  .
-//               init() {
-//                   childValue = 45
-//               }
-//           }
-//       In the above example `ChildClass::init()` will implicitly call `BaseClass::init()`. If we allow `init` to use
-//       the `vtable` then `BaseClass::init::example()` will call `ChildClass::example()` which will assign `baseValue`
-//       garbage data since `childValue` hasn't been initialized by that point.
-//       To implement this my thoughts are that `init` should be a special case that completely ignores the `vtable` in
-//       its entirety. `init` should call the exact functions it references, no vtable involved. That should solve this
-//       issue.
-
-// TODO: We should make a `@copy` attribute that tells the compiler the type should be copied by default instead of
-//       moved by default.
-//       Example:
-//           @copy
-//           struct m128 {
-//               var a: f32
-//               var b: f32
-//               var c: f32
-//               var d: f32
-//           }
-//       The above is an x86/x64 SIMD type. Since it would be considered a number it shouldn't be moved by default but
-//       copied by default. Or maybe a better way to describe it is that it is a "value-type" instead of a
-//       "container-type". I would need to research it a little more but in my mind "data containers" should be moved
-//       while "value types" should be copied. We wouldn't be able to detect which is which on the compiler end I don't
-//       think
-
 // TODO: We need to clean up how we handle local variables. Anywhere where we access them we are manually regenerating
 //       the list for the context. I think we could do better than that by storing a list for each context
-// TODO: `ForStmt` currently has potential for a memory leak. We need to handle the `temporaryValues` for
-//       `condition` and `iteration`
 
 int main() {
     Target target = Target::getHostTarget();
@@ -226,7 +138,6 @@ int main() {
     }
 
     gulc::Linker::link(objFiles);
-
 
     return 0;
 }

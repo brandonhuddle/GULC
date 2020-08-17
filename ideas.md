@@ -198,6 +198,22 @@ syntax:
 I think any language trying to replace C++ is severely limited when missing the capture list syntax.
 
 Capture lists are exactly the same as the proposed `defer` capture lists.
+
+I think we will also want to make a less verbose option for the above lambda such as:
+    
+    func[](param) => param
+    func[](x, y) => x + y
+    func[](_: i32, _: i32) => @1 + @2
+    func[](x: i32, y: i32) -> i32 => x + y
+    
+    let ex: func(_: i32, _: i32) -> i32 = func[](_ x, _ y) => x + y
+    
+The `@1` is undecided but I think the condensed syntax is needed. 
+The `func[](x, y) => x + y` would basically become `func[](x: auto, y: auto) -> auto { return x + y }`
+
+While I would like to make the syntax even more condensed like other languages I don't think it is possible without 
+becoming too confusing and different. We need to have the capture list and without the `func` keyword `[](...)` would 
+be interpreted as `DimensionType(TupleType(...))` rather than `FuncPointerType`
 ##### Questions
  * Do we want to support template lambdas? I can't imagine a scenario where they would ever be needed. They also can't 
    be passed around in their template form since the template needs solved at compile time. I think we should not 
@@ -211,4 +227,69 @@ Capture lists are exactly the same as the proposed `defer` capture lists.
    in the same area. Also `func[]` could confuse some people into either thinking that 
    1. This is declaring an operator `[]`, like the Swift syntax
    2. This is an array of `func` pointers, like the legacy C-style syntax
-   
+
+### `pure` Functors
+`pure` functions are something that could be quite useful to compiler optimizations. They're similar to the already 
+existing `immut` by default idea that Ghoul inherits but extends that more into the global environment rather than just 
+the variable being used.
+
+`pure` in Ghoul wouldn't be able to be 100% `pure` as we would have to give access to the heap 
+(note that `const` would be 100% `pure`, but that is a little too strict). 
+
+The benefit and usage of `pure` would be this: give the ability to limit a functor in Ghoul so that it cannot modify 
+global variables, cannot use static local variables (even though an atomic static local variable would be `pure`), and 
+give the description that with the same input the function will return the same output. That last item wouldn't be able 
+to be _forced_ on the function it would have to be up to the programmer to ensure that themselves.
+
+Where this would be useful is on functions that would always return the same data as long as the input is the same such 
+as a `length()` function/property, maybe the `Lexer::peekToken()`, etc.
+
+##### Examples
+    
+    struct list<T> {
+        private var ptr: *T
+        private var len: usize
+        
+        prop length: usize {
+            pure get => len
+        }
+        
+        mut func insert(end item: &T) {
+            // ...
+        }
+        
+        // NOTE: This is a little white lie. It is accessing the heap through `ptr` which is impure but as long as 
+        //       `ptr` cannot be changed from another thread the purity is true.
+        pure subscript(_ index: usize) -> &T
+        requires index >= 0 
+        requires index < len {
+            return unsafe ptr[index]
+        }
+    }
+    
+    let myList = list<i32> [ 1, 2, 3, 4 ]
+    
+    for i: usize = 0; i < myList.length; ++i {
+        printLine("Index: {0}, Item: {1}", i, myList[i])
+    }
+    
+In the above example `myList.length` could be optimized to only be called once before the `for` loop even begins since 
+no impure functions are called on `myList`. Both `subcript` and `prop length::get` are `immut pure` so nothing can be 
+changed and the compiler can be confident that optimizing out `length` to a single call will result in the expected 
+code.
+
+Without `pure` the compiler cannot be sure that `length` can be optimized out and would be required to call the 
+property getter every loop.
+    
+    // Same list<T> from above
+    let myList = list<i32> [ 1, 2, 3, 4 ]
+    
+    for i: usize = 0; i < myList.length; ++i {
+        if myList[i] == 2 {
+            myList.insert(end: 5)
+        }
+    }
+    
+In the above example `myList.length` would have to be called for every iteration of the loop. The reason for this is 
+even though `length` and `subscript` are pure, `insert` is not only `impure` but also explicitly `mut` making it so 
+`length` has the potential to change after `insert` is called (which it does).

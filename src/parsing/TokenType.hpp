@@ -170,7 +170,8 @@ namespace gulc {
         COMMA, // ','
         LPAREN, // '('
         RPAREN, // ')'
-        ATSYMBOL, // '@', used to grab the string representation of a compiler keyword. E.g. `let @class = 12;`
+        ATSYMBOL, // '@' used for attributes
+        GRAVE, // '`' used to use keywords similar to Swift e.g. 'func example(`class` classParam: string)' allows 'example(class: "")'
         ENDOFFILE // might be removed, just used to double check everything is parsed correctly
     };
 }

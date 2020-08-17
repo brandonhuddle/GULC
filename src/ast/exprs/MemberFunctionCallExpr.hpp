@@ -22,6 +22,8 @@
 
 namespace gulc {
     /// `MemberFunctionCallExpr` is the same as `FunctionCallExpr` EXCEPT it handles the `self` argument.
+    // TODO: Once we support `vtable` calls we need to make sure `ConstructorDecl` is marked as NOT allowing `vtable`
+    //       calls on `self`
     class MemberFunctionCallExpr : public FunctionCallExpr {
     public:
         static bool classof(const Expr* expr) { return expr->getExprKind() == Expr::Kind::MemberFunctionCall; }

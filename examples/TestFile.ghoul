@@ -4,6 +4,7 @@ enum TestEnum {
     case Val = 5454
 }
 
+@copy
 struct vec3 {
     var x: i32
     var y: i32
@@ -55,13 +56,12 @@ func boolTest() -> bool {
 
 func main() -> i32 {
     let testVec: vec3 = vec3(x: 0, y: 12, z: 44)
-    return testVec.y
 //    let templateTest = TemplateTest<i32>()
 //    let testFloat: f32 = 12.0
-//    let testInt: i32 = 44
-//
-//    goto test
-//
-//test:
-//    return try manglerTest(arg: testInt)
+    let testInt: i32 = 44
+
+    //goto test
+
+test:
+    return try manglerTest(arg: testInt)
 }

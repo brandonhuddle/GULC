@@ -71,6 +71,7 @@
 #include <ast/exprs/TryExpr.hpp>
 #include <ast/exprs/BoolLiteralExpr.hpp>
 #include <ast/exprs/DestructorCallExpr.hpp>
+#include <ast/exprs/TemporaryValueRefExpr.hpp>
 
 namespace gulc {
     class CodeGen {
@@ -100,6 +101,7 @@ namespace gulc {
         llvm::IRBuilder<>* _entryBlockBuilder;
         std::map<std::string, llvm::BasicBlock*> _currentLlvmFunctionLabels;
         std::vector<llvm::AllocaInst*> _currentLlvmFunctionLocalVariables;
+        std::vector<llvm::AllocaInst*> _currentStmtTemporaryValues;
 
         llvm::BasicBlock* _currentLoopBlockContinue;
         llvm::BasicBlock* _currentLoopBlockBreak;
@@ -193,6 +195,8 @@ namespace gulc {
         llvm::Value* generateParenExpr(ParenExpr const* parenExpr);
         llvm::Value* generatePostfixOperatorExpr(PostfixOperatorExpr const* postfixOperatorExpr);
         llvm::Value* generatePrefixOperatorExpr(PrefixOperatorExpr const* prefixOperatorExpr);
+        llvm::Value* generateTemporaryValueRefExpr(TemporaryValueRefExpr const* temporaryValueRefExpr);
+        llvm::Value* generateTemporaryValueVariableDeclExpr(VariableDeclExpr const* variableDeclExpr);
         llvm::Value* generateTernaryExpr(TernaryExpr const* ternaryExpr);
         llvm::Value* generateTryExpr(TryExpr const* tryExpr);
         llvm::Value* generateValueLiteralExpr(ValueLiteralExpr const* valueLiteralExpr);
@@ -206,6 +210,8 @@ namespace gulc {
                        TextPosition const& startPosition, TextPosition const& endPosition);
         llvm::AllocaInst* addLocalVariable(std::string const& varName, llvm::Type* llvmType);
         llvm::AllocaInst* getLocalVariableOrNull(std::string const& varName);
+        llvm::AllocaInst* addTemporaryValue(std::string const& tmpName, llvm::Type* llvmType);
+        llvm::AllocaInst* getTemporaryValueOrNull(std::string const& tmpName);
         llvm::Function* getMoveConstructorForType(gulc::Type* type);
         llvm::Function* getCopyConstructorForType(gulc::Type* type);
 

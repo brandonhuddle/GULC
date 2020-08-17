@@ -22,6 +22,7 @@
 #include <make_reverse_iterator.hpp>
 #include <ast/exprs/CurrentSelfExpr.hpp>
 #include <ast/types/ReferenceType.hpp>
+#include <ast/exprs/TemporaryValueRefExpr.hpp>
 
 void gulc::CodeTransformer::processFiles(std::vector<ASTFile>& files) {
     for (ASTFile& file : files) {
@@ -134,6 +135,8 @@ void gulc::CodeTransformer::processFunctionDecl(gulc::FunctionDecl* functionDecl
     for (ParameterDecl* parameter : functionDecl->parameters()) {
         processParameterDecl(parameter);
     }
+
+    _validateGotoVariables.clear();
 
     // Prototypes don't have bodies
     if (!functionDecl->isPrototype()) {
@@ -382,6 +385,14 @@ bool gulc::CodeTransformer::processCompoundStmt(gulc::CompoundStmt* compoundStmt
 
     _localVariables.resize(oldLocalVariableCount);
 
+    for (GotoStmt* gotoStmt : _validateGotoVariables) {
+        // Only lower the number of local variables, never raise it
+        // This is to make it so we find the common parent between the `goto` and the labeled statement
+        if (_localVariables.size() < gotoStmt->currentNumLocalVariables) {
+            gotoStmt->currentNumLocalVariables = _localVariables.size();
+        }
+    }
+
     return returnsOnAllCodePaths;
 }
 
@@ -459,11 +470,39 @@ bool gulc::CodeTransformer::processForStmt(gulc::ForStmt* forStmt) {
     }
 
     if (forStmt->condition != nullptr) {
+        // `condition` runs ever loop and has the potential to create temporary values every loop. We need to make sure
+        // that in that (very inefficient) case we're properly calling the destructor on those temporary values.
+        std::size_t oldTemporaryValuesSize = _temporaryValues.size();
+        _temporaryValues.emplace_back(std::vector<VariableDeclExpr*>());
+
         processExpr(forStmt->condition);
+
+        // Add the last index to `Stmt::temporaryValues` so we don't lose the pointers and leak memory.
+        auto checkLastTemporaryValueList = _temporaryValues.end() - 1;
+
+        if (!checkLastTemporaryValueList->empty()) {
+            forStmt->condition->temporaryValues = *checkLastTemporaryValueList;
+        }
+
+        _temporaryValues.resize(oldTemporaryValuesSize);
     }
 
     if (forStmt->iteration != nullptr) {
+        // Ditto to above about `condition`, through this happens at the end of `body` while `condition` happens at the
+        // beginning.
+        std::size_t oldTemporaryValuesSize = _temporaryValues.size();
+        _temporaryValues.emplace_back(std::vector<VariableDeclExpr*>());
+
         processExpr(forStmt->iteration);
+
+        // Add the last index to `Stmt::temporaryValues` so we don't lose the pointers and leak memory.
+        auto checkLastTemporaryValueList = _temporaryValues.end() - 1;
+
+        if (!checkLastTemporaryValueList->empty()) {
+            forStmt->condition->temporaryValues = *checkLastTemporaryValueList;
+        }
+
+        _temporaryValues.resize(oldTemporaryValuesSize);
     }
 
     forStmt->currentNumLocalVariables = _localVariables.size();
@@ -483,6 +522,15 @@ bool gulc::CodeTransformer::processForStmt(gulc::ForStmt* forStmt) {
     _localVariables.resize(oldLocalVariableCount);
     _currentLoop = oldLoop;
 
+    // We also perform this operation after `for` loops to remove the number of variables declared in the preloop
+    for (GotoStmt* gotoStmt : _validateGotoVariables) {
+        // Only lower the number of local variables, never raise it
+        // This is to make it so we find the common parent between the `goto` and the labeled statement
+        if (_localVariables.size() < gotoStmt->currentNumLocalVariables) {
+            gotoStmt->currentNumLocalVariables = _localVariables.size();
+        }
+    }
+
     // TODO: Is this true? My logic is that the `condition` could be false therefore we don't know if it returns on all
     //       code paths.
     return false;
@@ -491,8 +539,6 @@ bool gulc::CodeTransformer::processForStmt(gulc::ForStmt* forStmt) {
 bool gulc::CodeTransformer::processGotoStmt(gulc::GotoStmt* gotoStmt) {
     LabeledStmt* gotoLabel = _currentFunction->labeledStmts[gotoStmt->label().name()];
 
-    // The `CodeVerifier` pass should handle verifying that no new variable have been declared between us and the
-    // labeled statement
     for (std::int64_t i = static_cast<int64_t>(_localVariables.size()) - 1;
             i >= static_cast<int64_t>(gotoLabel->currentNumLocalVariables); --i) {
         // Add the destructor call to the end of the compound statement...
@@ -502,6 +548,9 @@ bool gulc::CodeTransformer::processGotoStmt(gulc::GotoStmt* gotoStmt) {
             gotoStmt->preGotoDeferred.push_back(destructLocalVariableExpr);
         }
     }
+
+    gotoStmt->currentNumLocalVariables = _localVariables.size();
+    _validateGotoVariables.push_back(gotoStmt);
 
     return false;
 }
@@ -534,6 +583,17 @@ bool gulc::CodeTransformer::processIfStmtHandleTempValues(gulc::IfStmt* ifStmt) 
 }
 
 bool gulc::CodeTransformer::processLabeledStmt(gulc::LabeledStmt* labeledStmt) {
+    // Validate any `goto` statements that reference this labeled statement.
+    for (GotoStmt* gotoStmt : _validateGotoVariables) {
+        if (gotoStmt->label().name() == labeledStmt->label().name()) {
+            if (_localVariables.size() > gotoStmt->currentNumLocalVariables) {
+                printError("cannot jump from this goto to the referenced label, jump skips variable declarations!",
+                           gotoStmt->startPosition(), gotoStmt->endPosition());
+                return false;
+            }
+        }
+    }
+
     return processStmt(labeledStmt->labeledStmt);
 }
 
@@ -1106,9 +1166,9 @@ void gulc::CodeTransformer::processVariableDeclExpr(gulc::VariableDeclExpr* vari
     _localVariables.push_back(variableDeclExpr);
 }
 
-gulc::LocalVariableRefExpr* gulc::CodeTransformer::createTemporaryValue(gulc::Type* type,
-                                                                        gulc::TextPosition startPosition,
-                                                                        gulc::TextPosition endPosition) {
+gulc::TemporaryValueRefExpr* gulc::CodeTransformer::createTemporaryValue(gulc::Type* type,
+                                                                         gulc::TextPosition startPosition,
+                                                                         gulc::TextPosition endPosition) {
     auto tempValueLocalVarName = std::string("_tmpValVar.") + std::to_string(_temporaryValueVarNumber);
     auto tempValueLocalVar = new VariableDeclExpr(
             Identifier(
@@ -1128,7 +1188,7 @@ gulc::LocalVariableRefExpr* gulc::CodeTransformer::createTemporaryValue(gulc::Ty
     // The list of temporary values is a vector of a vector so we grab the last vector and add to that list.
     (_temporaryValues.end() - 1)->push_back(tempValueLocalVar);
 
-    auto tempValueLocalVarRef = new LocalVariableRefExpr(
+    auto tempValueLocalVarRef = new TemporaryValueRefExpr(
             startPosition,
             endPosition,
             tempValueLocalVarName
