@@ -77,6 +77,67 @@ using namespace gulc;
 //       The idea is mainly just to give a way to specialize a template for certain types that might be better off
 //       treated differently.
 
+// TODO: Finish `ref` support
+// TODO: Support `<=>`
+// TODO: Support `func` in `enum` declarations
+// TODO: Finish `prop` and `subscript` (they currently will crash the compiler)
+// TODO: Finish `import` support (requires `implicitExtern` stuff)
+// TODO: Finish operator overloading
+// TODO: Finish extensions
+// TODO: Finish templates (e.g. specialization and general usage)
+// TODO: Support `trait`
+
+// TODO: Improve error messages (e.g. add checks to validate everything is how it is supposed to be, output source code
+//       of where the error went wrong, etc.)
+
+// TODO: I think we should support `operator infix .()` or `operator prefix deref` to allow smart references.
+//       C++ is starting to move towards the idea of `operator .()` and I really like the idea. I think this would be
+//       nicer though:
+//           struct box<T> {
+//               private var ptr: *T
+//  .
+//               pure operator prefix deref() -> &T
+//               requires ptr != null {
+//                   return *T
+//               }
+//           }
+//       The above would allow us to do:
+//           let v: box<Window> = @new Window(title: "Hello, World!")
+//  .
+//           v.show()
+//       While typing `v->show()` wouldn't be that big of a deal I really just don't want to require that. `box<T>`
+//       is just a smart reference to a static reference, we shouldn't need to require `->`.
+//       I think we should do `operator prefix deref()` and `operator prefix *()`
+//       instead of `operator infix .()` and `operator infix ->()` to allow for us to us to call ALL operators on the
+//       underlying reference type in a more natural/intuitive way. `operator infix .()` doesn't make me think that
+//       `box<i32> + box<i32>` will call `operator infix +(_ rightValue: i32)`. BUT `operator prefix deref` does since
+//       you will have to `deref` for `operator infix +(_ rightValue: i32)`.
+//       To support this I think the general path for working with smart references is as follows:
+//           if lValue { convertLValueToRValue(...) }
+//           if smartRef { dereferenceSmartReferences(...) }
+//           if ref { dereferenceReferences(...) }
+//       Detection will obviously need to be a little more in depth but the above should work how it is needed. Unlike
+//       normal references, we would double dereference. Smart references would be a layer above references.
+//       I.e.:
+//           let dRef: ref ref i32 = ...
+//           let error: i32 = dRef // ERROR: `dRef` can only directly become `ref i32`, we won't double dereference
+//           // BUT
+//           let sRef: Ref<i32> = ...
+//           let ok: i32 = sRef // OK: `Ref<i32>::operator prefix deref() -> ref i32` will automagically also dereference
+//                              //     the result of the first `deref`. We only do that because returning `ref` is more natural.
+//       NOTE: Overloading `operator prefix deref()` will make it so no other operators besides the following are allowed:
+//           * `operator as<T>()`
+//           * `operator is<T>()`
+//       Any other operator would be pass to `T` instead. The reason for `as` and `is` being supported is to allow the
+//       smart reference to implement basic support for runtime type reflection etc.
+//       How would you support functions on a smart reference? Easy. You don't. A smart reference can't have functions.
+//       If you DO add functions the only way to access them would be through full path signatures:
+//           struct box<T> {
+//               func getPointer() -> *T { ... }
+//           }
+//           let window: box<Window> = ...
+//           let windowPtr: *Window = box<Window>::getPointer(window)
+
 int main() {
     Target target = Target::getHostTarget();
 
@@ -143,6 +204,7 @@ int main() {
     }
 
     gulc::Linker::link(objFiles);
+
 
     return 0;
 }

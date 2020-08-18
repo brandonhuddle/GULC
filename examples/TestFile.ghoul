@@ -46,9 +46,9 @@ struct vec3 {
 //    }
 //}
 
-//func manglerTest(arg param: i32) -> i32 {
-//    return param
-//}
+func manglerTest(arg param: ref i32) -> i32 {
+    return param
+}
 
 //func boolTest() -> bool {
 //    return true
@@ -60,9 +60,9 @@ func main() -> i32 {
 //    let testFloat: f32 = 12.0
     let testInt: i32 = 44
 
-    let testRef = ref testInt
+    let testRefParam = manglerTest(arg: ref testInt)
 
-    if testInt == testRef {
+    if testInt == testRefParam {
         return 12
     } else {
         return 90

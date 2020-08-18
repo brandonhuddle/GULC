@@ -819,8 +819,9 @@ void gulc::CodeProcessor::processBreakStmt(gulc::BreakStmt* breakStmt) {
 void gulc::CodeProcessor::processCaseStmt(gulc::CaseStmt* caseStmt) {
     if (!caseStmt->isDefault()) {
         processExpr(caseStmt->condition);
-        // TODO: Dereference implicit references
+
         caseStmt->condition = convertLValueToRValue(caseStmt->condition);
+        caseStmt->condition = dereferenceReference(caseStmt->condition);
     }
 
     for (Stmt* statement : caseStmt->body) {
@@ -864,8 +865,8 @@ void gulc::CodeProcessor::processDoWhileStmt(gulc::DoWhileStmt* doWhileStmt) {
     processCompoundStmt(doWhileStmt->body());
     processExpr(doWhileStmt->condition);
 
-    // TODO: Dereference implicit references
     doWhileStmt->condition = convertLValueToRValue(doWhileStmt->condition);
+    doWhileStmt->condition = dereferenceReference(doWhileStmt->condition);
 }
 
 void gulc::CodeProcessor::processForStmt(gulc::ForStmt* forStmt) {
@@ -878,8 +879,8 @@ void gulc::CodeProcessor::processForStmt(gulc::ForStmt* forStmt) {
     if (forStmt->condition != nullptr) {
         processExpr(forStmt->condition);
 
-        // TODO: Dereference implicit references
         forStmt->condition = convertLValueToRValue(forStmt->condition);
+        forStmt->condition = dereferenceReference(forStmt->condition);
     }
 
     if (forStmt->iteration != nullptr) {
@@ -908,8 +909,8 @@ void gulc::CodeProcessor::processIfStmt(gulc::IfStmt* ifStmt) {
         }
     }
 
-    // TODO: Dereference implicit references
     ifStmt->condition = convertLValueToRValue(ifStmt->condition);
+    ifStmt->condition = dereferenceReference(ifStmt->condition);
 }
 
 void gulc::CodeProcessor::processLabeledStmt(gulc::LabeledStmt* labeledStmt) {
@@ -928,8 +929,8 @@ void gulc::CodeProcessor::processReturnStmt(gulc::ReturnStmt* returnStmt) {
 
         // NOTE: We don't implicitly convert from `lvalue` to reference here if the function returns a reference.
         //       To return a reference you MUST specify `ref {value}`, we don't do implicitly referencing like in C++.
-        // TODO: Dereference implicit references
         returnStmt->returnValue = convertLValueToRValue(returnStmt->returnValue);
+        returnStmt->returnValue = dereferenceReference(returnStmt->returnValue);
     }
 }
 
@@ -3691,8 +3692,8 @@ void gulc::CodeProcessor::processPostfixOperatorExpr(gulc::PostfixOperatorExpr*&
     }
 
     // Once we reach this point we handle lvalue to rvalue and dereference implicit references
-    // TODO: Dereference implicit references
     postfixOperatorExpr->nestedExpr = convertLValueToRValue(postfixOperatorExpr->nestedExpr);
+    postfixOperatorExpr->nestedExpr = dereferenceReference(postfixOperatorExpr->nestedExpr);
 
     // At this point it is validated as a built in operator, we clone the `checkType` as the return type instead of
     // `valueType` to remove any references.
@@ -3876,8 +3877,8 @@ void gulc::CodeProcessor::processPrefixOperatorExpr(gulc::PrefixOperatorExpr*& p
             }
 
             // Convert lvalue to rvalue and dereference implicit references (to get value type)
-            // TODO: Dereference implicit references
             prefixOperatorExpr->nestedExpr = convertLValueToRValue(prefixOperatorExpr->nestedExpr);
+            prefixOperatorExpr->nestedExpr = dereferenceReference(prefixOperatorExpr->nestedExpr);
 
             // With `!` and `~` we remove any references, they are `immut` operators.
             prefixOperatorExpr->valueType = new BoolType(Type::Qualifier::Immut, {}, {});
@@ -3893,8 +3894,8 @@ void gulc::CodeProcessor::processPrefixOperatorExpr(gulc::PrefixOperatorExpr*& p
             }
 
             // Convert lvalue to rvalue and dereference implicit references (to get value type)
-            // TODO: Dereference implicit references
             prefixOperatorExpr->nestedExpr = convertLValueToRValue(prefixOperatorExpr->nestedExpr);
+            prefixOperatorExpr->nestedExpr = dereferenceReference(prefixOperatorExpr->nestedExpr);
 
             // With `!` and `~` we remove any references, they are `immut` operators.
             prefixOperatorExpr->valueType = checkType->deepCopy();
@@ -3915,8 +3916,8 @@ void gulc::CodeProcessor::processPrefixOperatorExpr(gulc::PrefixOperatorExpr*& p
             }
 
             // Convert lvalue to rvalue and dereference implicit references (to get value type)
-            // TODO: Dereference implicit references
             prefixOperatorExpr->nestedExpr = convertLValueToRValue(prefixOperatorExpr->nestedExpr);
+            prefixOperatorExpr->nestedExpr = dereferenceReference(prefixOperatorExpr->nestedExpr);
 
             // `-` removes any references, they are `immut` operators.
             prefixOperatorExpr->valueType = checkType->deepCopy();
@@ -3932,8 +3933,8 @@ void gulc::CodeProcessor::processPrefixOperatorExpr(gulc::PrefixOperatorExpr*& p
             }
 
             // Convert lvalue to rvalue and dereference implicit references (to get value type)
-            // TODO: Dereference implicit references
             prefixOperatorExpr->nestedExpr = convertLValueToRValue(prefixOperatorExpr->nestedExpr);
+            prefixOperatorExpr->nestedExpr = dereferenceReference(prefixOperatorExpr->nestedExpr);
 
             // Grab the type that is pointed to by the pointer.
             prefixOperatorExpr->valueType = llvm::dyn_cast<PointerType>(checkType)->nestedType->deepCopy();

@@ -414,7 +414,8 @@ target_link_libraries(gulc
         LLVMX86AsmPrinter
         LLVMX86CodeGen
         #        LLVMXCoreAsmPrinter
-        #        LLVMXCoreCodeGen
+        LLVMXCoreCodeGen
+        LLVMPasses
 )
 
 # Copy some example files into the directory. This just makes it easier for me to test everything is working, this will be removed in the future.

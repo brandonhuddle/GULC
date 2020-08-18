@@ -35,24 +35,17 @@
 #include <ast/types/FunctionPointerType.hpp>
 #include <utilities/TypeCompareUtil.hpp>
 #include <ast/types/BoolType.hpp>
+#include <llvm/Transforms/IPO/PassManagerBuilder.h>
 
 gulc::Module gulc::CodeGen::generate(gulc::ASTFile* file) {
     auto llvmContext = new llvm::LLVMContext();
     auto irBuilder = llvm::IRBuilder<>(*llvmContext);
     auto genModule = new llvm::Module(_filePaths[file->sourceFileID], *llvmContext);
-    //llvm::PassManager<llvm::Function>* funcPassManager = new llvm::PassManager<llvm::Function>();
+    llvm::PassManagerBuilder passManagerBuilder;
     auto funcPassManager = new llvm::legacy::FunctionPassManager(genModule);
 
-    // Promote allocas to registers.
-    funcPassManager->add(llvm::createPromoteMemoryToRegisterPass());
-    // Do simple "peephole" optimizations and bit-twiddling optzns.
-    funcPassManager->add(llvm::createInstructionCombiningPass());
-    // Reassociate expressions.
-    funcPassManager->add(llvm::createReassociatePass());
-    // Eliminate Common SubExpressions.
-    funcPassManager->add(llvm::createGVNPass());
-    // Simplify the control flow graph (deleting unreachable blocks, etc).
-    funcPassManager->add(llvm::createCFGSimplificationPass());
+    passManagerBuilder.MergeFunctions = true;
+    passManagerBuilder.populateFunctionPassManager(*funcPassManager);
 
     funcPassManager->doInitialization();
 
@@ -493,7 +486,7 @@ void gulc::CodeGen::generateDestructorDecl(gulc::DestructorDecl const* destructo
 
     // NOTE: We now always add a generic `return void` to stop LLVM from segfaulting. LLVM seems to expect us to create
     //       our own internal IR before generating LLVM IR to prevent LLVM IR from segfaulting.
-    _irBuilder->CreateRetVoid();
+    _irBuilder->CreateRet(llvm::Constant::getNullValue(returnType));
 
     verifyFunction(*function);
     _funcPassManager->run(*function);
@@ -539,7 +532,7 @@ void gulc::CodeGen::generateFunctionDecl(gulc::FunctionDecl const* functionDecl,
 
     // NOTE: We now always add a generic `return void` to stop LLVM from segfaulting. LLVM seems to expect us to create
     //       our own internal IR before generating LLVM IR to prevent LLVM IR from segfaulting.
-    _irBuilder->CreateRetVoid();
+    _irBuilder->CreateRet(llvm::Constant::getNullValue(returnType));
 
     verifyFunction(*function);
     _funcPassManager->run(*function);
@@ -1049,7 +1042,8 @@ void gulc::CodeGen::generateIfStmt(gulc::IfStmt const* ifStmt) {
     // If the last inserted instruction is a branch and we insert a branch after it to the merge block an LLVM pass
     // will mess up and remove the entire if statement...
     if (_irBuilder->GetInsertBlock()->getTerminator() == nullptr ||
-        !llvm::isa<llvm::BranchInst>(_irBuilder->GetInsertBlock()->getTerminator())) {
+        (!llvm::isa<llvm::BranchInst>(_irBuilder->GetInsertBlock()->getTerminator()) &&
+         !llvm::isa<llvm::ReturnInst>(_irBuilder->GetInsertBlock()->getTerminator()))) {
         _irBuilder->CreateBr(mergeBlock);
     }
 
@@ -1063,7 +1057,8 @@ void gulc::CodeGen::generateIfStmt(gulc::IfStmt const* ifStmt) {
         // If the last inserted instruction is a branch and we insert a branch after it to the merge block an LLVM pass
         // will mess up and remove the entire if statement...
         if (_irBuilder->GetInsertBlock()->getTerminator() == nullptr ||
-            !llvm::isa<llvm::BranchInst>(_irBuilder->GetInsertBlock()->getTerminator())) {
+            (!llvm::isa<llvm::BranchInst>(_irBuilder->GetInsertBlock()->getTerminator()) &&
+             !llvm::isa<llvm::ReturnInst>(_irBuilder->GetInsertBlock()->getTerminator()))) {
             // Branch to merge when done...
             _irBuilder->CreateBr(mergeBlock);
         }
