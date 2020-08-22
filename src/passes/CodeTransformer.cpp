@@ -113,7 +113,9 @@ void gulc::CodeTransformer::processDecl(gulc::Decl* decl) {
 }
 
 void gulc::CodeTransformer::processEnumDecl(gulc::EnumDecl* enumDecl) {
-    // TODO: Once we support `func` within `enum` declarations we will need this.
+    for (Decl* member : enumDecl->ownedMembers()) {
+        processDecl(member);
+    }
 }
 
 void gulc::CodeTransformer::processExtensionDecl(gulc::ExtensionDecl* extensionDecl) {
@@ -947,6 +949,12 @@ void gulc::CodeTransformer::processExpr(gulc::Expr*& expr) {
         case Expr::Kind::PrefixOperator:
             processPrefixOperatorExpr(llvm::dyn_cast<PrefixOperatorExpr>(expr));
             break;
+        case Expr::Kind::PropertyGetCall:
+            processPropertyGetCallExpr(expr);
+            break;
+        case Expr::Kind::PropertySetCall:
+            processPropertySetCallExpr(llvm::dyn_cast<PropertySetCallExpr>(expr));
+            break;
         case Expr::Kind::PropertyRef:
             // Property ref is a reference to a global `PropertyDecl`, nothing we need to do here.
             break;
@@ -1191,6 +1199,64 @@ void gulc::CodeTransformer::processPostfixOperatorExpr(gulc::PostfixOperatorExpr
 
 void gulc::CodeTransformer::processPrefixOperatorExpr(gulc::PrefixOperatorExpr* prefixOperatorExpr) {
     processExpr(prefixOperatorExpr->nestedExpr);
+}
+
+void gulc::CodeTransformer::processPropertyGetCallExpr(gulc::Expr*& expr) {
+    auto propertyGetCallExpr = llvm::dyn_cast<PropertyGetCallExpr>(expr);
+
+    switch (propertyGetCallExpr->propertyReference->getExprKind()) {
+        case Expr::Kind::MemberPropertyRef: {
+            auto memberPropertyRef = llvm::dyn_cast<MemberPropertyRefExpr>(propertyGetCallExpr->propertyReference);
+
+            processExpr(memberPropertyRef->object);
+            break;
+        }
+        case Expr::Kind::PropertyRef:
+            // I don't think there is anything we need to do for global properties.
+            break;
+        default:
+            printError("[INTERNAL] unknown property reference!",
+                       propertyGetCallExpr->startPosition(), propertyGetCallExpr->endPosition());
+            return;
+    }
+
+    // We need to be able to call the destructor on the result of `prop::get`, to support that we store it in a
+    // temporary value. This also gives us the added benefit of making the result an `lvalue` which is another thing we
+    // want.
+    auto tempValueLocalVarRef = createTemporaryValue(
+            propertyGetCallExpr->valueType,
+            propertyGetCallExpr->startPosition(),
+            propertyGetCallExpr->endPosition()
+    );
+    auto saveGetResult = new AssignmentOperatorExpr(
+            tempValueLocalVarRef, propertyGetCallExpr,
+            propertyGetCallExpr->startPosition(), propertyGetCallExpr->endPosition()
+    );
+    saveGetResult->valueType = propertyGetCallExpr->valueType->deepCopy();
+    saveGetResult->valueType->setIsLValue(true);
+
+    // Replace the get call with a wrapped save assignment for the get
+    expr = saveGetResult;
+}
+
+void gulc::CodeTransformer::processPropertySetCallExpr(gulc::PropertySetCallExpr* propertySetCallExpr) {
+    switch (propertySetCallExpr->propertyReference->getExprKind()) {
+        case Expr::Kind::MemberPropertyRef: {
+            auto memberPropertyRef = llvm::dyn_cast<MemberPropertyRefExpr>(propertySetCallExpr->propertyReference);
+
+            processExpr(memberPropertyRef->object);
+            break;
+        }
+        case Expr::Kind::PropertyRef:
+            // I don't think there is anything we need to do for global properties.
+            break;
+        default:
+            printError("[INTERNAL] unknown property reference!",
+                       propertySetCallExpr->startPosition(), propertySetCallExpr->endPosition());
+            return;
+    }
+
+    processExpr(propertySetCallExpr->value);
 }
 
 void gulc::CodeTransformer::processRefExpr(gulc::RefExpr* refExpr) {

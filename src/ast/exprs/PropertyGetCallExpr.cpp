@@ -15,24 +15,4 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-#include "FunctionDecl.hpp"
-#include "StructDecl.hpp"
-#include "TraitDecl.hpp"
-#include "PropertyDecl.hpp"
-
-bool gulc::FunctionDecl::isMemberFunction() const {
-    if (container == nullptr) {
-        return false;
-    } else if (llvm::isa<PropertyDecl>(container)) {
-        auto checkProperty = llvm::dyn_cast<PropertyDecl>(container);
-
-        if (checkProperty->container != nullptr &&
-                (llvm::isa<StructDecl>(checkProperty->container) || llvm::isa<TraitDecl>(checkProperty->container))) {
-            return true;
-        }
-    } else if (llvm::isa<StructDecl>(container) || llvm::isa<TraitDecl>(container)) {
-        return true;
-    }
-
-    return false;
-}
+#include "PropertyGetCallExpr.hpp"

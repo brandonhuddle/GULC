@@ -46,6 +46,20 @@ void gulc::ItaniumMangler::mangleDeclEnum(gulc::EnumDecl* enumDecl, std::string 
                                           std::string const& nameSuffix) {
     std::string nPrefix = prefix + sourceName(enumDecl->identifier().name());
     enumDecl->setMangledName(nPrefix + nameSuffix);
+
+    // TODO: Support nested `Struct` and `Trait`
+    for (Decl* decl : enumDecl->ownedMembers()) {
+//        if (llvm::isa<OperatorDecl>(decl)) {
+//            mangleOperator(llvm::dyn_cast<OperatorDecl>(decl), "N" + nPrefix, "E");
+//        } else if (llvm::isa<CastOperatorDecl>(decl)) {
+//            mangleCastOperator(llvm::dyn_cast<CastOperatorDecl>(decl), "N" + nPrefix, "E");
+//        } else
+        if (llvm::isa<CallOperatorDecl>(decl)) {
+            mangleCallOperator(llvm::dyn_cast<CallOperatorDecl>(decl), "N" + nPrefix, "E");
+        } else if (llvm::isa<FunctionDecl>(decl)) {
+            mangleFunction(llvm::dyn_cast<FunctionDecl>(decl), "N" + nPrefix, "E");
+        }
+    }
 }
 
 void gulc::ItaniumMangler::mangleDeclStruct(gulc::StructDecl* structDecl, std::string const& prefix,
@@ -100,6 +114,10 @@ void gulc::ItaniumMangler::mangle(gulc::CallOperatorDecl* callOperatorDecl) {
     mangleCallOperator(callOperatorDecl, "", "");
 }
 
+void gulc::ItaniumMangler::mangle(gulc::PropertyDecl* propertyDecl) {
+    mangleProperty(propertyDecl, "", "");
+}
+
 void gulc::ItaniumMangler::mangleFunction(gulc::FunctionDecl* functionDecl, std::string const& prefix,
                                           std::string const& nameSuffix) {
     // All mangled names start with "_Z"...
@@ -135,6 +153,8 @@ void gulc::ItaniumMangler::mangleNamespace(gulc::NamespaceDecl* namespaceDecl, s
             mangleStruct(llvm::dyn_cast<StructDecl>(decl), nPrefix);
         } else if (llvm::isa<TraitDecl>(decl)) {
             mangleTrait(llvm::dyn_cast<TraitDecl>(decl), nPrefix);
+        } else if (llvm::isa<PropertyDecl>(decl)) {
+            mangleProperty(llvm::dyn_cast<PropertyDecl>(decl), "N" + nPrefix, "E");
         }
 //        else if (llvm::isa<TemplateFunctionDecl>(decl)) {
 //            mangleTemplateFunction(llvm::dyn_cast<TemplateFunctionDecl>(decl), "N" + nPrefix, "E");
@@ -160,6 +180,8 @@ void gulc::ItaniumMangler::mangleStruct(gulc::StructDecl* structDecl, std::strin
             mangleCallOperator(llvm::dyn_cast<CallOperatorDecl>(decl), "N" + nPrefix, "E");
         } else if (llvm::isa<FunctionDecl>(decl)) {
             mangleFunction(llvm::dyn_cast<FunctionDecl>(decl), "N" + nPrefix, "E");
+        } else if (llvm::isa<PropertyDecl>(decl)) {
+            mangleProperty(llvm::dyn_cast<PropertyDecl>(decl), "N" + nPrefix, "E");
         }
     }
 
@@ -189,6 +211,8 @@ void gulc::ItaniumMangler::mangleTrait(gulc::TraitDecl* traitDecl, std::string c
             mangleCallOperator(llvm::dyn_cast<CallOperatorDecl>(decl), "N" + nPrefix, "E");
         } else if (llvm::isa<FunctionDecl>(decl)) {
             mangleFunction(llvm::dyn_cast<FunctionDecl>(decl), "N" + nPrefix, "E");
+        } else if (llvm::isa<PropertyDecl>(decl)) {
+            mangleProperty(llvm::dyn_cast<PropertyDecl>(decl), "N" + nPrefix, "E");
         }
     }
 }
@@ -200,6 +224,64 @@ void gulc::ItaniumMangler::mangleCallOperator(gulc::CallOperatorDecl* callOperat
     mangledName += bareFunctionType(callOperatorDecl->parameters());
 
     callOperatorDecl->setMangledName(mangledName);
+}
+
+void gulc::ItaniumMangler::mangleProperty(gulc::PropertyDecl* propertyDecl, std::string const& prefix,
+                                          std::string const& nameSuffix) {
+    std::string nPrefix = prefix + sourceName(propertyDecl->identifier().name());
+
+    for (PropertyGetDecl* getter : propertyDecl->getters()) {
+        manglePropertyGet(getter, "N" + nPrefix + nameSuffix, "E");
+    }
+
+    if (propertyDecl->hasSetter()) {
+        manglePropertySet(propertyDecl->setter(), "N" + nPrefix + nameSuffix, "E");
+    }
+}
+
+void gulc::ItaniumMangler::manglePropertyGet(gulc::PropertyGetDecl* propertyGetDecl, std::string const& prefix,
+                                             std::string const& nameSuffix) {
+    switch (propertyGetDecl->getResultType()) {
+        case PropertyGetDecl::GetResult::Normal:
+            if (propertyGetDecl->isMutable()) {
+                std::string mangledName = "_Z" + prefix + "pg" + nameSuffix + "v";
+                propertyGetDecl->setMangledName(mangledName);
+            } else {
+                // `K` for C++ const/immut
+                std::string mangledName = "_Z" + prefix + "Kpg" + nameSuffix + "v";
+                propertyGetDecl->setMangledName(mangledName);
+            }
+            break;
+        case PropertyGetDecl::GetResult::Ref:
+            if (propertyGetDecl->isMutable()) {
+                std::string mangledName = "_Z" + prefix + "pgr" + nameSuffix + "v";
+                propertyGetDecl->setMangledName(mangledName);
+            } else {
+                // `K` for C++ const/immut
+                std::string mangledName = "_Z" + prefix + "Kpgr" + nameSuffix + "v";
+                propertyGetDecl->setMangledName(mangledName);
+            }
+            break;
+        case PropertyGetDecl::GetResult::RefMut:
+            if (propertyGetDecl->isMutable()) {
+                std::string mangledName = "_Z" + prefix + "pgrm" + nameSuffix + "v";
+                propertyGetDecl->setMangledName(mangledName);
+            } else {
+                // `K` for C++ const/immut
+                std::string mangledName = "_Z" + prefix + "Kpgrm" + nameSuffix + "v";
+                propertyGetDecl->setMangledName(mangledName);
+            }
+            break;
+    }
+}
+
+void gulc::ItaniumMangler::manglePropertySet(gulc::PropertySetDecl* propertySetDecl, std::string const& prefix,
+                                             std::string const& nameSuffix) {
+    std::string mangledName = "_Z" + prefix + "ps" + nameSuffix;
+
+    mangledName += bareFunctionType(propertySetDecl->parameters());
+
+    propertySetDecl->setMangledName(mangledName);
 }
 
 void gulc::ItaniumMangler::mangleConstructor(gulc::ConstructorDecl* constructorDecl, std::string const& prefix,

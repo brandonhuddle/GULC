@@ -36,6 +36,7 @@
 #include <utilities/TypeCompareUtil.hpp>
 #include <ast/types/BoolType.hpp>
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
+#include <ast/exprs/MemberPropertyRefExpr.hpp>
 
 gulc::Module gulc::CodeGen::generate(gulc::ASTFile* file) {
     auto llvmContext = new llvm::LLVMContext();
@@ -353,6 +354,7 @@ void gulc::CodeGen::generateConstructorDecl(gulc::ConstructorDecl const* constru
     {
         llvm::BasicBlock *funcBody = llvm::BasicBlock::Create(*_llvmContext, "entry", function);
         _irBuilder->SetInsertPoint(funcBody);
+        _currentFunctionExitBlock = llvm::BasicBlock::Create(*_llvmContext, "exit");
 
         setCurrentFunction(function, constructorDecl);
 
@@ -364,8 +366,9 @@ void gulc::CodeGen::generateConstructorDecl(gulc::ConstructorDecl const* constru
         // Generate the function body
         generateStmt(constructorDecl->body());
 
-        // NOTE: We now always add a generic `return void` to stop LLVM from segfaulting. LLVM seems to expect us to create
-        //       our own internal IR before generating LLVM IR to prevent LLVM IR from segfaulting.
+        _currentLlvmFunction->getBasicBlockList().push_back(_currentFunctionExitBlock);
+        _irBuilder->SetInsertPoint(_currentFunctionExitBlock);
+        // NOTE: For constructors we always `ret void`...
         _irBuilder->CreateRetVoid();
 
         verifyFunction(*function);
@@ -373,6 +376,7 @@ void gulc::CodeGen::generateConstructorDecl(gulc::ConstructorDecl const* constru
 
         // Reset the insertion point (this probably isn't needed but oh well)
         _irBuilder->ClearInsertionPoint();
+        _currentFunctionExitBlock = nullptr;
         _currentGhoulFunction = nullptr;
         _currentLlvmFunction = nullptr;
     }
@@ -399,6 +403,7 @@ void gulc::CodeGen::generateConstructorDecl(gulc::ConstructorDecl const* constru
 
             llvm::BasicBlock *funcBody = llvm::BasicBlock::Create(*_llvmContext, "entry", functionVTable);
             _irBuilder->SetInsertPoint(funcBody);
+            _currentFunctionExitBlock = llvm::BasicBlock::Create(*_llvmContext, "exit");
 
             setCurrentFunction(functionVTable, constructorDecl);
 
@@ -440,8 +445,9 @@ void gulc::CodeGen::generateConstructorDecl(gulc::ConstructorDecl const* constru
             // Generate the function body
             generateStmt(constructorDecl->body());
 
-            // NOTE: We now always add a generic `return void` to stop LLVM from segfaulting. LLVM seems to expect us to create
-            //       our own internal IR before generating LLVM IR to prevent LLVM IR from segfaulting.
+            _currentLlvmFunction->getBasicBlockList().push_back(_currentFunctionExitBlock);
+            _irBuilder->SetInsertPoint(_currentFunctionExitBlock);
+            // NOTE: For constructors we always `ret void`...
             _irBuilder->CreateRetVoid();
 
             verifyFunction(*functionVTable);
@@ -449,6 +455,7 @@ void gulc::CodeGen::generateConstructorDecl(gulc::ConstructorDecl const* constru
 
             // Reset the insertion point (this probably isn't needed but oh well)
             _irBuilder->ClearInsertionPoint();
+            _currentFunctionExitBlock = nullptr;
             _currentGhoulFunction = nullptr;
             _currentLlvmFunction = nullptr;
         }
@@ -478,34 +485,54 @@ void gulc::CodeGen::generateDestructorDecl(gulc::DestructorDecl const* destructo
 
     llvm::BasicBlock* funcBody = llvm::BasicBlock::Create(*_llvmContext, "entry", function);
     _irBuilder->SetInsertPoint(funcBody);
+    _currentFunctionExitBlock = llvm::BasicBlock::Create(*_llvmContext, "exit");
 
     setCurrentFunction(function, destructorDecl);
 
     // Generate the function body
     generateStmt(destructorDecl->body());
 
-    // NOTE: We now always add a generic `return void` to stop LLVM from segfaulting. LLVM seems to expect us to create
-    //       our own internal IR before generating LLVM IR to prevent LLVM IR from segfaulting.
-    _irBuilder->CreateRet(llvm::Constant::getNullValue(returnType));
+    _currentLlvmFunction->getBasicBlockList().push_back(_currentFunctionExitBlock);
+    _irBuilder->SetInsertPoint(_currentFunctionExitBlock);
+    // NOTE: For destructors we always `ret void`...
+    _irBuilder->CreateRetVoid();
 
     verifyFunction(*function);
     _funcPassManager->run(*function);
 
     // Reset the insertion point (this probably isn't needed but oh well)
     _irBuilder->ClearInsertionPoint();
+    _currentLlvmFunction = nullptr;
     _currentGhoulFunction = nullptr;
     _currentLlvmFunction = nullptr;
 }
 
 void gulc::CodeGen::generateEnumDecl(gulc::EnumDecl const* enumDecl, bool isInternal) {
-    // TODO: Generate the functions same as you would in structs
+    for (Decl const* decl : enumDecl->ownedMembers()) {
+        // TODO: We need to support the other member functions...
+        if (llvm::isa<FunctionDecl>(decl)) {
+            generateFunctionDecl(llvm::dyn_cast<FunctionDecl>(decl), isInternal);
+        } else if (llvm::isa<TemplateFunctionDecl>(decl)) {
+            generateTemplateFunctionDecl(llvm::dyn_cast<TemplateFunctionDecl>(decl), isInternal);
+        }
+    }
 }
 
 void gulc::CodeGen::generateFunctionDecl(gulc::FunctionDecl const* functionDecl, bool isInternal) {
+    assert(!functionDecl->mangledName().empty());
+
     gulc::StructDecl* parentStruct = nullptr;
 
-    if (functionDecl->container != nullptr && llvm::isa<StructDecl>(functionDecl->container)) {
-        parentStruct = llvm::dyn_cast<StructDecl>(functionDecl->container);
+    if (functionDecl->container != nullptr) {
+        if (llvm::isa<StructDecl>(functionDecl->container)) {
+            parentStruct = llvm::dyn_cast<StructDecl>(functionDecl->container);
+        } else if (llvm::isa<PropertyDecl>(functionDecl->container)) {
+            auto checkProperty = llvm::dyn_cast<PropertyDecl>(functionDecl->container);
+
+            if (checkProperty->container != nullptr && llvm::isa<StructDecl>(checkProperty->container)) {
+                parentStruct = llvm::dyn_cast<StructDecl>(checkProperty->container);
+            }
+        }
     }
 
     std::vector<llvm::Type*> paramTypes = generateLlvmParamTypes(functionDecl->parameters(), parentStruct);
@@ -525,20 +552,37 @@ void gulc::CodeGen::generateFunctionDecl(gulc::FunctionDecl const* functionDecl,
 
     llvm::BasicBlock* funcBody = llvm::BasicBlock::Create(*_llvmContext, "entry", function);
     _irBuilder->SetInsertPoint(funcBody);
+    _currentFunctionExitBlock = llvm::BasicBlock::Create(*_llvmContext, "exit");
+
     setCurrentFunction(function, functionDecl);
+
+    // If the return type isn't `void` we create an alloca for the return value. I don't want to deal with phi nodes
+    // right now. I'll deal with them when we port the compiler to Ghoul and start handling the IR ourselves.
+    if (functionDecl->returnType != nullptr &&
+        !(llvm::isa<BuiltInType>(functionDecl->returnType) &&
+          llvm::dyn_cast<BuiltInType>(functionDecl->returnType)->sizeInBytes() == 0)) {
+        _currentFunctionReturnValue = _irBuilder->CreateAlloca(generateLlvmType(functionDecl->returnType));
+    }
 
     // Generate the function body
     generateStmt(functionDecl->body());
 
-    // NOTE: We now always add a generic `return void` to stop LLVM from segfaulting. LLVM seems to expect us to create
-    //       our own internal IR before generating LLVM IR to prevent LLVM IR from segfaulting.
-    _irBuilder->CreateRet(llvm::Constant::getNullValue(returnType));
+    _currentLlvmFunction->getBasicBlockList().push_back(_currentFunctionExitBlock);
+    _irBuilder->SetInsertPoint(_currentFunctionExitBlock);
+
+    if (_currentFunctionReturnValue != nullptr) {
+        _irBuilder->CreateRet(_irBuilder->CreateLoad(_currentFunctionReturnValue));
+    } else {
+        _irBuilder->CreateRetVoid();
+    }
 
     verifyFunction(*function);
     _funcPassManager->run(*function);
 
     // Reset the insertion point (this probably isn't needed but oh well)
     _irBuilder->ClearInsertionPoint();
+    _currentFunctionReturnValue = nullptr;
+    _currentLlvmFunction = nullptr;
     _currentGhoulFunction = nullptr;
     _currentLlvmFunction = nullptr;
 }
@@ -550,7 +594,21 @@ void gulc::CodeGen::generateNamespaceDecl(gulc::NamespaceDecl const* namespaceDe
 }
 
 void gulc::CodeGen::generatePropertyDecl(gulc::PropertyDecl const* propertyDecl, bool isInternal) {
-    // TODO:
+    for (PropertyGetDecl* getter : propertyDecl->getters()) {
+        generatePropertyGetDecl(getter, isInternal);
+    }
+
+    if (propertyDecl->hasSetter()) {
+        generatePropertySetDecl(propertyDecl->setter(), isInternal);
+    }
+}
+
+void gulc::CodeGen::generatePropertyGetDecl(gulc::PropertyGetDecl const* propertyGetDecl, bool isInternal) {
+    generateFunctionDecl(propertyGetDecl, isInternal);
+}
+
+void gulc::CodeGen::generatePropertySetDecl(gulc::PropertySetDecl const* propertySetDecl, bool isInternal) {
+    generateFunctionDecl(propertySetDecl, isInternal);
 }
 
 void gulc::CodeGen::generateStructDecl(gulc::StructDecl const* structDecl, bool isInternal) {
@@ -611,11 +669,10 @@ void gulc::CodeGen::generateStructDecl(gulc::StructDecl const* structDecl, bool 
     }
 
     for (Decl const* decl : structDecl->ownedMembers()) {
-        // TODO: We need to support the other member functions...
-        if (llvm::isa<FunctionDecl>(decl)) {
-            generateFunctionDecl(llvm::dyn_cast<FunctionDecl>(decl), isInternal);
-        } else if (llvm::isa<TemplateFunctionDecl>(decl)) {
-            generateTemplateFunctionDecl(llvm::dyn_cast<TemplateFunctionDecl>(decl), isInternal);
+        if (llvm::isa<VariableDecl>(decl) && !decl->isStatic()) {
+            continue;
+        } else {
+            generateDecl(decl, isInternal);
         }
     }
 
@@ -763,6 +820,7 @@ void gulc::CodeGen::generateStmt(gulc::Stmt const* stmt, std::string const& stmt
             generateReturnStmt(llvm::dyn_cast<ReturnStmt>(stmt));
             // NOTE: We `return` here instead of `break` because `generateReturnStmt` already handles the temporary
             //       values for us before returning.
+            _currentStmtTemporaryValues.resize(oldTemporaryValueCount);
             return;
         case Stmt::Kind::Switch:
             generateSwitchStmt(llvm::dyn_cast<SwitchStmt>(stmt));
@@ -1097,16 +1155,16 @@ void gulc::CodeGen::generateReturnStmt(gulc::ReturnStmt const* returnStmt) {
             generateExpr(deferredExpr);
         }
 
-        _irBuilder->CreateRet(returnValue);
+        _irBuilder->CreateStore(returnValue, _currentFunctionReturnValue);
     } else {
         cleanupTemporaryValues(returnStmt->temporaryValues);
 
         for (Expr* deferredExpr : returnStmt->preReturnDeferred) {
             generateExpr(deferredExpr);
         }
-
-        _irBuilder->CreateRetVoid();
     }
+
+    _irBuilder->CreateBr(_currentFunctionExitBlock);
 }
 
 void gulc::CodeGen::generateSwitchStmt(gulc::SwitchStmt const* switchStmt) {
@@ -1336,6 +1394,10 @@ llvm::Value* gulc::CodeGen::generateExpr(gulc::Expr const* expr) {
             return generatePostfixOperatorExpr(llvm::dyn_cast<PostfixOperatorExpr>(expr));
         case Expr::Kind::PrefixOperator:
             return generatePrefixOperatorExpr(llvm::dyn_cast<PrefixOperatorExpr>(expr));
+        case Expr::Kind::PropertyGetCall:
+            return generatePropertyGetCallExpr(llvm::dyn_cast<PropertyGetCallExpr>(expr));
+        case Expr::Kind::PropertySetCall:
+            return generatePropertySetCallExpr(llvm::dyn_cast<PropertySetCallExpr>(expr));
         case Expr::Kind::Ref:
             return generateRefExpr(llvm::dyn_cast<RefExpr>(expr));
         case Expr::Kind::TemporaryValueRef:
@@ -1976,6 +2038,62 @@ llvm::Value* gulc::CodeGen::generatePrefixOperatorExpr(gulc::PrefixOperatorExpr 
         }
     }
     return nullptr;
+}
+
+llvm::Value* gulc::CodeGen::generatePropertyGetCallExpr(gulc::PropertyGetCallExpr const* propertyGetCallExpr) {
+    llvm::Function* callFunction = nullptr;
+    std::vector<llvm::Value*> arguments;
+
+    switch (propertyGetCallExpr->propertyReference->getExprKind()) {
+        case Expr::Kind::MemberPropertyRef: {
+            auto memberPropertyRef = llvm::dyn_cast<MemberPropertyRefExpr>(propertyGetCallExpr->propertyReference);
+
+            callFunction = _llvmModule->getFunction(propertyGetCallExpr->propertyGetter->mangledName());
+            arguments.push_back(generateExpr(memberPropertyRef->object));
+            break;
+        }
+        case Expr::Kind::PropertyRef: {
+            auto propertyRef = llvm::dyn_cast<PropertyRefExpr>(propertyGetCallExpr->propertyReference);
+
+            callFunction = _llvmModule->getFunction(propertyGetCallExpr->propertyGetter->mangledName());
+            break;
+        }
+        default:
+            printError("[INTERNAL] unknown property reference found in `CodeGen::generatePropertyGetCallExpr`!",
+                       propertyGetCallExpr->startPosition(), propertyGetCallExpr->endPosition());
+            return nullptr;
+    }
+
+    return _irBuilder->CreateCall(callFunction, arguments);
+}
+
+llvm::Value* gulc::CodeGen::generatePropertySetCallExpr(gulc::PropertySetCallExpr const* propertySetCallExpr) {
+    llvm::Function* callFunction = nullptr;
+    std::vector<llvm::Value*> arguments;
+
+    switch (propertySetCallExpr->propertyReference->getExprKind()) {
+        case Expr::Kind::MemberPropertyRef: {
+            auto memberPropertyRef = llvm::dyn_cast<MemberPropertyRefExpr>(propertySetCallExpr->propertyReference);
+
+            callFunction = _llvmModule->getFunction(propertySetCallExpr->propertySetter->mangledName());
+            arguments.push_back(generateExpr(memberPropertyRef->object));
+            break;
+        }
+        case Expr::Kind::PropertyRef: {
+            auto propertyRef = llvm::dyn_cast<PropertyRefExpr>(propertySetCallExpr->propertyReference);
+
+            callFunction = _llvmModule->getFunction(propertySetCallExpr->propertySetter->mangledName());
+            break;
+        }
+        default:
+            printError("[INTERNAL] unknown property reference found in `CodeGen::generatePropertyGetCallExpr`!",
+                       propertySetCallExpr->startPosition(), propertySetCallExpr->endPosition());
+            return nullptr;
+    }
+
+    arguments.push_back(generateExpr(propertySetCallExpr->value));
+
+    return _irBuilder->CreateCall(callFunction, arguments);
 }
 
 llvm::Value* gulc::CodeGen::generateRefExpr(gulc::RefExpr const* refExpr) {

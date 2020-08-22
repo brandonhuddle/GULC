@@ -253,6 +253,10 @@ void gulc::BasicDeclValidator::validateDecl(gulc::Decl* decl, bool isGlobal) {
         case Decl::Kind::Enum:
             validateEnumDecl(llvm::dyn_cast<EnumDecl>(decl));
             break;
+        case Decl::Kind::EnumConst:
+            printError("enum `case` cannot appear outside of an `enum`!",
+                       decl->startPosition(), decl->endPosition());
+            break;
         case Decl::Kind::Extension:
             validateExtensionDecl(llvm::dyn_cast<ExtensionDecl>(decl));
             break;
@@ -373,7 +377,7 @@ void gulc::BasicDeclValidator::validateDestructorDecl(gulc::DestructorDecl* dest
     validateFunctionDecl(destructorDecl);
 }
 
-void gulc::BasicDeclValidator::validateEnumDecl(gulc::EnumDecl* enumDecl) const {
+void gulc::BasicDeclValidator::validateEnumDecl(gulc::EnumDecl* enumDecl) {
     if (enumDecl->isConstExpr()) {
         printError("`enum` cannot be marked `const`, enums are `const` by default!",
                    enumDecl->startPosition(), enumDecl->endPosition());
@@ -420,6 +424,34 @@ void gulc::BasicDeclValidator::validateEnumDecl(gulc::EnumDecl* enumDecl) const 
                            checkDuplicate->startPosition(), checkDuplicate->endPosition());
             }
         }
+    }
+
+    for (Decl* ownedMember : enumDecl->ownedMembers()) {
+        ownedMember->container = enumDecl;
+        ownedMember->containedInTemplate = enumDecl->containedInTemplate;
+
+        if (llvm::isa<NamespaceDecl>(ownedMember)) {
+            printError("`namespace` cannot be contained within `enum`!",
+                       ownedMember->startPosition(), ownedMember->endPosition());
+        }
+
+        if (llvm::isa<ImportDecl>(ownedMember)) {
+            printError("`import` cannot be contained within `enum`!",
+                       ownedMember->startPosition(), ownedMember->endPosition());
+        }
+
+        if (llvm::isa<ExtensionDecl>(ownedMember)) {
+            printError("`extension` cannot be contained within `enum`!",
+                       ownedMember->startPosition(), ownedMember->endPosition());
+        }
+
+        // TODO: What about `const var` is that allowed?
+        if (llvm::isa<VariableDecl>(ownedMember) && !(ownedMember->isStatic())) {
+            printError("non-static `var` cannot be container within `enum`!",
+                       ownedMember->startPosition(), ownedMember->endPosition());
+        }
+
+        validateDecl(ownedMember, false);
     }
 
     Decl* redefinition = getRedefinition(enumDecl->identifier().name(), enumDecl);

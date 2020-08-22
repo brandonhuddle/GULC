@@ -1,14 +1,54 @@
-//enum TestEnum {
-//    case Val1 = 23
-//    case Val2 = 4
-//    case Val = 5454
-//}
+enum TestEnum {
+    case Val1 = 23
+    case Val2 = 4
+    case Val = 5454
+
+    func toString() {
+
+    }
+}
 
 @copy
 struct vec3 {
     var x: i32
     var y: i32
     var z: i32
+
+    prop X: i32 {
+        get {
+            return x
+        }
+        get ref {
+            return ref x
+        }
+        set {
+            x = value
+        }
+    }
+
+    prop Y: i32 {
+        get {
+            return y
+        }
+        get ref {
+            return ref y
+        }
+        set {
+            y = value
+        }
+    }
+
+    prop Z: i32 {
+        get {
+            return z
+        }
+        get ref {
+            return ref z
+        }
+        set {
+            z = value
+        }
+    }
 
     init() {
         self.x = 0
@@ -55,15 +95,17 @@ func manglerTest(arg param: ref i32) -> i32 {
 //}
 
 func main() -> i32 {
-    let testVec = vec3(x: 0, y: 12, z: 44)
+    let mut testVec = vec3(x: 0, y: 12, z: 44)
 //    let templateTest = TemplateTest<i32>()
 //    let testFloat: f32 = 12.0
-    let testInt: i32 = 44
+    let testInt: ref i32 = ref testVec.Y
 
-    let testRefParam = manglerTest(arg: ref testInt)
+    let testRefParam = manglerTest(arg: testInt)
+
+    testVec.Z = 70
 
     if testInt == testRefParam {
-        return 12
+        return testVec.Z
     } else {
         return 90
     }

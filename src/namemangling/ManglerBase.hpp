@@ -26,6 +26,7 @@
 #include <ast/decls/CallOperatorDecl.hpp>
 #include <ast/decls/SubscriptOperatorDecl.hpp>
 #include <ast/decls/TraitDecl.hpp>
+#include <ast/decls/PropertyDecl.hpp>
 
 namespace gulc {
     // I'm making the name mangler an abstract class to allow us to use Itanium on nearly every platform but on Windows
@@ -33,6 +34,11 @@ namespace gulc {
     // Windows C++ ABI doesn't have public documentation except various documentation made from people reverse
     // engineering it throughout the years. I might have to drive to Redwood and try to become friends with a Microsoft
     // employee at some point...
+    // TODO: Maybe we should give up on this idea. I think Ghoul should be uniform across all platforms. We'll have
+    //       translation layers to handle proper communication with system libraries but Ghoul should have a standard
+    //       ABI that is consistent across all operating systems (certain things can differ per architecture but not OS)
+    //       I think trying to make Ghoul compile to the Windows C++ ABI would be a lot of work for little to no
+    //       benefit. Consistency is better than unneeded complexity.
     class ManglerBase {
     public:
         // We have to do a prepass on declared types to mangle their names because we will need to access them as
@@ -48,6 +54,7 @@ namespace gulc {
         virtual void mangle(StructDecl* structDecl) = 0;
         virtual void mangle(TraitDecl* traitDecl) = 0;
         virtual void mangle(CallOperatorDecl* callOperatorDecl) = 0;
+        virtual void mangle(PropertyDecl* propertyDecl) = 0;
 
         virtual ~ManglerBase() = default;
 

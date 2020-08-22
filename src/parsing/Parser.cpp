@@ -574,6 +574,18 @@ Decl* Parser::parseDecl() {
             return parseTraitDecl(attributes, visibility, isConst, startPosition, declModifiers);
         case TokenType::ENUM:
             return parseEnumDecl(attributes, visibility, isConst, declModifiers, startPosition);
+        case TokenType::CASE:
+            if (visibility != Decl::Visibility::Unassigned) printError("enum case cannot have visibility modifiers!", startPosition, _lexer.peekEndPosition());
+            if ((declModifiers & DeclModifiers::Static) == DeclModifiers::Static) printError("enum case cannot be `static`!", startPosition, _lexer.peekEndPosition());
+            if ((declModifiers & DeclModifiers::Extern) == DeclModifiers::Extern) printError("enum case cannot be `extern`!", startPosition, _lexer.peekEndPosition());
+            if (isConst) printError("enum case cannot be `const`!", startPosition, _lexer.peekEndPosition());
+            if ((declModifiers & DeclModifiers::Mut) == DeclModifiers::Mut) printError("enum case cannot be `mut`!", startPosition, _lexer.peekEndPosition());
+            if ((declModifiers & DeclModifiers::Volatile) == DeclModifiers::Volatile) printError("enum case cannot be `volatile`!", startPosition, _lexer.peekEndPosition());
+            if ((declModifiers & DeclModifiers::Abstract) == DeclModifiers::Abstract) printError("enum case cannot be `abstract`!", startPosition, _lexer.peekEndPosition());
+            if ((declModifiers & DeclModifiers::Virtual) == DeclModifiers::Virtual) printError("enum case cannot be `virtual`!", startPosition, _lexer.peekEndPosition());
+            if ((declModifiers & DeclModifiers::Override) == DeclModifiers::Override) printError("enum case cannot be `override`!", startPosition, _lexer.peekEndPosition());
+
+            return parseEnumConstDecl(attributes, startPosition);
         case TokenType::EXTENSION:
             return parseExtensionDecl(attributes, visibility, isConst, declModifiers, startPosition);
 
@@ -836,35 +848,20 @@ EnumDecl* Parser::parseEnumDecl(std::vector<Attr*> attributes, Decl::Visibility 
     }
 
     std::vector<EnumConstDecl*> enumConsts;
+    std::vector<Decl*> ownedMembers;
 
     // NOTE: We now use the Swift syntax for enum declarations
     //       BUT we are still keeping them separate with the Swift and Rust style enums being `enum union` in Ghoul.
-    while (_lexer.peekType() == TokenType::CASE || _lexer.peekType() == TokenType::ATSYMBOL) {
-        std::vector<Attr*> enumConstAttrs = parseAttrs();
+    while (_lexer.peekType() != TokenType::RCURLY && _lexer.peekType() != TokenType::ENDOFFILE) {
+        Decl* parsedDecl = parseDecl();
 
-        if (!_lexer.consumeType(TokenType::CASE)) {
-            printError("expected `case` after attributes, found `" + _lexer.peekCurrentSymbol() + "`!",
-                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
+        if (llvm::isa<EnumConstDecl>(parsedDecl)) {
+            // Add to `enumConsts`
+            enumConsts.push_back(llvm::dyn_cast<EnumConstDecl>(parsedDecl));
+        } else {
+            // Add to `ownedMembers`
+            ownedMembers.push_back(parsedDecl);
         }
-
-        if (_lexer.peekType() != TokenType::SYMBOL && _lexer.peekType() != TokenType::GRAVE) {
-            printError("expected enum const identifier, found `" + _lexer.peekCurrentSymbol() + "`!",
-                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
-        }
-
-        TextPosition enumConstStartPosition = _lexer.peekStartPosition();
-        Identifier enumConstIdentifier = parseIdentifier();
-        TextPosition enumConstEndPosition = enumConstIdentifier.endPosition();
-        Expr* enumConstValue = nullptr;
-
-        if (_lexer.consumeType(TokenType::EQUALS)) {
-            enumConstValue = parseExpr();
-            enumConstEndPosition = enumConstValue->endPosition();
-        }
-
-        enumConsts.push_back(new EnumConstDecl(_fileID, enumConstAttrs, enumConstIdentifier,
-                                               enumConstStartPosition, enumConstEndPosition,
-                                               enumConstValue));
     }
 
     if (!_lexer.consumeType(TokenType::RCURLY)) {
@@ -874,7 +871,32 @@ EnumDecl* Parser::parseEnumDecl(std::vector<Attr*> attributes, Decl::Visibility 
     }
 
     return new EnumDecl(_fileID, std::move(attributes), enumIdentifier, startPosition, endPosition,
-                        constType, enumConsts);
+                        constType, enumConsts, ownedMembers);
+}
+
+EnumConstDecl* Parser::parseEnumConstDecl(std::vector<Attr*> attributes, TextPosition startPosition) {
+    if (!_lexer.consumeType(TokenType::CASE)) {
+        printError("expected `case` after attributes, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    if (_lexer.peekType() != TokenType::SYMBOL && _lexer.peekType() != TokenType::GRAVE) {
+        printError("expected enum const identifier, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    TextPosition enumConstStartPosition = _lexer.peekStartPosition();
+    Identifier enumConstIdentifier = parseIdentifier();
+    TextPosition enumConstEndPosition = enumConstIdentifier.endPosition();
+    Expr* enumConstValue = nullptr;
+
+    if (_lexer.consumeType(TokenType::EQUALS)) {
+        enumConstValue = parseExpr();
+        enumConstEndPosition = enumConstValue->endPosition();
+    }
+
+    return new EnumConstDecl(_fileID, std::move(attributes), enumConstIdentifier,
+                             enumConstStartPosition, enumConstEndPosition, enumConstValue);
 }
 
 ExtensionDecl* Parser::parseExtensionDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
@@ -2103,6 +2125,8 @@ CompoundStmt* Parser::parseCompoundStmt() {
                    _lexer.peekStartPosition(), _lexer.peekEndPosition());
     }
 
+    Stmt* previousStmt = nullptr;
+
     while (_lexer.peekType() != TokenType::RCURLY && _lexer.peekType() != TokenType::ENDOFFILE) {
         bool precedingTokenWasSemicolon = _lexer.peekType() == TokenType::SEMICOLON;
 
@@ -2111,9 +2135,18 @@ CompoundStmt* Parser::parseCompoundStmt() {
 
         // Recheck before parsing (not doing that will trigger an error on `}`)
         if (_lexer.peekType() != TokenType::RCURLY && _lexer.peekType() != TokenType::ENDOFFILE) {
-            // TODO: Use `precedingTokenWasSemicolon` to detect statements that are on the same line without being
-            //       separated by `;`. If there are any error out.
-            statements.push_back(parseStmt());
+            Stmt* parsedStmt = parseStmt();
+
+            // If the preceding token wasn't a `;` we have to validate each statement is on its own line.
+            if (!precedingTokenWasSemicolon && previousStmt != nullptr) {
+                if (previousStmt->endPosition().line == parsedStmt->startPosition().line) {
+                    printError("multiple statements on the same line must be separated by a `;`!",
+                            previousStmt->startPosition(), parsedStmt->endPosition());
+                }
+            }
+
+            previousStmt = parsedStmt;
+            statements.push_back(previousStmt);
         }
     }
 
@@ -2292,24 +2325,8 @@ ReturnStmt* Parser::parseReturnStmt() {
 
     _lexer.consumeType(TokenType::RETURN);
 
-    // NOTE: If there is a `try` we have to validate there isn't `{` after
-    //       `return try test()` is allowed as a return value
-    //       `return try {}` translates to `return; try { ... } catch { ... }`
-    //       `return try {}` should be an error if the `return` and `try` are visually on the same line.
-    bool tryIsExpr = false;
     TokenMetaType checkTokenMetaType = _lexer.peekMeta();
     TokenType checkTokenType = _lexer.peekType();
-//
-//    if (checkTokenType == TokenType::TRY) {
-//        // We create a checkpoint we will immediately return to after checking for `{`
-//        LexerCheckpoint lexerCheckpoint(_lexer.createCheckpoint());
-//
-//        _lexer.consumeType(TokenType::TRY);
-//
-//        tryIsExpr = _lexer.peekType() != TokenType::LCURLY;
-//
-//        _lexer.returnToCheckpoint(lexerCheckpoint);
-//    }
 
     // Allowed after return:
     //  VALUE
@@ -2320,6 +2337,7 @@ ReturnStmt* Parser::parseReturnStmt() {
     //  NAMEOF
     //  TRAITSOF
     //  TRY
+    //  REF
     //  FUNC? TODO
     //  TRUE
     //  FALSE
@@ -2338,7 +2356,7 @@ ReturnStmt* Parser::parseReturnStmt() {
             checkTokenType == TokenType::TRAITSOF || checkTokenType == TokenType::TRY ||
             checkTokenType == TokenType::TRUE || checkTokenType == TokenType::FALSE ||
             checkTokenType == TokenType::LSQUARE || checkTokenType == TokenType::LPAREN ||
-            checkTokenType == TokenType::GRAVE) {
+            checkTokenType == TokenType::GRAVE || checkTokenType == TokenType::REF) {
         Expr* returnValue = parseExpr();
 
         return new ReturnStmt(startPosition, endPosition, returnValue);

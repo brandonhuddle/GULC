@@ -101,6 +101,7 @@ namespace gulc {
                                             bool isConstExpr, DeclModifiers declModifiers, TextPosition startPosition);
         EnumDecl* parseEnumDecl(std::vector<Attr*> attributes, Decl::Visibility visibility,
                                 bool isConstExpr, DeclModifiers declModifiers, TextPosition startPosition);
+        EnumConstDecl* parseEnumConstDecl(std::vector<Attr*> attributes, TextPosition startPosition);
         ExtensionDecl* parseExtensionDecl(std::vector<Attr*> attributes, Decl::Visibility visibility,
                                           bool isConstExpr, DeclModifiers declModifiers, TextPosition startPosition);
         FunctionDecl* parseFunctionDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,

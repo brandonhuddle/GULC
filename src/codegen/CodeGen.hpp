@@ -74,6 +74,8 @@
 #include <ast/exprs/TemporaryValueRefExpr.hpp>
 #include <ast/exprs/RefExpr.hpp>
 #include <ast/exprs/ImplicitDerefExpr.hpp>
+#include <ast/exprs/PropertyGetCallExpr.hpp>
+#include <ast/exprs/PropertySetCallExpr.hpp>
 
 namespace gulc {
     class CodeGen {
@@ -82,7 +84,8 @@ namespace gulc {
                 : _target(genTarget), _filePaths(filePaths), _currentFile(nullptr),
                   _llvmContext(nullptr), _irBuilder(nullptr), _llvmModule(nullptr), _funcPassManager(nullptr),
                   _currentLlvmFunction(nullptr), _currentGhoulFunction(nullptr), _entryBlockBuilder(nullptr),
-                  _currentLoopBlockContinue(nullptr), _currentLoopBlockBreak(nullptr), _anonLoopNameNumber(0) {}
+                  _currentFunctionExitBlock(nullptr), _currentLoopBlockContinue(nullptr),
+                  _currentLoopBlockBreak(nullptr), _anonLoopNameNumber(0) {}
 
         gulc::Module generate(ASTFile* file);
 
@@ -101,6 +104,8 @@ namespace gulc {
         gulc::FunctionDecl const* _currentGhoulFunction;
         std::vector<llvm::AllocaInst*> _currentLlvmFunctionParameters;
         llvm::IRBuilder<>* _entryBlockBuilder;
+        llvm::BasicBlock* _currentFunctionExitBlock;
+        llvm::AllocaInst* _currentFunctionReturnValue;
         std::map<std::string, llvm::BasicBlock*> _currentLlvmFunctionLabels;
         std::vector<llvm::AllocaInst*> _currentLlvmFunctionLocalVariables;
         std::vector<llvm::AllocaInst*> _currentStmtTemporaryValues;
@@ -128,6 +133,8 @@ namespace gulc {
         void generateFunctionDecl(FunctionDecl const* functionDecl, bool isInternal);
         void generateNamespaceDecl(NamespaceDecl const* namespaceDecl);
         void generatePropertyDecl(PropertyDecl const* propertyDecl, bool isInternal);
+        void generatePropertyGetDecl(PropertyGetDecl const* propertyGetDecl, bool isInternal);
+        void generatePropertySetDecl(PropertySetDecl const* propertySetDecl, bool isInternal);
         void generateStructDecl(StructDecl const* structDecl, bool isInternal);
         void generateTemplateFunctionDecl(TemplateFunctionDecl const* templateFunctionDecl, bool isInternal);
         void generateTemplateStructDecl(TemplateStructDecl const* templateStructDecl, bool isInternal);
@@ -198,6 +205,8 @@ namespace gulc {
         llvm::Value* generateParenExpr(ParenExpr const* parenExpr);
         llvm::Value* generatePostfixOperatorExpr(PostfixOperatorExpr const* postfixOperatorExpr);
         llvm::Value* generatePrefixOperatorExpr(PrefixOperatorExpr const* prefixOperatorExpr);
+        llvm::Value* generatePropertyGetCallExpr(PropertyGetCallExpr const* propertyGetCallExpr);
+        llvm::Value* generatePropertySetCallExpr(PropertySetCallExpr const* propertySetCallExpr);
         llvm::Value* generateRefExpr(RefExpr const* refExpr);
         llvm::Value* generateTemporaryValueRefExpr(TemporaryValueRefExpr const* temporaryValueRefExpr);
         llvm::Value* generateTemporaryValueVariableDeclExpr(VariableDeclExpr const* variableDeclExpr);

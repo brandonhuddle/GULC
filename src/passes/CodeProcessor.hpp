@@ -202,7 +202,7 @@ namespace gulc {
         void processExpr(Expr*& expr);
         void processArrayLiteralExpr(ArrayLiteralExpr* arrayLiteralExpr);
         void processAsExpr(AsExpr* asExpr);
-        void processAssignmentOperatorExpr(AssignmentOperatorExpr*& assignmentOperatorExpr);
+        void processAssignmentOperatorExpr(Expr*& expr);
         void processBoolLiteralExpr(BoolLiteralExpr* boolLiteralExpr);
         void processCallOperatorReferenceExpr(CallOperatorReferenceExpr* callOperatorReferenceExpr);
         void processCheckExtendsTypeExpr(CheckExtendsTypeExpr* checkExtendsTypeExpr);
@@ -283,6 +283,9 @@ namespace gulc {
                                    std::vector<LabeledArgumentExpr*>& arguments);
         // If the expression is a reference we dereference it.
         Expr* dereferenceReference(Expr* potentialReference) const;
+        // If the expression is a property or subscript we call the getter for it.
+        Expr* handleGetter(Expr* potentialGetSet) const;
+        Expr* handleRefGetter(PropertyRefExpr* propertyRefExpr, bool isRefMut) const;
 
     };
 }

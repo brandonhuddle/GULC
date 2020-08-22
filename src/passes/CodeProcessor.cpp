@@ -46,6 +46,8 @@
 #include <ast/exprs/LValueToRValueExpr.hpp>
 #include <ast/exprs/StructAssignmentOperatorExpr.hpp>
 #include <ast/exprs/ImplicitDerefExpr.hpp>
+#include <ast/exprs/PropertyGetCallExpr.hpp>
+#include <ast/exprs/PropertySetCallExpr.hpp>
 
 void gulc::CodeProcessor::processFiles(std::vector<ASTFile>& files) {
     for (ASTFile& file : files) {
@@ -360,13 +362,12 @@ void gulc::CodeProcessor::processConstructorDecl(gulc::ConstructorDecl* construc
 }
 
 void gulc::CodeProcessor::processEnumDecl(gulc::EnumDecl* enumDecl) {
-    // TODO: I think at this point processing for `EnumDecl` should be completed, right?
-    //       All instantiations should be done in `DeclInstantiator` and validation finished in `DeclInstValidator`
-    //       Enums only work with const values as well so those should be solved before this point too.
-    // TODO: Once we support `func` within `enum` declarations we will need this.
     Decl* oldContainer = _currentContainer;
     _currentContainer = enumDecl;
 
+    for (Decl* member : enumDecl->ownedMembers()) {
+        processDecl(member);
+    }
 
     _currentContainer = oldContainer;
 }
@@ -820,6 +821,7 @@ void gulc::CodeProcessor::processCaseStmt(gulc::CaseStmt* caseStmt) {
     if (!caseStmt->isDefault()) {
         processExpr(caseStmt->condition);
 
+        caseStmt->condition = handleGetter(caseStmt->condition);
         caseStmt->condition = convertLValueToRValue(caseStmt->condition);
         caseStmt->condition = dereferenceReference(caseStmt->condition);
     }
@@ -865,6 +867,7 @@ void gulc::CodeProcessor::processDoWhileStmt(gulc::DoWhileStmt* doWhileStmt) {
     processCompoundStmt(doWhileStmt->body());
     processExpr(doWhileStmt->condition);
 
+    doWhileStmt->condition = handleGetter(doWhileStmt->condition);
     doWhileStmt->condition = convertLValueToRValue(doWhileStmt->condition);
     doWhileStmt->condition = dereferenceReference(doWhileStmt->condition);
 }
@@ -879,6 +882,7 @@ void gulc::CodeProcessor::processForStmt(gulc::ForStmt* forStmt) {
     if (forStmt->condition != nullptr) {
         processExpr(forStmt->condition);
 
+        forStmt->condition = handleGetter(forStmt->condition);
         forStmt->condition = convertLValueToRValue(forStmt->condition);
         forStmt->condition = dereferenceReference(forStmt->condition);
     }
@@ -909,6 +913,7 @@ void gulc::CodeProcessor::processIfStmt(gulc::IfStmt* ifStmt) {
         }
     }
 
+    ifStmt->condition = handleGetter(ifStmt->condition);
     ifStmt->condition = convertLValueToRValue(ifStmt->condition);
     ifStmt->condition = dereferenceReference(ifStmt->condition);
 }
@@ -929,8 +934,12 @@ void gulc::CodeProcessor::processReturnStmt(gulc::ReturnStmt* returnStmt) {
 
         // NOTE: We don't implicitly convert from `lvalue` to reference here if the function returns a reference.
         //       To return a reference you MUST specify `ref {value}`, we don't do implicitly referencing like in C++.
+        returnStmt->returnValue = handleGetter(returnStmt->returnValue);
         returnStmt->returnValue = convertLValueToRValue(returnStmt->returnValue);
-        returnStmt->returnValue = dereferenceReference(returnStmt->returnValue);
+
+        if (!llvm::isa<ReferenceType>(_currentFunction->returnType)) {
+            returnStmt->returnValue = dereferenceReference(returnStmt->returnValue);
+        }
     }
 }
 
@@ -969,9 +978,7 @@ void gulc::CodeProcessor::processExpr(gulc::Expr*& expr) {
             processAsExpr(llvm::dyn_cast<AsExpr>(expr));
             break;
         case Expr::Kind::AssignmentOperator: {
-            auto assignmentOperatorExpr = llvm::dyn_cast<AssignmentOperatorExpr>(expr);
-            processAssignmentOperatorExpr(assignmentOperatorExpr);
-            expr = assignmentOperatorExpr;
+            processAssignmentOperatorExpr(expr);
             break;
         }
         case Expr::Kind::BoolLiteral:
@@ -1133,80 +1140,141 @@ void gulc::CodeProcessor::processAsExpr(gulc::AsExpr* asExpr) {
     asExpr->valueType = asExpr->asType->deepCopy();
 }
 
-void gulc::CodeProcessor::processAssignmentOperatorExpr(gulc::AssignmentOperatorExpr*& assignmentOperatorExpr) {
+void gulc::CodeProcessor::processAssignmentOperatorExpr(gulc::Expr*& expr) {
+    auto assignmentOperatorExpr = llvm::dyn_cast<gulc::AssignmentOperatorExpr>(expr);
+
     processExpr(assignmentOperatorExpr->leftValue);
     processExpr(assignmentOperatorExpr->rightValue);
 
-    Type* checkType = assignmentOperatorExpr->leftValue->valueType;
+    assignmentOperatorExpr->rightValue = handleGetter(assignmentOperatorExpr->rightValue);
 
-    if (llvm::isa<ReferenceType>(checkType)) {
-        checkType = llvm::dyn_cast<ReferenceType>(checkType)->nestedType;
-    }
+    // `MemberPropertyRefExpr` and `PropertyRefExpr` are special cases. We convert `AssignmentOperatorExpr` to
+    // `PropertySetCallExpr`
+    if (llvm::isa<PropertyRefExpr>(assignmentOperatorExpr->leftValue)) {
+        auto propertyRef = llvm::dyn_cast<PropertyRefExpr>(assignmentOperatorExpr->leftValue);
 
-    // If the left side is a `Struct` then we handle assignments differently. A struct assignment uses copy/move
-    // constructors for assignment.
-    if (llvm::isa<StructType>(checkType)) {
         if (assignmentOperatorExpr->hasNestedOperator()) {
-            // TODO: Handle nested operator the same as our infix operator
-            //       Also change `rightType` if the nested operator is overloaded.
+            // TODO: We will need to create both a getter and a setter expression...
+            printError("compound assignment operators not yet supported for `prop`!",
+                       assignmentOperatorExpr->startPosition(), assignmentOperatorExpr->endPosition());
+        } else {
+            assignmentOperatorExpr->rightValue = convertLValueToRValue(assignmentOperatorExpr->rightValue);
+            assignmentOperatorExpr->rightValue = dereferenceReference(assignmentOperatorExpr->rightValue);
         }
 
         // TODO: If `rightValue->valueType` isn't the same as `checkType` search for a valid cast
 
-        // We only convert lvalue to rvalue if the type is a reference. We still need some kind of underlying
-        // reference-type.
-        if (llvm::isa<ReferenceType>(assignmentOperatorExpr->rightValue->valueType)) {
-            assignmentOperatorExpr->rightValue = convertLValueToRValue(assignmentOperatorExpr->rightValue);
+        if (!propertyRef->propertyDecl->hasSetter()) {
+            printError("property `" + propertyRef->toString() + "` does not have a valid setter!",
+                       propertyRef->startPosition(), propertyRef->endPosition());
         }
 
-        StructAssignmentOperatorExpr* newStructAssignment;
+        // We have to validate that the object is mutable for the setter to be allowed
+        if (llvm::isa<MemberPropertyRefExpr>(propertyRef)) {
+            auto memberPropertyRef = llvm::dyn_cast<MemberPropertyRefExpr>(propertyRef);
 
-        // TODO: Default is `move`, not `copy`. Change to `move` when we handle it properly.
-        if (assignmentOperatorExpr->hasNestedOperator()) {
-            newStructAssignment = new StructAssignmentOperatorExpr(
-                    StructAssignmentType::Copy,
-                    assignmentOperatorExpr->leftValue,
-                    assignmentOperatorExpr->rightValue,
-                    assignmentOperatorExpr->nestedOperator(),
-                    assignmentOperatorExpr->startPosition(),
-                    assignmentOperatorExpr->endPosition()
-            );
-        } else {
-            newStructAssignment = new StructAssignmentOperatorExpr(
-                    StructAssignmentType::Copy,
-                    assignmentOperatorExpr->leftValue,
-                    assignmentOperatorExpr->rightValue,
-                    assignmentOperatorExpr->startPosition(),
-                    assignmentOperatorExpr->endPosition()
-            );
+            if (memberPropertyRef->object->valueType->qualifier() != Type::Qualifier::Mut) {
+                printError("property setter cannot be called on an immutable object!",
+                           memberPropertyRef->object->startPosition(), memberPropertyRef->object->endPosition());
+            }
         }
 
-        newStructAssignment->temporaryValues = assignmentOperatorExpr->temporaryValues;
+        // TODO: I've we've reached this point everything should be valid. We should be able to change the assignment
+        //       to a `PropertySetCallExpr`.
+        auto setterCall = new PropertySetCallExpr(
+                propertyRef,
+                propertyRef->propertyDecl->setter(),
+                assignmentOperatorExpr->rightValue
+        );
+        // TODO: Does a setter return anything?
+        setterCall->valueType = setterCall->propertySetter->returnType->deepCopy();
+        setterCall->valueType->setIsLValue(false);
 
-        // Remove any stolen pointers and delete the old assignment
+        // We steal these before deleting...
         assignmentOperatorExpr->leftValue = nullptr;
         assignmentOperatorExpr->rightValue = nullptr;
-        assignmentOperatorExpr->temporaryValues.clear();
         delete assignmentOperatorExpr;
 
-        newStructAssignment->valueType = checkType->deepCopy();
-        newStructAssignment->valueType->setIsLValue(true);
-
-        assignmentOperatorExpr = newStructAssignment;
+        expr = setterCall;
         return;
     } else {
-        if (assignmentOperatorExpr->hasNestedOperator()) {
-            // TODO: Handle nested operator the same as our infix operator
-            //       Also change `rightType` if the nested operator is overloaded.
-        } else {
-            assignmentOperatorExpr->rightValue = convertLValueToRValue(assignmentOperatorExpr->rightValue);
+        Type* checkType = assignmentOperatorExpr->leftValue->valueType;
+
+        if (llvm::isa<ReferenceType>(checkType)) {
+            checkType = llvm::dyn_cast<ReferenceType>(checkType)->nestedType;
         }
 
-        // TODO: Validate that `rightType` can be casted to `leftType` (if they aren't the same type)
+        // If the left side is a `Struct` then we handle assignments differently. A struct assignment uses copy/move
+        // constructors for assignment.
+        if (llvm::isa<StructType>(checkType)) {
+            if (assignmentOperatorExpr->hasNestedOperator()) {
+                // TODO: Handle nested operator the same as our infix operator
+                //       Also change `rightType` if the nested operator is overloaded.
+                printError("compound assignment operators not yet supported!",
+                           assignmentOperatorExpr->startPosition(), assignmentOperatorExpr->endPosition());
+            }
 
-        assignmentOperatorExpr->valueType = assignmentOperatorExpr->leftValue->valueType->deepCopy();
-        // TODO: Is this right? I believe we'll end up returning the actual alloca from CodeGen so this seems right to me.
-        assignmentOperatorExpr->valueType->setIsLValue(true);
+            // TODO: If `rightValue->valueType` isn't the same as `checkType` search for a valid cast
+
+            assignmentOperatorExpr->rightValue = handleGetter(assignmentOperatorExpr->rightValue);
+
+            // We only convert lvalue to rvalue if the type is a reference. We still need some kind of underlying
+            // reference-type.
+            if (llvm::isa<ReferenceType>(assignmentOperatorExpr->rightValue->valueType)) {
+                assignmentOperatorExpr->rightValue = convertLValueToRValue(assignmentOperatorExpr->rightValue);
+            }
+
+            StructAssignmentOperatorExpr* newStructAssignment;
+
+            // TODO: Default is `move`, not `copy`. Change to `move` when we handle it properly.
+            if (assignmentOperatorExpr->hasNestedOperator()) {
+                newStructAssignment = new StructAssignmentOperatorExpr(
+                        StructAssignmentType::Copy,
+                        assignmentOperatorExpr->leftValue,
+                        assignmentOperatorExpr->rightValue,
+                        assignmentOperatorExpr->nestedOperator(),
+                        assignmentOperatorExpr->startPosition(),
+                        assignmentOperatorExpr->endPosition()
+                );
+            } else {
+                newStructAssignment = new StructAssignmentOperatorExpr(
+                        StructAssignmentType::Copy,
+                        assignmentOperatorExpr->leftValue,
+                        assignmentOperatorExpr->rightValue,
+                        assignmentOperatorExpr->startPosition(),
+                        assignmentOperatorExpr->endPosition()
+                );
+            }
+
+            newStructAssignment->temporaryValues = assignmentOperatorExpr->temporaryValues;
+
+            // Remove any stolen pointers and delete the old assignment
+            assignmentOperatorExpr->leftValue = nullptr;
+            assignmentOperatorExpr->rightValue = nullptr;
+            assignmentOperatorExpr->temporaryValues.clear();
+            delete assignmentOperatorExpr;
+
+            newStructAssignment->valueType = checkType->deepCopy();
+            newStructAssignment->valueType->setIsLValue(true);
+
+            assignmentOperatorExpr = newStructAssignment;
+            return;
+        } else {
+            if (assignmentOperatorExpr->hasNestedOperator()) {
+                // TODO: Handle nested operator the same as our infix operator
+                //       Also change `rightType` if the nested operator is overloaded.
+            } else {
+                assignmentOperatorExpr->rightValue = convertLValueToRValue(assignmentOperatorExpr->rightValue);
+                assignmentOperatorExpr->rightValue = dereferenceReference(assignmentOperatorExpr->rightValue);
+            }
+
+            // TODO: Validate that `rightType` can be casted to `leftType` (if they aren't the same type)
+
+            assignmentOperatorExpr->valueType = assignmentOperatorExpr->leftValue->valueType->deepCopy();
+            // TODO: Is this right? I believe we'll end up returning the actual alloca from CodeGen so this seems right
+            //       to me.
+            assignmentOperatorExpr->valueType->setIsLValue(true);
+        }
     }
 }
 
@@ -2745,7 +2813,9 @@ void gulc::CodeProcessor::processIdentifierExpr(gulc::Expr*& expr) {
             // NOTE: Only `struct`, `class`, and `union` can contain variables as a `MemberVariableRef`...
             if (llvm::isa<StructDecl>(foundDecl->container)) {
                 // If the variable is a member of a struct we have to create a reference to `self` for accessing it.
-                auto selfRef = getCurrentSelfRef(expr->startPosition(), expr->endPosition());
+                Expr* selfRef = getCurrentSelfRef(expr->startPosition(), expr->endPosition());
+                // Self mustn't be an lvalue, that would make it logically a double reference.
+                selfRef = convertLValueToRValue(selfRef);
                 auto selfStructType = new StructType(
                         Type::Qualifier::Immut,
                         llvm::dyn_cast<StructDecl>(foundDecl->container),
@@ -2924,6 +2994,8 @@ void gulc::CodeProcessor::processInfixOperatorExpr(gulc::InfixOperatorExpr* infi
         case InfixOperators::LogicalAnd: // &&
         case InfixOperators::LogicalOr: // ||
             // Once we've reached this point we need to convert any lvalues to rvalues and dereference any implicit references
+            infixOperatorExpr->leftValue = handleGetter(infixOperatorExpr->leftValue);
+            infixOperatorExpr->rightValue = handleGetter(infixOperatorExpr->rightValue);
             infixOperatorExpr->leftValue = convertLValueToRValue(infixOperatorExpr->leftValue);
             infixOperatorExpr->rightValue = convertLValueToRValue(infixOperatorExpr->rightValue);
             // Dereference the references (if there are any references)
@@ -3024,6 +3096,8 @@ void gulc::CodeProcessor::processInfixOperatorExpr(gulc::InfixOperatorExpr* infi
     }
 
     // Once we've reached this point we need to convert any lvalues to rvalues and dereference any implicit references
+    infixOperatorExpr->leftValue = handleGetter(infixOperatorExpr->leftValue);
+    infixOperatorExpr->rightValue = handleGetter(infixOperatorExpr->rightValue);
     infixOperatorExpr->leftValue = convertLValueToRValue(infixOperatorExpr->leftValue);
     infixOperatorExpr->rightValue = convertLValueToRValue(infixOperatorExpr->rightValue);
     // Dereference the references (if there are any references)
@@ -3318,6 +3392,8 @@ void gulc::CodeProcessor::processMemberAccessCallExpr(gulc::Expr*& expr) {
             printError("type `" + checkType->toString() + "` does not contain a member `" + memberAccessCallExpr->member->toString() + "`!",
                        memberAccessCallExpr->startPosition(), memberAccessCallExpr->endPosition());
         }
+
+        memberAccessCallExpr->objectRef = handleGetter(memberAccessCallExpr->objectRef);
 
         // If we've reached this point we need to convert any lvalue object references to rvalues and dereference any
         // implicit references
@@ -3692,6 +3768,7 @@ void gulc::CodeProcessor::processPostfixOperatorExpr(gulc::PostfixOperatorExpr*&
     }
 
     // Once we reach this point we handle lvalue to rvalue and dereference implicit references
+    postfixOperatorExpr->nestedExpr = handleGetter(postfixOperatorExpr->nestedExpr);
     postfixOperatorExpr->nestedExpr = convertLValueToRValue(postfixOperatorExpr->nestedExpr);
     postfixOperatorExpr->nestedExpr = dereferenceReference(postfixOperatorExpr->nestedExpr);
 
@@ -3877,6 +3954,7 @@ void gulc::CodeProcessor::processPrefixOperatorExpr(gulc::PrefixOperatorExpr*& p
             }
 
             // Convert lvalue to rvalue and dereference implicit references (to get value type)
+            prefixOperatorExpr->nestedExpr = handleGetter(prefixOperatorExpr->nestedExpr);
             prefixOperatorExpr->nestedExpr = convertLValueToRValue(prefixOperatorExpr->nestedExpr);
             prefixOperatorExpr->nestedExpr = dereferenceReference(prefixOperatorExpr->nestedExpr);
 
@@ -3894,6 +3972,7 @@ void gulc::CodeProcessor::processPrefixOperatorExpr(gulc::PrefixOperatorExpr*& p
             }
 
             // Convert lvalue to rvalue and dereference implicit references (to get value type)
+            prefixOperatorExpr->nestedExpr = handleGetter(prefixOperatorExpr->nestedExpr);
             prefixOperatorExpr->nestedExpr = convertLValueToRValue(prefixOperatorExpr->nestedExpr);
             prefixOperatorExpr->nestedExpr = dereferenceReference(prefixOperatorExpr->nestedExpr);
 
@@ -3916,6 +3995,7 @@ void gulc::CodeProcessor::processPrefixOperatorExpr(gulc::PrefixOperatorExpr*& p
             }
 
             // Convert lvalue to rvalue and dereference implicit references (to get value type)
+            prefixOperatorExpr->nestedExpr = handleGetter(prefixOperatorExpr->nestedExpr);
             prefixOperatorExpr->nestedExpr = convertLValueToRValue(prefixOperatorExpr->nestedExpr);
             prefixOperatorExpr->nestedExpr = dereferenceReference(prefixOperatorExpr->nestedExpr);
 
@@ -3933,6 +4013,7 @@ void gulc::CodeProcessor::processPrefixOperatorExpr(gulc::PrefixOperatorExpr*& p
             }
 
             // Convert lvalue to rvalue and dereference implicit references (to get value type)
+            prefixOperatorExpr->nestedExpr = handleGetter(prefixOperatorExpr->nestedExpr);
             prefixOperatorExpr->nestedExpr = convertLValueToRValue(prefixOperatorExpr->nestedExpr);
             prefixOperatorExpr->nestedExpr = dereferenceReference(prefixOperatorExpr->nestedExpr);
 
@@ -3979,20 +4060,26 @@ void gulc::CodeProcessor::processPropertyRefExpr(gulc::PropertyRefExpr* property
 void gulc::CodeProcessor::processRefExpr(gulc::RefExpr* refExpr) {
     processExpr(refExpr->nestedExpr);
 
-    if (refExpr->nestedExpr->valueType->isLValue()) {
-        // TODO: What about Unassigned?
-        if (refExpr->isMutable && refExpr->nestedExpr->valueType->qualifier() != Type::Qualifier::Mut) {
-            printError("cannot create `ref mut` from immutable expression!",
+    if (llvm::isa<PropertyRefExpr>(refExpr->nestedExpr)) {
+        refExpr->nestedExpr = handleRefGetter(llvm::dyn_cast<PropertyRefExpr>(refExpr->nestedExpr),
+                                              refExpr->isMutable);
+        refExpr->valueType = refExpr->nestedExpr->valueType->deepCopy();
+    } else {
+        if (refExpr->nestedExpr->valueType->isLValue()) {
+            // TODO: What about Unassigned?
+            if (refExpr->isMutable && refExpr->nestedExpr->valueType->qualifier() != Type::Qualifier::Mut) {
+                printError("cannot create `ref mut` from immutable expression!",
+                           refExpr->startPosition(), refExpr->endPosition());
+            }
+
+            auto valueType = refExpr->nestedExpr->valueType->deepCopy();
+            valueType->setIsLValue(false);
+
+            refExpr->valueType = new ReferenceType(Type::Qualifier::Unassigned, valueType);
+        } else {
+            printError("cannot create reference to non-lvalue expression!",
                        refExpr->startPosition(), refExpr->endPosition());
         }
-
-        auto valueType = refExpr->nestedExpr->valueType->deepCopy();
-        valueType->setIsLValue(false);
-
-        refExpr->valueType = new ReferenceType(Type::Qualifier::Unassigned, valueType);
-    } else {
-        printError("cannot create reference to non-lvalue expression!",
-                   refExpr->startPosition(), refExpr->endPosition());
     }
 }
 
@@ -4214,6 +4301,9 @@ void gulc::CodeProcessor::processTernaryExpr(gulc::TernaryExpr* ternaryExpr) {
                    ternaryExpr->startPosition(), ternaryExpr->endPosition());
     }
 
+    ternaryExpr->trueExpr = handleGetter(ternaryExpr->trueExpr);
+    ternaryExpr->falseExpr = handleGetter(ternaryExpr->falseExpr);
+
     // If one side or the other isn't an lvalue then we need to convert the lvalue to an rvalue
     if (!ternaryExpr->trueExpr->valueType->isLValue()) {
         ternaryExpr->falseExpr = convertLValueToRValue(ternaryExpr->falseExpr);
@@ -4292,6 +4382,7 @@ void gulc::CodeProcessor::processVariableDeclExpr(gulc::VariableDeclExpr* variab
         } else {
             // We convert lvalue to rvalue but we DO NOT remove `ref` UNLESS `variableDeclExpr->type` isn't `ref`
             // TODO: Handle implicit references
+            variableDeclExpr->initialValue = handleGetter(variableDeclExpr->initialValue);
             variableDeclExpr->initialValue = convertLValueToRValue(variableDeclExpr->initialValue);
         }
 
@@ -4299,6 +4390,11 @@ void gulc::CodeProcessor::processVariableDeclExpr(gulc::VariableDeclExpr* variab
             // If the type wasn't explicitly set then we infer the type from the value type of the initial value
             variableDeclExpr->type = variableDeclExpr->initialValue->valueType->deepCopy();
         }
+    }
+
+    // If the variable is `let mut` we also set the type to `mut`
+    if (variableDeclExpr->isAssignable()) {
+        variableDeclExpr->type->setQualifier(Type::Qualifier::Mut);
     }
 
     // TODO: Should we support local variable shadowing like Rust (and partially like Swift?)
@@ -4370,5 +4466,270 @@ gulc::Expr* gulc::CodeProcessor::dereferenceReference(gulc::Expr* potentialRefer
         return derefExpr;
     } else {
         return potentialReference;
+    }
+}
+
+gulc::Expr* gulc::CodeProcessor::handleGetter(gulc::Expr* potentialGetSet) const {
+    if (llvm::isa<MemberPropertyRefExpr>(potentialGetSet)) {
+        auto memberPropertyRefExpr = llvm::dyn_cast<MemberPropertyRefExpr>(potentialGetSet);
+
+        // For the `MemberPropertyRefExpr` we have to account for mutability.
+        // If the `object` is `mut` then we can either grab a `mut` getter OR an `immut` getter if the `mut` getter
+        // doesn't exist.
+        // If the `object` is `immut` then we can ONLY grab the `immut` getter
+        PropertyGetDecl* foundGetter = nullptr;
+        bool findMutGetter = memberPropertyRefExpr->object->valueType->qualifier() == Type::Qualifier::Mut;
+
+        for (PropertyGetDecl* checkGetter : memberPropertyRefExpr->propertyDecl->getters()) {
+            // We're only looking for normal getters, not `ref` getters.
+            if (checkGetter->getResultType() != PropertyGetDecl::GetResult::Normal) continue;
+
+            if (checkGetter->isMutable()) {
+                // If we can't use `mut` getters we skip this one.
+                if (!findMutGetter) continue;
+
+                // If we're searching for the `mut` getter and this getter is `mut` we need to check if the existing
+                // getter is `mut` or not. If the existing found getter IS `mut` we have to error for ambiguity. Else
+                // we just replace it.
+                // This should never happen as a previous pass should detect this. But just in case.
+                if (foundGetter != nullptr && foundGetter->isMutable()) {
+                    printError("property call is ambiguous, there are multiple `mut get` declarations!",
+                               potentialGetSet->startPosition(), potentialGetSet->endPosition());
+                } else {
+                    // At this point the found getter is either null or immut. Either way we set it to the "stronger"
+                    // `mut` getter
+                    foundGetter = checkGetter;
+                }
+            } else {
+                // If the found getter is `mut` then we skip. A `mut` getter cannot be replaced by an `immut` getter.
+                if (foundGetter != nullptr && foundGetter->isMutable()) continue;
+
+                // If the found getter is `immut` and not null then we have to error
+                if (foundGetter != nullptr) {
+                    printError("property call is ambiguous, there are multiple `get` declarations!",
+                               potentialGetSet->startPosition(), potentialGetSet->endPosition());
+                }
+
+                foundGetter = checkGetter;
+            }
+        }
+
+        if (foundGetter == nullptr) {
+            printError("property does not have a valid getter!",
+                       potentialGetSet->startPosition(), potentialGetSet->endPosition());
+        }
+
+        auto result = new PropertyGetCallExpr(memberPropertyRefExpr, foundGetter);
+        result->valueType = foundGetter->returnType->deepCopy();
+        result->valueType->setIsLValue(true);
+        return result;
+    } else if (llvm::isa<PropertyRefExpr>(potentialGetSet)) {
+        auto propertyRefExpr = llvm::dyn_cast<PropertyRefExpr>(potentialGetSet);
+
+        // We can use the non-ref getter. If there is more than one we error (this should never actually trigger, a
+        // previous pass should handle this)
+        PropertyGetDecl* foundGetter = nullptr;
+
+        for (PropertyGetDecl* checkGetter : propertyRefExpr->propertyDecl->getters()) {
+            if (checkGetter->getResultType() == PropertyGetDecl::GetResult::Normal) {
+                if (foundGetter == nullptr) {
+                    foundGetter = checkGetter;
+                } else {
+                    printError("property call is ambiguous, there are multiple valid `get` blocks!",
+                               potentialGetSet->startPosition(), potentialGetSet->endPosition());
+                }
+            }
+        }
+
+        if (foundGetter == nullptr) {
+            printError("property does not have a valid getter!",
+                       potentialGetSet->startPosition(), potentialGetSet->endPosition());
+        }
+
+        auto result = new PropertyGetCallExpr(propertyRefExpr, foundGetter);
+        result->valueType = foundGetter->returnType->deepCopy();
+        result->valueType->setIsLValue(true);
+        return result;
+    } else {
+        return potentialGetSet;
+    }
+}
+
+gulc::Expr* gulc::CodeProcessor::handleRefGetter(gulc::PropertyRefExpr* propertyRefExpr, bool isRefMut) const {
+    if (llvm::isa<MemberPropertyRefExpr>(propertyRefExpr)) {
+        auto memberPropertyRefExpr = llvm::dyn_cast<MemberPropertyRefExpr>(propertyRefExpr);
+
+        // For the `MemberPropertyRefExpr` we have to account for mutability.
+        // If the `object` is `mut` then we can either grab a `mut` getter OR an `immut` getter if the `mut` getter
+        // doesn't exist.
+        // If the `object` is `immut` then we can ONLY grab the `immut` getter
+        PropertyGetDecl* foundGetter = nullptr;
+        bool findMutGetter = memberPropertyRefExpr->object->valueType->qualifier() == Type::Qualifier::Mut;
+
+        for (PropertyGetDecl* checkGetter : memberPropertyRefExpr->propertyDecl->getters()) {
+            auto checkResultType = checkGetter->getResultType();
+
+            if (isRefMut) {
+                // We can ONLY support `ref mut` getters
+                if (checkResultType != PropertyGetDecl::GetResult::RefMut) continue;
+
+                if (checkGetter->isMutable()) {
+                    // TODO: Is it possible for an immut `ref mut`? I think so...
+                    if (!findMutGetter) continue;
+
+                    // If we're searching for the `mut` getter and this getter is `mut` we need to check if the existing
+                    // getter is `mut` or not. If the existing found getter IS `mut` we have to error for ambiguity.
+                    // Else we just replace it.
+                    // This should never happen as a previous pass should detect this. But just in case.
+                    if (foundGetter != nullptr && foundGetter->isMutable()) {
+                        printError("property call is ambiguous, there are multiple `mut get` declarations!",
+                                   propertyRefExpr->startPosition(), propertyRefExpr->endPosition());
+                    } else {
+                        // At this point the found getter is either null or immut. Either way we set it to the "stronger"
+                        // `mut` getter
+                        foundGetter = checkGetter;
+                    }
+                } else {
+                    // If the found getter is `mut` then we skip. A `mut` getter cannot be replaced by an `immut`
+                    // getter.
+                    if (foundGetter != nullptr && foundGetter->isMutable()) continue;
+
+                    // If the found getter is `immut` and not null then we have to error
+                    if (foundGetter != nullptr) {
+                        printError("property call is ambiguous, there are multiple `get` declarations!",
+                                   propertyRefExpr->startPosition(), propertyRefExpr->endPosition());
+                    }
+
+                    foundGetter = checkGetter;
+                }
+            } else {
+                // We can support either `ref mut` or `ref`
+                if (checkResultType == PropertyGetDecl::GetResult::Normal) continue;
+
+                // If the object is `immut` but the getter is `mut` then we skip the getter.
+                if (!findMutGetter && checkGetter->isMutable()) continue;
+
+                // For `ref` we favor `get ref` BUT if `get ref` doesn't exist and `get ref mut` does we will still
+                // allow `get ref mut` as a backup.
+                if (checkResultType == PropertyGetDecl::GetResult::Ref) {
+                    if (foundGetter != nullptr) {
+                        // If the found is `ref mut` we replace it with `ref`
+                        if (foundGetter->getResultType() == PropertyGetDecl::GetResult::RefMut) {
+                            foundGetter = checkGetter;
+                            continue;
+                        }
+
+                        // If the found is `immut` but check is `mut` we replace found, if check is `mut` at this point
+                        // that means we're looking for a `mut` where possible.
+                        if (!foundGetter->isMutable() && checkGetter->isMutable()) {
+                            foundGetter = checkGetter;
+                            continue;
+                        }
+
+                        // At this point both `resultType` and `mutability` is identical, this is an ambiguous call
+                        // (NOTE: This should never happen, a previous `prop` validator should detect this and error)
+                        printError("property call is ambiguous, there are multiple `get ref` declarations!",
+                                   propertyRefExpr->startPosition(), propertyRefExpr->endPosition());
+                    } else {
+                        // This is the first found getter, we immediately set but keep looking
+                        foundGetter = checkGetter;
+                        continue;
+                    }
+                } else if (checkResultType == PropertyGetDecl::GetResult::RefMut) {
+                    if (foundGetter != nullptr) {
+                        // If the getter we already found is a `ref` we skip (as it is exactly what the programmer wants,
+                        // `ref mut` would be a fallback here)
+                        if (foundGetter->getResultType() == PropertyGetDecl::GetResult::Ref) {
+                            continue;
+                        }
+
+                        // If the found is `immut` but check is `mut` we replace found, if check is `mut` at this point
+                        // that means we're looking for a `mut` where possible.
+                        if (!foundGetter->isMutable() && checkGetter->isMutable()) {
+                            foundGetter = checkGetter;
+                            continue;
+                        }
+
+                        // At this point both `resultType` and `mutability` is identical, this is an ambiguous call
+                        // (NOTE: This should never happen, a previous `prop` validator should detect this and error)
+                        printError("property call is ambiguous, there are multiple `get ref` declarations!",
+                                   propertyRefExpr->startPosition(), propertyRefExpr->endPosition());
+                    } else {
+                        // This is the first found getter, we immediately set but keep looking
+                        foundGetter = checkGetter;
+                        continue;
+                    }
+                }
+            }
+        }
+
+        if (foundGetter == nullptr) {
+            printError("property does not have a valid `ref` getter!",
+                       propertyRefExpr->startPosition(), propertyRefExpr->endPosition());
+        }
+
+        auto result = new PropertyGetCallExpr(memberPropertyRefExpr, foundGetter);
+        result->valueType = foundGetter->returnType->deepCopy();
+        result->valueType->setIsLValue(true);
+        return result;
+    } else {
+        PropertyGetDecl* foundGetter = nullptr;
+
+        for (PropertyGetDecl* checkGetter : propertyRefExpr->propertyDecl->getters()) {
+            auto checkResultType = checkGetter->getResultType();
+
+            if (isRefMut) {
+                // We can ONLY support `ref mut` getters
+                if (checkResultType != PropertyGetDecl::GetResult::RefMut) continue;
+
+                // For global properties we don't have to check if the getter is `mut get` as `mut get` doesn't exist
+                // outside of objects.
+                if (foundGetter != nullptr) {
+                    printError("property call is ambiguous, there are multiple `get ref mut` declarations!",
+                               propertyRefExpr->startPosition(), propertyRefExpr->endPosition());
+                }
+
+                foundGetter = checkGetter;
+            } else {
+                // We can support either `ref mut` or `ref`
+                if (checkResultType == PropertyGetDecl::GetResult::Normal) continue;
+
+                // First found result, it can be either `ref` or `ref mut` so we set it and continue searching just in
+                // case there are multiple.
+                if (foundGetter == nullptr) {
+                    foundGetter = checkGetter;
+                    continue;
+                }
+
+                // If the found is `ref` but check is `ref mut` then we skip the check.
+                if (foundGetter->getResultType() == PropertyGetDecl::GetResult::Ref) {
+                    // If `checkGetter` is also `ref` then we error on ambiguity, if `checkGetter` is `ref mut` we skip
+                    if (checkResultType == PropertyGetDecl::GetResult::Ref) {
+                        printError("property call is ambiguous, there are multiple `get ref` declarations!",
+                                   propertyRefExpr->startPosition(), propertyRefExpr->endPosition());
+                    }
+                } else {
+                    // If `foundGetter` is `ref mut` we can replace it if `checkGetter` is only `ref`. Else we error on
+                    // ambiguity
+                    if (checkResultType == PropertyGetDecl::GetResult::RefMut) {
+                        printError("property call is ambiguous, there are multiple `get ref mut` declarations!",
+                                   propertyRefExpr->startPosition(), propertyRefExpr->endPosition());
+                    }
+
+                    foundGetter = checkGetter;
+                    continue;
+                }
+            }
+        }
+
+        if (foundGetter == nullptr) {
+            printError("property does not have a valid `ref` getter!",
+                       propertyRefExpr->startPosition(), propertyRefExpr->endPosition());
+        }
+
+        auto result = new PropertyGetCallExpr(propertyRefExpr, foundGetter);
+        result->valueType = foundGetter->returnType->deepCopy();
+        result->valueType->setIsLValue(true);
+        return result;
     }
 }

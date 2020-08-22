@@ -37,6 +37,7 @@ namespace gulc {
         void mangle(StructDecl* structDecl) override;
         void mangle(TraitDecl* traitDecl) override;
         void mangle(CallOperatorDecl* callOperatorDecl) override;
+        void mangle(PropertyDecl* propertyDecl) override;
 
     private:
         void mangleDeclEnum(EnumDecl* enumDecl, std::string const& prefix, std::string const& nameSuffix);
@@ -51,6 +52,11 @@ namespace gulc {
         void mangleTrait(TraitDecl* traitDecl, std::string const& prefix);
         void mangleCallOperator(CallOperatorDecl* callOperatorDecl, std::string const& prefix,
                                 std::string const& nameSuffix);
+        void mangleProperty(PropertyDecl* propertyDecl, std::string const& prefix, std::string const& nameSuffix);
+        void manglePropertyGet(PropertyGetDecl* propertyGetDecl, std::string const& prefix,
+                               std::string const& nameSuffix);
+        void manglePropertySet(PropertySetDecl* propertySetDecl, std::string const& prefix,
+                               std::string const& nameSuffix);
 
         void mangleConstructor(ConstructorDecl* constructorDecl, std::string const& prefix,
                                std::string const& nameSuffix);

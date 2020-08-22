@@ -30,9 +30,10 @@ namespace gulc {
         Expr* returnValue;
 
         ReturnStmt(TextPosition startPosition, TextPosition endPosition)
-                : Stmt(Stmt::Kind::Return), returnValue(nullptr) {}
+                : ReturnStmt(startPosition, endPosition, nullptr) {}
         ReturnStmt(TextPosition startPosition, TextPosition endPosition, Expr* returnValue)
-                : Stmt(Stmt::Kind::Return), returnValue(returnValue) {}
+                : Stmt(Stmt::Kind::Return),
+                  returnValue(returnValue), _startPosition(startPosition), _endPosition(endPosition) {}
 
         TextPosition returnStartPosition() const { return _startPosition; }
         TextPosition returnEndPosition() const { return _endPosition; }

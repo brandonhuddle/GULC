@@ -18,11 +18,11 @@
 #ifndef GULC_MEMBERPROPERTYREFEXPR_HPP
 #define GULC_MEMBERPROPERTYREFEXPR_HPP
 
-#include <ast/Expr.hpp>
+#include <ast/exprs/PropertyRefExpr.hpp>
 #include <ast/decls/PropertyDecl.hpp>
 
 namespace gulc {
-    class MemberPropertyRefExpr : public Expr {
+    class MemberPropertyRefExpr : public PropertyRefExpr {
     public:
         static bool classof(const Expr *expr) { return expr->getExprKind() == Kind::MemberPropertyRef; }
 
@@ -31,34 +31,23 @@ namespace gulc {
 
         MemberPropertyRefExpr(TextPosition startPosition, TextPosition endPosition,
                               Expr* object, gulc::PropertyDecl* propertyDecl)
-                : Expr(Expr::Kind::MemberPropertyRef),
-                  _startPosition(startPosition), _endPosition(endPosition),
-                  object(object), _propertyDecl(propertyDecl) {}
-
-        TextPosition startPosition() const override { return _startPosition; }
-        TextPosition endPosition() const override { return _endPosition; }
-
-        gulc::PropertyDecl* propertyDecl() const { return _propertyDecl; }
+                : PropertyRefExpr(Expr::Kind::MemberPropertyRef, startPosition, endPosition, propertyDecl),
+                  object(object) {}
 
         Expr* deepCopy() const override {
             auto result = new MemberPropertyRefExpr(_startPosition, _endPosition,
-                                                    object->deepCopy(), _propertyDecl);
+                                                    object->deepCopy(), propertyDecl);
             result->valueType = valueType == nullptr ? nullptr : valueType->deepCopy();
             return result;
         }
 
         std::string toString() const override {
-            return object->toString() + "." + _propertyDecl->identifier().name();
+            return object->toString() + "." + propertyDecl->identifier().name();
         }
 
         ~MemberPropertyRefExpr() override {
             delete object;
         }
-
-    private:
-        TextPosition _startPosition;
-        TextPosition _endPosition;
-        gulc::PropertyDecl* _propertyDecl;
 
     };
 }

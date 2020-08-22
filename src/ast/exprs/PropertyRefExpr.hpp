@@ -26,15 +26,17 @@ namespace gulc {
     /// expression that points `PropertyGetCall` and `PropertySetCall` to the underlying `Property`
     class PropertyRefExpr : public Expr {
     public:
-        static bool classof(const Expr *expr) { return expr->getExprKind() == Kind::PropertyRef; }
+        static bool classof(const Expr *expr) {
+            auto exprKind = expr->getExprKind();
+
+            return exprKind == Kind::PropertyRef || exprKind == Kind::MemberPropertyRef;
+        }
 
         PropertyDecl* propertyDecl;
 
         PropertyRefExpr(TextPosition startPosition, TextPosition endPosition,
                         PropertyDecl* propertyDecl)
-                : Expr(Expr::Kind::PropertyRef),
-                  _startPosition(startPosition), _endPosition(endPosition),
-                  propertyDecl(propertyDecl) {}
+                : PropertyRefExpr(Expr::Kind::PropertyRef, startPosition, endPosition, propertyDecl) {}
 
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }
@@ -50,9 +52,15 @@ namespace gulc {
             return propertyDecl->identifier().name();
         }
 
-    private:
+    protected:
         TextPosition _startPosition;
         TextPosition _endPosition;
+
+        PropertyRefExpr(Expr::Kind exprKind, TextPosition startPosition, TextPosition endPosition,
+                        PropertyDecl* propertyDecl)
+                : Expr(exprKind),
+                  _startPosition(startPosition), _endPosition(endPosition),
+                  propertyDecl(propertyDecl) {}
 
     };
 }

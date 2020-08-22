@@ -222,8 +222,12 @@ add_executable(gulc
         src/ast/exprs/PostfixOperatorExpr.hpp
         src/ast/exprs/PrefixOperatorExpr.cpp
         src/ast/exprs/PrefixOperatorExpr.hpp
+        src/ast/exprs/PropertyGetCallExpr.cpp
+        src/ast/exprs/PropertyGetCallExpr.hpp
         src/ast/exprs/PropertyRefExpr.cpp
         src/ast/exprs/PropertyRefExpr.hpp
+        src/ast/exprs/PropertySetCallExpr.cpp
+        src/ast/exprs/PropertySetCallExpr.hpp
         src/ast/exprs/RefExpr.cpp
         src/ast/exprs/RefExpr.hpp
         src/ast/exprs/StructAssignmentOperatorExpr.cpp

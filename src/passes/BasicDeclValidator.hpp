@@ -75,7 +75,7 @@ namespace gulc {
         void validateCallOperatorDecl(CallOperatorDecl* callOperatorDecl) const;
         void validateConstructorDecl(ConstructorDecl* constructorDecl) const;
         void validateDestructorDecl(DestructorDecl* destructorDecl) const;
-        void validateEnumDecl(EnumDecl* enumDecl) const;
+        void validateEnumDecl(EnumDecl* enumDecl);
         void validateExtensionDecl(ExtensionDecl* extensionDecl);
         void validateFunctionDecl(FunctionDecl* functionDecl) const;
         void validateNamespaceDecl(NamespaceDecl* namespaceDecl);

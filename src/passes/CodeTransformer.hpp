@@ -72,6 +72,8 @@
 #include <ast/exprs/TemporaryValueRefExpr.hpp>
 #include <ast/exprs/RefExpr.hpp>
 #include <ast/exprs/ImplicitDerefExpr.hpp>
+#include <ast/exprs/PropertyGetCallExpr.hpp>
+#include <ast/exprs/PropertySetCallExpr.hpp>
 
 namespace gulc {
     /**
@@ -200,6 +202,8 @@ namespace gulc {
         void processParenExpr(ParenExpr* parenExpr);
         void processPostfixOperatorExpr(PostfixOperatorExpr* postfixOperatorExpr);
         void processPrefixOperatorExpr(PrefixOperatorExpr* prefixOperatorExpr);
+        void processPropertyGetCallExpr(Expr*& expr);
+        void processPropertySetCallExpr(PropertySetCallExpr* propertySetCallExpr);
         void processRefExpr(RefExpr* refExpr);
         void processTernaryExpr(TernaryExpr* ternaryExpr);
         void processTryExpr(TryExpr* tryExpr);

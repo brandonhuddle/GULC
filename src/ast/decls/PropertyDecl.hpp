@@ -55,6 +55,7 @@ namespace gulc {
         std::vector<PropertyGetDecl*>& getters() { return _getters; }
         std::vector<PropertyGetDecl*> const& getters() const { return _getters; }
         PropertySetDecl* setter() { return _setter; }
+        PropertySetDecl const* setter() const { return _setter; }
         bool hasSetter() const { return _setter != nullptr; }
 
         Decl* deepCopy() const override {

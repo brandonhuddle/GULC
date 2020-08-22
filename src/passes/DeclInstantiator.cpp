@@ -1064,9 +1064,17 @@ void gulc::DeclInstantiator::processEnumDecl(gulc::EnumDecl* enumDecl) {
         }
     }
 
+    _workingDecls.push_back(enumDecl);
+
     for (EnumConstDecl* enumConst : enumDecl->enumConsts()) {
         processConstExpr(enumConst->constValue);
     }
+
+    for (Decl* member : enumDecl->ownedMembers()) {
+        processDecl(member, false);
+    }
+
+    _workingDecls.pop_back();
 }
 
 void gulc::DeclInstantiator::processExtensionDecl(gulc::ExtensionDecl* extensionDecl) {

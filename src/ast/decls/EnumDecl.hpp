@@ -51,13 +51,13 @@ namespace gulc {
 
         EnumDecl(unsigned int sourceFileID, std::vector<Attr*> attributes, Identifier identifier,
                  TextPosition startPosition, TextPosition endPosition, Type* constType,
-                 std::vector<EnumConstDecl*> enumConsts)
+                 std::vector<EnumConstDecl*> enumConsts, std::vector<Decl*> ownedMembers)
                 : Decl(Kind::Enum, sourceFileID, std::move(attributes),
                        Decl::Visibility::Unassigned, false, std::move(identifier),
                        DeclModifiers::None),
                   containerTemplateType(),
                   _startPosition(startPosition), _endPosition(endPosition), constType(constType),
-                  _enumConsts(std::move(enumConsts)) {
+                  _enumConsts(std::move(enumConsts)), _ownedMembers(std::move(ownedMembers)) {
             for (EnumConstDecl* enumConst : _enumConsts) {
                 enumConst->container = this;
             }
@@ -65,6 +65,8 @@ namespace gulc {
 
         std::vector<EnumConstDecl*>& enumConsts() { return _enumConsts; }
         std::vector<EnumConstDecl*> const& enumConsts() const { return _enumConsts; }
+        std::vector<Decl*>& ownedMembers() { return _ownedMembers; }
+        std::vector<Decl*> const& ownedMembers() const { return _ownedMembers; }
 
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }
@@ -74,6 +76,8 @@ namespace gulc {
             copiedAttributes.reserve(_attributes.size());
             std::vector<EnumConstDecl*> copiedEnumConsts;
             copiedEnumConsts.reserve(_enumConsts.size());
+            std::vector<Decl*> copiedOwnedMembers;
+            copiedOwnedMembers.reserve(_ownedMembers.size());
             Type* copiedConstType = nullptr;
 
             for (Attr* attribute : _attributes) {
@@ -84,13 +88,17 @@ namespace gulc {
                 copiedEnumConsts.push_back(llvm::dyn_cast<EnumConstDecl>(enumConst->deepCopy()));
             }
 
+            for (Decl* ownedMember : _ownedMembers) {
+                copiedOwnedMembers.push_back(ownedMember->deepCopy());
+            }
+
             if (constType != nullptr) {
                 copiedConstType = constType->deepCopy();
             }
 
             auto result = new EnumDecl(_sourceFileID, copiedAttributes, _identifier,
                                        _startPosition, _endPosition, copiedConstType,
-                                       copiedEnumConsts);
+                                       copiedEnumConsts, copiedOwnedMembers);
             result->container = container;
             result->containedInTemplate = containedInTemplate;
             result->containerTemplateType = (containerTemplateType == nullptr ? nullptr : containerTemplateType->deepCopy());
@@ -104,6 +112,10 @@ namespace gulc {
             for (EnumConstDecl* enumConst : _enumConsts) {
                 delete enumConst;
             }
+
+            for (Decl* ownedMember : _ownedMembers) {
+                delete ownedMember;
+            }
         }
 
         // If the type is contained within a template this is a `Type` that will resolve to the container
@@ -116,6 +128,9 @@ namespace gulc {
         TextPosition _startPosition;
         TextPosition _endPosition;
         std::vector<EnumConstDecl*> _enumConsts;
+        // This is a list of functions, operators, properties, etc. this CANNOT be member variables as enums cannot
+        // have member variables. This also cannot be virtual members as enums cannot have virtual members either.
+        std::vector<Decl*> _ownedMembers;
 
     };
 }

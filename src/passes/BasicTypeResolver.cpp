@@ -263,12 +263,20 @@ void gulc::BasicTypeResolver::processEnumDecl(gulc::EnumDecl* enumDecl) {
         enumDecl->constType = gulc::BuiltInType::get(Type::Qualifier::Unassigned, "i32", {}, {});
     }
 
+    _containingDecls.push_back(enumDecl);
+
     for (EnumConstDecl* enumConst : enumDecl->enumConsts()) {
         // TODO: If the `constValue` is null we will need to handle setting the default values
         if (enumConst->constValue != nullptr) {
             processExpr(enumConst->constValue);
         }
     }
+
+    for (Decl* member : enumDecl->ownedMembers()) {
+        processDecl(member, false);
+    }
+
+    _containingDecls.pop_back();
 }
 
 void gulc::BasicTypeResolver::processExtensionDecl(gulc::ExtensionDecl* extensionDecl) {
@@ -313,6 +321,9 @@ void gulc::BasicTypeResolver::processFunctionDecl(gulc::FunctionDecl* functionDe
             printError("function return type `" + functionDecl->returnType->toString() + "` was not found!",
                        functionDecl->startPosition(), functionDecl->endPosition());
         }
+    } else {
+        // If the return type is null we create the `void` type...
+        functionDecl->returnType = gulc::BuiltInType::get(Type::Qualifier::Unassigned, "void", {}, {});
     }
 
     // Clear any old values
@@ -361,7 +372,7 @@ void gulc::BasicTypeResolver::processPropertyDecl(gulc::PropertyDecl* propertyDe
     }
 
     for (PropertyGetDecl* getter : propertyDecl->getters()) {
-        // We call the generic `processDecl` so that our attributes are processed proeprly
+        // We call the generic `processDecl` so that our attributes are processed properly
         processDecl(getter);
     }
 
