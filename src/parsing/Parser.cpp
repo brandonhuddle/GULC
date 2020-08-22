@@ -2074,9 +2074,30 @@ CaseStmt* Parser::parseCaseStmt() {
 
     std::vector<Stmt*> body;
 
+    Stmt* previousStmt = nullptr;
+
     while (_lexer.peekType() != TokenType::RCURLY && _lexer.peekType() != TokenType::ENDOFFILE &&
             _lexer.peekType() != TokenType::CASE && _lexer.peekType() != TokenType::DEFAULT) {
-        body.push_back(parseStmt());
+        bool precedingTokenWasSemicolon = _lexer.peekType() == TokenType::SEMICOLON;
+
+        // Remove all semicolons if there are any.
+        while (_lexer.consumeType(TokenType::SEMICOLON));
+
+        // Recheck before parsing (not doing that will trigger an error on `}`)
+        if (_lexer.peekType() != TokenType::RCURLY && _lexer.peekType() != TokenType::ENDOFFILE) {
+            Stmt* parsedStmt = parseStmt();
+
+            // If the preceding token wasn't a `;` we have to validate each statement is on its own line.
+            if (!precedingTokenWasSemicolon && previousStmt != nullptr) {
+                if (previousStmt->endPosition().line == parsedStmt->startPosition().line) {
+                    printError("multiple statements on the same line must be separated by a `;`!",
+                               previousStmt->startPosition(), parsedStmt->endPosition());
+                }
+            }
+
+            previousStmt = parsedStmt;
+            body.push_back(previousStmt);
+        }
     }
 
     return new CaseStmt(startPosition, endPosition, isDefault, condition, body);
