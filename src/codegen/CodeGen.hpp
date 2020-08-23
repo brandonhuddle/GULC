@@ -128,6 +128,10 @@ namespace gulc {
         // This is meant to grab the size from `constSize`, `constSize` will be required to be a value literal type
         std::uint64_t generateConstSize(Expr* constSize);
 
+        // This function will get an llvm function from the module if it exists
+        // If the function doesn't exist then we will create a signature for it within the llvm module (e.g. `extern`)
+        llvm::Function* getFunctionFromDecl(FunctionDecl* functionDecl);
+
         void generateDecl(Decl const* decl, bool isInternal = true);
         void generateConstructorDecl(ConstructorDecl const* constructorDecl, bool isInternal);
         void generateDestructorDecl(DestructorDecl const* destructorDecl, bool isInternal);

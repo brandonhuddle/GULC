@@ -277,6 +277,53 @@ std::uint64_t gulc::CodeGen::generateConstSize(gulc::Expr* constSize) {
     return std::stoull(valueLiteralExpr->value());
 }
 
+llvm::Function* gulc::CodeGen::getFunctionFromDecl(gulc::FunctionDecl* functionDecl) {
+    gulc::StructDecl* parentStruct = nullptr;
+
+    if (functionDecl->container != nullptr) {
+        if (llvm::isa<StructDecl>(functionDecl->container)) {
+            parentStruct = llvm::dyn_cast<StructDecl>(functionDecl->container);
+        } else if (llvm::isa<PropertyDecl>(functionDecl->container)) {
+            auto checkProperty = llvm::dyn_cast<PropertyDecl>(functionDecl->container);
+
+            if (checkProperty->container != nullptr && llvm::isa<StructDecl>(checkProperty->container)) {
+                parentStruct = llvm::dyn_cast<StructDecl>(checkProperty->container);
+            }
+        } else if (llvm::isa<SubscriptOperatorDecl>(functionDecl->container)) {
+            auto checkSubscript = llvm::dyn_cast<SubscriptOperatorDecl>(functionDecl->container);
+
+            if (checkSubscript->container != nullptr && llvm::isa<StructDecl>(checkSubscript->container)) {
+                parentStruct = llvm::dyn_cast<StructDecl>(checkSubscript->container);
+            }
+        }
+    }
+
+    std::vector<llvm::Type*> paramTypes = generateLlvmParamTypes(functionDecl->parameters(), parentStruct);
+    llvm::Type* returnType = nullptr;
+
+    if (functionDecl->returnType == nullptr) {
+        returnType = llvm::Type::getVoidTy(*_llvmContext);
+    } else {
+        returnType = generateLlvmType(functionDecl->returnType);
+    }
+
+    llvm::FunctionType* functionType = llvm::FunctionType::get(returnType, paramTypes, false);
+    llvm::Function* function = _llvmModule->getFunction(functionDecl->mangledName());
+
+    if (!function) {
+        auto linkageType = llvm::Function::LinkageTypes::ExternalLinkage;
+
+        // TODO: How will we account for this?
+//        if (isInternal) {
+//            linkageType = llvm::Function::LinkageTypes::InternalLinkage;
+//        }
+
+        function = llvm::Function::Create(functionType, linkageType, functionDecl->mangledName(), _llvmModule);
+    }
+
+    return function;
+}
+
 void gulc::CodeGen::generateDecl(gulc::Decl const* decl, bool isInternal) {
     switch (decl->getDeclKind()) {
         case Decl::Kind::Constructor:
@@ -1276,7 +1323,7 @@ void gulc::CodeGen::cleanupTemporaryValues(std::vector<VariableDeclExpr*> const&
             // Because we only work on by value structs we don't have to deal with the vtable, we can know the
             // struct is the correct type.
             // TODO: Is this a correct assumption?
-            auto destructorFunc = _llvmModule->getFunction(structDecl->destructor->mangledName());
+            auto destructorFunc = getFunctionFromDecl(structDecl->destructor);
 
             std::vector<llvm::Value*> llvmArgs {
                     temporaryValueAlloca
@@ -1512,8 +1559,7 @@ llvm::Value* gulc::CodeGen::generateConstructorCallExpr(gulc::ConstructorCallExp
             constructorCallExpr->functionReference);
 
     // TODO: Should this be `vtable` or not?
-    llvm::Function* constructorFunc =
-            _llvmModule->getFunction(constructorReferenceExpr->constructor->mangledName());
+    llvm::Function* constructorFunc = getFunctionFromDecl(constructorReferenceExpr->constructor);
 
     std::vector<llvm::Value*> llvmArgs{};
     llvmArgs.reserve(constructorCallExpr->arguments.size() + 1);
@@ -1537,7 +1583,7 @@ llvm::Value* gulc::CodeGen::generateCurrentSelfExpr(gulc::CurrentSelfExpr const*
 
 llvm::Value* gulc::CodeGen::generateDestructorCallExpr(gulc::DestructorCallExpr const* destructorCallExpr) {
     auto destructorReferenceExpr = llvm::dyn_cast<DestructorReferenceExpr>(destructorCallExpr->functionReference);
-    llvm::Function* destructorFunc = _llvmModule->getFunction(destructorReferenceExpr->destructor->mangledName());
+    llvm::Function* destructorFunc = getFunctionFromDecl(destructorReferenceExpr->destructor);
 
     std::vector<llvm::Value*> llvmArgs {
         generateExpr(destructorCallExpr->objectRef)
@@ -1570,7 +1616,7 @@ llvm::Value* gulc::CodeGen::generateFunctionReferenceFromExpr(gulc::Expr const* 
     if (llvm::isa<FunctionReferenceExpr>(expr)) {
         auto functionReferenceExpr = llvm::dyn_cast<FunctionReferenceExpr>(expr);
 
-        return _llvmModule->getFunction(functionReferenceExpr->functionDecl()->mangledName());
+        return getFunctionFromDecl(functionReferenceExpr->functionDecl());
     } else {
         llvm::Value* functionPointerValue = generateExpr(expr);
 
@@ -2079,14 +2125,14 @@ llvm::Value* gulc::CodeGen::generatePropertyGetCallExpr(gulc::PropertyGetCallExp
         case Expr::Kind::MemberPropertyRef: {
             auto memberPropertyRef = llvm::dyn_cast<MemberPropertyRefExpr>(propertyGetCallExpr->propertyReference);
 
-            callFunction = _llvmModule->getFunction(propertyGetCallExpr->propertyGetter->mangledName());
+            callFunction = getFunctionFromDecl(propertyGetCallExpr->propertyGetter);
             arguments.push_back(generateExpr(memberPropertyRef->object));
             break;
         }
         case Expr::Kind::PropertyRef: {
             auto propertyRef = llvm::dyn_cast<PropertyRefExpr>(propertyGetCallExpr->propertyReference);
 
-            callFunction = _llvmModule->getFunction(propertyGetCallExpr->propertyGetter->mangledName());
+            callFunction = getFunctionFromDecl(propertyGetCallExpr->propertyGetter);
             break;
         }
         default:
@@ -2106,14 +2152,14 @@ llvm::Value* gulc::CodeGen::generatePropertySetCallExpr(gulc::PropertySetCallExp
         case Expr::Kind::MemberPropertyRef: {
             auto memberPropertyRef = llvm::dyn_cast<MemberPropertyRefExpr>(propertySetCallExpr->propertyReference);
 
-            callFunction = _llvmModule->getFunction(propertySetCallExpr->propertySetter->mangledName());
+            callFunction = getFunctionFromDecl(propertySetCallExpr->propertySetter);
             arguments.push_back(generateExpr(memberPropertyRef->object));
             break;
         }
         case Expr::Kind::PropertyRef: {
             auto propertyRef = llvm::dyn_cast<PropertyRefExpr>(propertySetCallExpr->propertyReference);
 
-            callFunction = _llvmModule->getFunction(propertySetCallExpr->propertySetter->mangledName());
+            callFunction = getFunctionFromDecl(propertySetCallExpr->propertySetter);
             break;
         }
         default:
@@ -2145,8 +2191,7 @@ llvm::Value* gulc::CodeGen::generateSubscriptOperatorGetCallExpr(
                             subscriptOperatorGetCallExpr->subscriptOperatorReference
                     );
 
-            callFunction = _llvmModule->getFunction(
-                    subscriptOperatorGetCallExpr->subscriptOperatorGetter->mangledName());
+            callFunction = getFunctionFromDecl(subscriptOperatorGetCallExpr->subscriptOperatorGetter);
             arguments.push_back(generateExpr(memberSubscriptOperatorRef->object));
             break;
         }
@@ -2154,8 +2199,7 @@ llvm::Value* gulc::CodeGen::generateSubscriptOperatorGetCallExpr(
             auto subscriptOperatorRef =
                     llvm::dyn_cast<SubscriptOperatorRefExpr>(subscriptOperatorGetCallExpr->subscriptOperatorReference);
 
-            callFunction = _llvmModule->getFunction(
-                    subscriptOperatorGetCallExpr->subscriptOperatorGetter->mangledName());
+            callFunction = getFunctionFromDecl(subscriptOperatorGetCallExpr->subscriptOperatorGetter);
             break;
         }
         default:
@@ -2184,8 +2228,7 @@ llvm::Value* gulc::CodeGen::generateSubscriptOperatorSetCallExpr(
                             subscriptOperatorSetCallExpr->subscriptOperatorReference
                     );
 
-            callFunction = _llvmModule->getFunction(
-                    subscriptOperatorSetCallExpr->subscriptOperatorSetter->mangledName());
+            callFunction = getFunctionFromDecl(subscriptOperatorSetCallExpr->subscriptOperatorSetter);
             arguments.push_back(generateExpr(memberSubscriptOperatorRef->object));
             break;
         }
@@ -2193,8 +2236,7 @@ llvm::Value* gulc::CodeGen::generateSubscriptOperatorSetCallExpr(
             auto subscriptOperatorRef =
                     llvm::dyn_cast<SubscriptOperatorRefExpr>(subscriptOperatorSetCallExpr->subscriptOperatorReference);
 
-            callFunction = _llvmModule->getFunction(
-                    subscriptOperatorSetCallExpr->subscriptOperatorSetter->mangledName());
+            callFunction = getFunctionFromDecl(subscriptOperatorSetCallExpr->subscriptOperatorSetter);
             break;
         }
         default:
@@ -2485,7 +2527,7 @@ llvm::Function* gulc::CodeGen::getMoveConstructorForType(gulc::Type* type) {
                    type->startPosition(), type->endPosition());
     }
 
-    return _llvmModule->getFunction(structDecl->cachedMoveConstructor->mangledName());
+    return getFunctionFromDecl(structDecl->cachedMoveConstructor);
 }
 
 llvm::Function* gulc::CodeGen::getCopyConstructorForType(gulc::Type* type) {
@@ -2503,5 +2545,5 @@ llvm::Function* gulc::CodeGen::getCopyConstructorForType(gulc::Type* type) {
                    type->startPosition(), type->endPosition());
     }
 
-    return _llvmModule->getFunction(structDecl->cachedCopyConstructor->mangledName());
+    return getFunctionFromDecl(structDecl->cachedCopyConstructor);
 }
