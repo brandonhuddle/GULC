@@ -182,6 +182,8 @@ void gulc::ItaniumMangler::mangleStruct(gulc::StructDecl* structDecl, std::strin
             mangleFunction(llvm::dyn_cast<FunctionDecl>(decl), "N" + nPrefix, "E");
         } else if (llvm::isa<PropertyDecl>(decl)) {
             mangleProperty(llvm::dyn_cast<PropertyDecl>(decl), "N" + nPrefix, "E");
+        } else if (llvm::isa<SubscriptOperatorDecl>(decl)) {
+            mangleSubscript(llvm::dyn_cast<SubscriptOperatorDecl>(decl), "N" + nPrefix, "E");
         }
     }
 
@@ -213,6 +215,8 @@ void gulc::ItaniumMangler::mangleTrait(gulc::TraitDecl* traitDecl, std::string c
             mangleFunction(llvm::dyn_cast<FunctionDecl>(decl), "N" + nPrefix, "E");
         } else if (llvm::isa<PropertyDecl>(decl)) {
             mangleProperty(llvm::dyn_cast<PropertyDecl>(decl), "N" + nPrefix, "E");
+        } else if (llvm::isa<SubscriptOperatorDecl>(decl)) {
+            mangleSubscript(llvm::dyn_cast<SubscriptOperatorDecl>(decl), "N" + nPrefix, "E");
         }
     }
 }
@@ -231,11 +235,11 @@ void gulc::ItaniumMangler::mangleProperty(gulc::PropertyDecl* propertyDecl, std:
     std::string nPrefix = prefix + sourceName(propertyDecl->identifier().name());
 
     for (PropertyGetDecl* getter : propertyDecl->getters()) {
-        manglePropertyGet(getter, "N" + nPrefix + nameSuffix, "E");
+        manglePropertyGet(getter, nPrefix, nameSuffix);
     }
 
     if (propertyDecl->hasSetter()) {
-        manglePropertySet(propertyDecl->setter(), "N" + nPrefix + nameSuffix, "E");
+        manglePropertySet(propertyDecl->setter(), nPrefix, nameSuffix);
     }
 }
 
@@ -282,6 +286,70 @@ void gulc::ItaniumMangler::manglePropertySet(gulc::PropertySetDecl* propertySetD
     mangledName += bareFunctionType(propertySetDecl->parameters());
 
     propertySetDecl->setMangledName(mangledName);
+}
+
+void gulc::ItaniumMangler::mangleSubscript(gulc::SubscriptOperatorDecl* subscriptOperatorDecl,
+                                           std::string const& prefix, std::string const& nameSuffix) {
+    std::string nPrefix = prefix + sourceName(subscriptOperatorDecl->identifier().name());
+
+    for (SubscriptOperatorGetDecl* getter : subscriptOperatorDecl->getters()) {
+        mangleSubscriptGet(getter, nPrefix, nameSuffix);
+    }
+
+    if (subscriptOperatorDecl->hasSetter()) {
+        mangleSubscriptSet(subscriptOperatorDecl->setter(), nPrefix, nameSuffix);
+    }
+}
+
+void gulc::ItaniumMangler::mangleSubscriptGet(gulc::SubscriptOperatorGetDecl* subscriptOperatorGetDecl,
+                                              std::string const& prefix, std::string const& nameSuffix) {
+    switch (subscriptOperatorGetDecl->getResultType()) {
+        case SubscriptOperatorGetDecl::GetResult::Normal:
+            if (subscriptOperatorGetDecl->isMutable()) {
+                std::string mangledName = "_Z" + prefix + "ixg" + nameSuffix;
+                mangledName += bareFunctionType(subscriptOperatorGetDecl->parameters());
+                subscriptOperatorGetDecl->setMangledName(mangledName);
+            } else {
+                // `K` for C++ const/immut
+                std::string mangledName = "_Z" + prefix + "Kixg" + nameSuffix;
+                mangledName += bareFunctionType(subscriptOperatorGetDecl->parameters());
+                subscriptOperatorGetDecl->setMangledName(mangledName);
+            }
+            break;
+        case SubscriptOperatorGetDecl::GetResult::Ref:
+            if (subscriptOperatorGetDecl->isMutable()) {
+                std::string mangledName = "_Z" + prefix + "ixgr" + nameSuffix;
+                mangledName += bareFunctionType(subscriptOperatorGetDecl->parameters());
+                subscriptOperatorGetDecl->setMangledName(mangledName);
+            } else {
+                // `K` for C++ const/immut
+                std::string mangledName = "_Z" + prefix + "Kixgr" + nameSuffix;
+                mangledName += bareFunctionType(subscriptOperatorGetDecl->parameters());
+                subscriptOperatorGetDecl->setMangledName(mangledName);
+            }
+            break;
+        case SubscriptOperatorGetDecl::GetResult::RefMut:
+            if (subscriptOperatorGetDecl->isMutable()) {
+                std::string mangledName = "_Z" + prefix + "ixgrm" + nameSuffix;
+                mangledName += bareFunctionType(subscriptOperatorGetDecl->parameters());
+                subscriptOperatorGetDecl->setMangledName(mangledName);
+            } else {
+                // `K` for C++ const/immut
+                std::string mangledName = "_Z" + prefix + "Kixgrm" + nameSuffix;
+                mangledName += bareFunctionType(subscriptOperatorGetDecl->parameters());
+                subscriptOperatorGetDecl->setMangledName(mangledName);
+            }
+            break;
+    }
+}
+
+void gulc::ItaniumMangler::mangleSubscriptSet(gulc::SubscriptOperatorSetDecl* subscriptOperatorSetDecl,
+                                              std::string const& prefix, std::string const& nameSuffix) {
+    std::string mangledName = "_Z" + prefix + "ixs" + nameSuffix;
+
+    mangledName += bareFunctionType(subscriptOperatorSetDecl->parameters());
+
+    subscriptOperatorSetDecl->setMangledName(mangledName);
 }
 
 void gulc::ItaniumMangler::mangleConstructor(gulc::ConstructorDecl* constructorDecl, std::string const& prefix,

@@ -19,6 +19,7 @@
 #include "StructDecl.hpp"
 #include "TraitDecl.hpp"
 #include "PropertyDecl.hpp"
+#include "SubscriptOperatorDecl.hpp"
 
 bool gulc::FunctionDecl::isMemberFunction() const {
     if (container == nullptr) {
@@ -27,7 +28,14 @@ bool gulc::FunctionDecl::isMemberFunction() const {
         auto checkProperty = llvm::dyn_cast<PropertyDecl>(container);
 
         if (checkProperty->container != nullptr &&
-                (llvm::isa<StructDecl>(checkProperty->container) || llvm::isa<TraitDecl>(checkProperty->container))) {
+            (llvm::isa<StructDecl>(checkProperty->container) || llvm::isa<TraitDecl>(checkProperty->container))) {
+            return true;
+        }
+    } else if (llvm::isa<SubscriptOperatorDecl>(container)) {
+        auto checkSubscript = llvm::dyn_cast<SubscriptOperatorDecl>(container);
+
+        if (checkSubscript->container != nullptr &&
+            (llvm::isa<StructDecl>(checkSubscript->container) || llvm::isa<TraitDecl>(checkSubscript->container))) {
             return true;
         }
     } else if (llvm::isa<StructDecl>(container) || llvm::isa<TraitDecl>(container)) {

@@ -48,6 +48,10 @@
 #include <ast/exprs/ImplicitDerefExpr.hpp>
 #include <ast/exprs/PropertyGetCallExpr.hpp>
 #include <ast/exprs/PropertySetCallExpr.hpp>
+#include <ast/exprs/SubscriptOperatorRefExpr.hpp>
+#include <ast/exprs/MemberSubscriptOperatorRefExpr.hpp>
+#include <ast/exprs/SubscriptOperatorGetCallExpr.hpp>
+#include <ast/exprs/SubscriptOperatorSetCallExpr.hpp>
 
 void gulc::CodeProcessor::processFiles(std::vector<ASTFile>& files) {
     for (ASTFile& file : files) {
@@ -1150,6 +1154,7 @@ void gulc::CodeProcessor::processAssignmentOperatorExpr(gulc::Expr*& expr) {
 
     // `MemberPropertyRefExpr` and `PropertyRefExpr` are special cases. We convert `AssignmentOperatorExpr` to
     // `PropertySetCallExpr`
+    // Ditto for `MemberSubscriptOperatorRefExpr` and `SubscriptOperatorRefExpr` -> `SubscroptOperatorSetCallExpr`
     if (llvm::isa<PropertyRefExpr>(assignmentOperatorExpr->leftValue)) {
         auto propertyRef = llvm::dyn_cast<PropertyRefExpr>(assignmentOperatorExpr->leftValue);
 
@@ -1179,8 +1184,6 @@ void gulc::CodeProcessor::processAssignmentOperatorExpr(gulc::Expr*& expr) {
             }
         }
 
-        // TODO: I've we've reached this point everything should be valid. We should be able to change the assignment
-        //       to a `PropertySetCallExpr`.
         auto setterCall = new PropertySetCallExpr(
                 propertyRef,
                 propertyRef->propertyDecl->setter(),
@@ -1188,6 +1191,52 @@ void gulc::CodeProcessor::processAssignmentOperatorExpr(gulc::Expr*& expr) {
         );
         // TODO: Does a setter return anything?
         setterCall->valueType = setterCall->propertySetter->returnType->deepCopy();
+        setterCall->valueType->setIsLValue(false);
+
+        // We steal these before deleting...
+        assignmentOperatorExpr->leftValue = nullptr;
+        assignmentOperatorExpr->rightValue = nullptr;
+        delete assignmentOperatorExpr;
+
+        expr = setterCall;
+        return;
+    } else if (llvm::isa<SubscriptOperatorRefExpr>(assignmentOperatorExpr->leftValue)) {
+        auto subscriptOperatorRef = llvm::dyn_cast<SubscriptOperatorRefExpr>(assignmentOperatorExpr->leftValue);
+
+        if (assignmentOperatorExpr->hasNestedOperator()) {
+            // TODO: We will need to create both a getter and a setter expression...
+            printError("compound assignment operators not yet supported for `prop`!",
+                       assignmentOperatorExpr->startPosition(), assignmentOperatorExpr->endPosition());
+        } else {
+            assignmentOperatorExpr->rightValue = convertLValueToRValue(assignmentOperatorExpr->rightValue);
+            assignmentOperatorExpr->rightValue = dereferenceReference(assignmentOperatorExpr->rightValue);
+        }
+
+        // TODO: If `rightValue->valueType` isn't the same as `checkType` search for a valid cast
+
+        if (!subscriptOperatorRef->subscriptOperatorDecl->hasSetter()) {
+            printError("subscript `" + subscriptOperatorRef->toString() + "` does not have a valid setter!",
+                       subscriptOperatorRef->startPosition(), subscriptOperatorRef->endPosition());
+        }
+
+        // We have to validate that the object is mutable for the setter to be allowed
+        if (llvm::isa<MemberSubscriptOperatorRefExpr>(subscriptOperatorRef)) {
+            auto memberSubscriptOperatorRef = llvm::dyn_cast<MemberSubscriptOperatorRefExpr>(subscriptOperatorRef);
+
+            if (memberSubscriptOperatorRef->object->valueType->qualifier() != Type::Qualifier::Mut) {
+                printError("subscript setter cannot be called on an immutable object!",
+                           memberSubscriptOperatorRef->object->startPosition(),
+                           memberSubscriptOperatorRef->object->endPosition());
+            }
+        }
+
+        auto setterCall = new SubscriptOperatorSetCallExpr(
+                subscriptOperatorRef,
+                subscriptOperatorRef->subscriptOperatorDecl->setter(),
+                assignmentOperatorExpr->rightValue
+        );
+        // TODO: Does a setter return anything?
+        setterCall->valueType = setterCall->subscriptOperatorSetter->returnType->deepCopy();
         setterCall->valueType->setIsLValue(false);
 
         // We steal these before deleting...
@@ -3606,8 +3655,9 @@ void gulc::CodeProcessor::processMemberPropertyRefExpr(gulc::MemberPropertyRefEx
     //       forms.
 }
 
-void gulc::CodeProcessor::processMemberSubscriptCallExpr(gulc::MemberSubscriptCallExpr* memberSubscriptCallExpr) {
-    // SEE `processMemberPropertyRefExpr`. Same deal applies here.
+void gulc::CodeProcessor::processMemberSubscriptOperatorRefExpr(
+        gulc::MemberSubscriptOperatorRefExpr* memberSubscriptOperatorRefExpr) {
+    // NOTE: Ditto to the above `processMemberPropertyRefExpr`.
 }
 
 void gulc::CodeProcessor::processMemberVariableRefExpr(gulc::MemberVariableRefExpr* memberVariableRefExpr) {
@@ -4064,6 +4114,10 @@ void gulc::CodeProcessor::processRefExpr(gulc::RefExpr* refExpr) {
         refExpr->nestedExpr = handleRefGetter(llvm::dyn_cast<PropertyRefExpr>(refExpr->nestedExpr),
                                               refExpr->isMutable);
         refExpr->valueType = refExpr->nestedExpr->valueType->deepCopy();
+    } else if (llvm::isa<SubscriptOperatorRefExpr>(refExpr->nestedExpr)) {
+        refExpr->nestedExpr = handleRefGetter(llvm::dyn_cast<SubscriptOperatorRefExpr>(refExpr->nestedExpr),
+                                              refExpr->isMutable);
+        refExpr->valueType = refExpr->nestedExpr->valueType->deepCopy();
     } else {
         if (refExpr->nestedExpr->valueType->isLValue()) {
             // TODO: What about Unassigned?
@@ -4093,6 +4147,7 @@ void gulc::CodeProcessor::processSubscriptCallExpr(gulc::Expr*& expr) {
     }
 
     // TODO: Support searching extensions
+    // TODO: Support flat array and pointers
     if (llvm::isa<TypeExpr>(subscriptCallExpr->subscriptReference)) {
         auto searchTypeExpr = llvm::dyn_cast<TypeExpr>(subscriptCallExpr->subscriptReference);
 
@@ -4144,15 +4199,18 @@ void gulc::CodeProcessor::processSubscriptCallExpr(gulc::Expr*& expr) {
                        subscriptCallExpr->startPosition(), subscriptCallExpr->endPosition());
         }
 
-        auto newSubscriptReference = new SubscriptRefExpr(
+        auto newSubscriptOperatorRef = new SubscriptOperatorRefExpr(
                 subscriptCallExpr->startPosition(),
                 subscriptCallExpr->endPosition(),
-                foundSubscriptOperator
-            );
-        processSubscriptRefExpr(newSubscriptReference);
-        // Delete the old reference and replace it with the new reference
-        delete subscriptCallExpr->subscriptReference;
-        subscriptCallExpr->subscriptReference = newSubscriptReference;
+                foundSubscriptOperator,
+                subscriptCallExpr->arguments
+        );
+        processSubscriptOperatorRefExpr(newSubscriptOperatorRef);
+        // We steal these.
+        subscriptCallExpr->arguments.clear();
+        // Replace the old `subscriptCallExpr` with the overloaded `SubscriptOperatorRefExpr` call
+        delete subscriptCallExpr;
+        expr = newSubscriptOperatorRef;
         // NOTE: We don't set `valueType` as `SubscriptOperatorDecl` is a special `get/set` decl that will need further
         //       processing by whatever contains the `SubscriptCallExpr`.
     } else {
@@ -4176,7 +4234,7 @@ void gulc::CodeProcessor::processSubscriptCallExpr(gulc::Expr*& expr) {
 
                 foundSubscriptOperator = findMatchingSubscriptOperator(searchStruct->allMembers,
                                                                        subscriptCallExpr->arguments,
-                                                                       true, &isAmbiguous);
+                                                                       false, &isAmbiguous);
                 break;
             }
             case Type::Kind::Trait: {
@@ -4185,7 +4243,7 @@ void gulc::CodeProcessor::processSubscriptCallExpr(gulc::Expr*& expr) {
 
                 foundSubscriptOperator = findMatchingSubscriptOperator(searchTrait->allMembers,
                                                                        subscriptCallExpr->arguments,
-                                                                       true, &isAmbiguous);
+                                                                       false, &isAmbiguous);
                 break;
             }
             default:
@@ -4204,28 +4262,20 @@ void gulc::CodeProcessor::processSubscriptCallExpr(gulc::Expr*& expr) {
                        subscriptCallExpr->startPosition(), subscriptCallExpr->endPosition());
         }
 
-        auto newSubscriptReference = new SubscriptRefExpr(
+        auto newMemberSubscriptOperatorRef = new MemberSubscriptOperatorRefExpr(
                 subscriptCallExpr->startPosition(),
                 subscriptCallExpr->endPosition(),
-                foundSubscriptOperator
-        );
-        processSubscriptRefExpr(newSubscriptReference);
-
-        // TODO: Replace `subscriptCallExpr` with `MemberSubscriptCallExpr` with the object being the `self` argument.
-        auto newExpr = new MemberSubscriptCallExpr(
-                newSubscriptReference,
+                foundSubscriptOperator,
                 subscriptCallExpr->subscriptReference,
-                subscriptCallExpr->arguments,
-                subscriptCallExpr->startPosition(),
-                subscriptCallExpr->endPosition()
-            );
-        // NOTE: We steal both of these
+                subscriptCallExpr->arguments
+        );
+        processMemberSubscriptOperatorRefExpr(newMemberSubscriptOperatorRef);
+        // We steal these
         subscriptCallExpr->subscriptReference = nullptr;
         subscriptCallExpr->arguments.clear();
-        processMemberSubscriptCallExpr(newExpr);
-        // Delete the old expression and replace it with the member version.
-        delete expr;
-        expr = newExpr;
+        // Replace the old `subscriptCallExpr` with the overloaded `SubscriptOperatorRefExpr` call
+        delete subscriptCallExpr;
+        expr = newMemberSubscriptOperatorRef;
     }
 }
 
@@ -4279,8 +4329,8 @@ gulc::SubscriptOperatorDecl* gulc::CodeProcessor::findMatchingSubscriptOperator(
     return foundSubscriptOperator;
 }
 
-void gulc::CodeProcessor::processSubscriptRefExpr(gulc::SubscriptRefExpr* subscriptReferenceExpr) {
-
+void gulc::CodeProcessor::processSubscriptOperatorRefExpr(gulc::SubscriptOperatorRefExpr* subscriptOperatorRefExpr) {
+    // NOTE: See `processMemberSubscriptOperatorRefExpr` for notes on why this is empty.
 }
 
 void gulc::CodeProcessor::processTemplateConstRefExpr(gulc::TemplateConstRefExpr* templateConstRefExpr) {
@@ -4367,6 +4417,8 @@ void gulc::CodeProcessor::processValueLiteralExpr(gulc::ValueLiteralExpr* valueL
 void gulc::CodeProcessor::processVariableDeclExpr(gulc::VariableDeclExpr* variableDeclExpr) {
     if (variableDeclExpr->initialValue != nullptr) {
         processExpr(variableDeclExpr->initialValue);
+
+        variableDeclExpr->initialValue = handleGetter(variableDeclExpr->initialValue);
 
         Type* checkType = variableDeclExpr->type;
 
@@ -4550,6 +4602,86 @@ gulc::Expr* gulc::CodeProcessor::handleGetter(gulc::Expr* potentialGetSet) const
         result->valueType = foundGetter->returnType->deepCopy();
         result->valueType->setIsLValue(true);
         return result;
+    } else if (llvm::isa<MemberSubscriptOperatorRefExpr>(potentialGetSet)) {
+        auto memberSubscriptOperatorRef = llvm::dyn_cast<MemberSubscriptOperatorRefExpr>(potentialGetSet);
+
+        // For the `MemberSubscriptOperatorRefExpr` we have to account for mutability.
+        // If the `object` is `mut` then we can either grab a `mut` getter OR an `immut` getter if the `mut` getter
+        // doesn't exist.
+        // If the `object` is `immut` then we can ONLY grab the `immut` getter
+        SubscriptOperatorGetDecl* foundGetter = nullptr;
+        bool findMutGetter = memberSubscriptOperatorRef->object->valueType->qualifier() == Type::Qualifier::Mut;
+
+        for (SubscriptOperatorGetDecl* checkGetter : memberSubscriptOperatorRef->subscriptOperatorDecl->getters()) {
+            // We're only looking for normal getters, not `ref` getters.
+            if (checkGetter->getResultType() != SubscriptOperatorGetDecl::GetResult::Normal) continue;
+
+            if (checkGetter->isMutable()) {
+                // If we can't use `mut` getters we skip this one.
+                if (!findMutGetter) continue;
+
+                // If we're searching for the `mut` getter and this getter is `mut` we need to check if the existing
+                // getter is `mut` or not. If the existing found getter IS `mut` we have to error for ambiguity. Else
+                // we just replace it.
+                // This should never happen as a previous pass should detect this. But just in case.
+                if (foundGetter != nullptr && foundGetter->isMutable()) {
+                    printError("subscript call is ambiguous, there are multiple `mut get` declarations!",
+                               potentialGetSet->startPosition(), potentialGetSet->endPosition());
+                } else {
+                    // At this point the found getter is either null or immut. Either way we set it to the "stronger"
+                    // `mut` getter
+                    foundGetter = checkGetter;
+                }
+            } else {
+                // If the found getter is `mut` then we skip. A `mut` getter cannot be replaced by an `immut` getter.
+                if (foundGetter != nullptr && foundGetter->isMutable()) continue;
+
+                // If the found getter is `immut` and not null then we have to error
+                if (foundGetter != nullptr) {
+                    printError("subscript call is ambiguous, there are multiple `get` declarations!",
+                               potentialGetSet->startPosition(), potentialGetSet->endPosition());
+                }
+
+                foundGetter = checkGetter;
+            }
+        }
+
+        if (foundGetter == nullptr) {
+            printError("subscript does not have a valid getter!",
+                       potentialGetSet->startPosition(), potentialGetSet->endPosition());
+        }
+
+        auto result = new SubscriptOperatorGetCallExpr(memberSubscriptOperatorRef, foundGetter);
+        result->valueType = foundGetter->returnType->deepCopy();
+        result->valueType->setIsLValue(true);
+        return result;
+    } else if (llvm::isa<SubscriptOperatorRefExpr>(potentialGetSet)) {
+        auto subscriptOperatorRefExpr = llvm::dyn_cast<SubscriptOperatorRefExpr>(potentialGetSet);
+
+        // We can use the non-ref getter. If there is more than one we error (this should never actually trigger, a
+        // previous pass should handle this)
+        SubscriptOperatorGetDecl* foundGetter = nullptr;
+
+        for (SubscriptOperatorGetDecl* checkGetter : subscriptOperatorRefExpr->subscriptOperatorDecl->getters()) {
+            if (checkGetter->getResultType() == SubscriptOperatorGetDecl::GetResult::Normal) {
+                if (foundGetter == nullptr) {
+                    foundGetter = checkGetter;
+                } else {
+                    printError("subscript call is ambiguous, there are multiple valid `get` blocks!",
+                               potentialGetSet->startPosition(), potentialGetSet->endPosition());
+                }
+            }
+        }
+
+        if (foundGetter == nullptr) {
+            printError("subscript does not have a valid getter!",
+                       potentialGetSet->startPosition(), potentialGetSet->endPosition());
+        }
+
+        auto result = new SubscriptOperatorGetCallExpr(subscriptOperatorRefExpr, foundGetter);
+        result->valueType = foundGetter->returnType->deepCopy();
+        result->valueType->setIsLValue(true);
+        return result;
     } else {
         return potentialGetSet;
     }
@@ -4728,6 +4860,186 @@ gulc::Expr* gulc::CodeProcessor::handleRefGetter(gulc::PropertyRefExpr* property
         }
 
         auto result = new PropertyGetCallExpr(propertyRefExpr, foundGetter);
+        result->valueType = foundGetter->returnType->deepCopy();
+        result->valueType->setIsLValue(true);
+        return result;
+    }
+}
+
+gulc::Expr* gulc::CodeProcessor::handleRefGetter(gulc::SubscriptOperatorRefExpr* subscriptOperatorRefExpr,
+                                                 bool isRefMut) const {
+    if (llvm::isa<MemberSubscriptOperatorRefExpr>(subscriptOperatorRefExpr)) {
+        auto memberSubscriptOperatorRefExpr = llvm::dyn_cast<MemberSubscriptOperatorRefExpr>(subscriptOperatorRefExpr);
+
+        // For the `MemberSubscriptOperatorRefExpr` we have to account for mutability.
+        // If the `object` is `mut` then we can either grab a `mut` getter OR an `immut` getter if the `mut` getter
+        // doesn't exist.
+        // If the `object` is `immut` then we can ONLY grab the `immut` getter
+        SubscriptOperatorGetDecl* foundGetter = nullptr;
+        bool findMutGetter = memberSubscriptOperatorRefExpr->object->valueType->qualifier() == Type::Qualifier::Mut;
+
+        for (SubscriptOperatorGetDecl* checkGetter : memberSubscriptOperatorRefExpr->subscriptOperatorDecl->getters()) {
+            auto checkResultType = checkGetter->getResultType();
+
+            if (isRefMut) {
+                // We can ONLY support `ref mut` getters
+                if (checkResultType != SubscriptOperatorGetDecl::GetResult::RefMut) continue;
+
+                if (checkGetter->isMutable()) {
+                    // TODO: Is it possible for an immut `ref mut`? I think so...
+                    if (!findMutGetter) continue;
+
+                    // If we're searching for the `mut` getter and this getter is `mut` we need to check if the existing
+                    // getter is `mut` or not. If the existing found getter IS `mut` we have to error for ambiguity.
+                    // Else we just replace it.
+                    // This should never happen as a previous pass should detect this. But just in case.
+                    if (foundGetter != nullptr && foundGetter->isMutable()) {
+                        printError("subscript call is ambiguous, there are multiple `mut get` declarations!",
+                                   subscriptOperatorRefExpr->startPosition(), subscriptOperatorRefExpr->endPosition());
+                    } else {
+                        // At this point the found getter is either null or immut. Either way we set it to the "stronger"
+                        // `mut` getter
+                        foundGetter = checkGetter;
+                    }
+                } else {
+                    // If the found getter is `mut` then we skip. A `mut` getter cannot be replaced by an `immut`
+                    // getter.
+                    if (foundGetter != nullptr && foundGetter->isMutable()) continue;
+
+                    // If the found getter is `immut` and not null then we have to error
+                    if (foundGetter != nullptr) {
+                        printError("subscript call is ambiguous, there are multiple `get` declarations!",
+                                   subscriptOperatorRefExpr->startPosition(), subscriptOperatorRefExpr->endPosition());
+                    }
+
+                    foundGetter = checkGetter;
+                }
+            } else {
+                // We can support either `ref mut` or `ref`
+                if (checkResultType == SubscriptOperatorGetDecl::GetResult::Normal) continue;
+
+                // If the object is `immut` but the getter is `mut` then we skip the getter.
+                if (!findMutGetter && checkGetter->isMutable()) continue;
+
+                // For `ref` we favor `get ref` BUT if `get ref` doesn't exist and `get ref mut` does we will still
+                // allow `get ref mut` as a backup.
+                if (checkResultType == SubscriptOperatorGetDecl::GetResult::Ref) {
+                    if (foundGetter != nullptr) {
+                        // If the found is `ref mut` we replace it with `ref`
+                        if (foundGetter->getResultType() == SubscriptOperatorGetDecl::GetResult::RefMut) {
+                            foundGetter = checkGetter;
+                            continue;
+                        }
+
+                        // If the found is `immut` but check is `mut` we replace found, if check is `mut` at this point
+                        // that means we're looking for a `mut` where possible.
+                        if (!foundGetter->isMutable() && checkGetter->isMutable()) {
+                            foundGetter = checkGetter;
+                            continue;
+                        }
+
+                        // At this point both `resultType` and `mutability` is identical, this is an ambiguous call
+                        // (NOTE: This should never happen, a previous `prop` validator should detect this and error)
+                        printError("subscript call is ambiguous, there are multiple `get ref` declarations!",
+                                   subscriptOperatorRefExpr->startPosition(), subscriptOperatorRefExpr->endPosition());
+                    } else {
+                        // This is the first found getter, we immediately set but keep looking
+                        foundGetter = checkGetter;
+                        continue;
+                    }
+                } else if (checkResultType == SubscriptOperatorGetDecl::GetResult::RefMut) {
+                    if (foundGetter != nullptr) {
+                        // If the getter we already found is a `ref` we skip (as it is exactly what the programmer wants,
+                        // `ref mut` would be a fallback here)
+                        if (foundGetter->getResultType() == SubscriptOperatorGetDecl::GetResult::Ref) {
+                            continue;
+                        }
+
+                        // If the found is `immut` but check is `mut` we replace found, if check is `mut` at this point
+                        // that means we're looking for a `mut` where possible.
+                        if (!foundGetter->isMutable() && checkGetter->isMutable()) {
+                            foundGetter = checkGetter;
+                            continue;
+                        }
+
+                        // At this point both `resultType` and `mutability` is identical, this is an ambiguous call
+                        // (NOTE: This should never happen, a previous `prop` validator should detect this and error)
+                        printError("subscript call is ambiguous, there are multiple `get ref` declarations!",
+                                   subscriptOperatorRefExpr->startPosition(), subscriptOperatorRefExpr->endPosition());
+                    } else {
+                        // This is the first found getter, we immediately set but keep looking
+                        foundGetter = checkGetter;
+                        continue;
+                    }
+                }
+            }
+        }
+
+        if (foundGetter == nullptr) {
+            printError("subscript does not have a valid `ref` getter!",
+                       subscriptOperatorRefExpr->startPosition(), subscriptOperatorRefExpr->endPosition());
+        }
+
+        auto result = new SubscriptOperatorGetCallExpr(memberSubscriptOperatorRefExpr, foundGetter);
+        result->valueType = foundGetter->returnType->deepCopy();
+        result->valueType->setIsLValue(true);
+        return result;
+    } else {
+        SubscriptOperatorGetDecl* foundGetter = nullptr;
+
+        for (SubscriptOperatorGetDecl* checkGetter : subscriptOperatorRefExpr->subscriptOperatorDecl->getters()) {
+            auto checkResultType = checkGetter->getResultType();
+
+            if (isRefMut) {
+                // We can ONLY support `ref mut` getters
+                if (checkResultType != SubscriptOperatorGetDecl::GetResult::RefMut) continue;
+
+                // For global properties we don't have to check if the getter is `mut get` as `mut get` doesn't exist
+                // outside of objects.
+                if (foundGetter != nullptr) {
+                    printError("subscript call is ambiguous, there are multiple `get ref mut` declarations!",
+                               subscriptOperatorRefExpr->startPosition(), subscriptOperatorRefExpr->endPosition());
+                }
+
+                foundGetter = checkGetter;
+            } else {
+                // We can support either `ref mut` or `ref`
+                if (checkResultType == SubscriptOperatorGetDecl::GetResult::Normal) continue;
+
+                // First found result, it can be either `ref` or `ref mut` so we set it and continue searching just in
+                // case there are multiple.
+                if (foundGetter == nullptr) {
+                    foundGetter = checkGetter;
+                    continue;
+                }
+
+                // If the found is `ref` but check is `ref mut` then we skip the check.
+                if (foundGetter->getResultType() == SubscriptOperatorGetDecl::GetResult::Ref) {
+                    // If `checkGetter` is also `ref` then we error on ambiguity, if `checkGetter` is `ref mut` we skip
+                    if (checkResultType == SubscriptOperatorGetDecl::GetResult::Ref) {
+                        printError("subscript call is ambiguous, there are multiple `get ref` declarations!",
+                                   subscriptOperatorRefExpr->startPosition(), subscriptOperatorRefExpr->endPosition());
+                    }
+                } else {
+                    // If `foundGetter` is `ref mut` we can replace it if `checkGetter` is only `ref`. Else we error on
+                    // ambiguity
+                    if (checkResultType == SubscriptOperatorGetDecl::GetResult::RefMut) {
+                        printError("subscript call is ambiguous, there are multiple `get ref mut` declarations!",
+                                   subscriptOperatorRefExpr->startPosition(), subscriptOperatorRefExpr->endPosition());
+                    }
+
+                    foundGetter = checkGetter;
+                    continue;
+                }
+            }
+        }
+
+        if (foundGetter == nullptr) {
+            printError("subscript does not have a valid `ref` getter!",
+                       subscriptOperatorRefExpr->startPosition(), subscriptOperatorRefExpr->endPosition());
+        }
+
+        auto result = new SubscriptOperatorGetCallExpr(subscriptOperatorRefExpr, foundGetter);
         result->valueType = foundGetter->returnType->deepCopy();
         result->valueType->setIsLValue(true);
         return result;

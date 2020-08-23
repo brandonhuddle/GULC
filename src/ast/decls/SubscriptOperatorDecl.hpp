@@ -59,6 +59,7 @@ namespace gulc {
         std::vector<SubscriptOperatorGetDecl*>& getters() { return _getters; }
         std::vector<SubscriptOperatorGetDecl*> const& getters() const { return _getters; }
         SubscriptOperatorSetDecl* setter() { return _setter; }
+        SubscriptOperatorSetDecl const* setter() const { return _setter; }
         bool hasSetter() const { return _setter != nullptr; }
 
         Decl* deepCopy() const override {

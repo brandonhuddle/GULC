@@ -37,6 +37,7 @@
 #include <ast/types/BoolType.hpp>
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
 #include <ast/exprs/MemberPropertyRefExpr.hpp>
+#include <ast/exprs/MemberSubscriptOperatorRefExpr.hpp>
 
 gulc::Module gulc::CodeGen::generate(gulc::ASTFile* file) {
     auto llvmContext = new llvm::LLVMContext();
@@ -304,8 +305,7 @@ void gulc::CodeGen::generateDecl(gulc::Decl const* decl, bool isInternal) {
             generateStructDecl(llvm::dyn_cast<StructDecl>(decl), isInternal);
             break;
         case Decl::Kind::SubscriptOperator:
-            printError("[INTERNAL] subscript operator found outside of valid container declaration!",
-                       decl->startPosition(), decl->endPosition());
+            generateSubscriptOperatorDecl(llvm::dyn_cast<SubscriptOperatorDecl>(decl), isInternal);
             break;
         case Decl::Kind::TemplateFunction:
             generateTemplateFunctionDecl(llvm::dyn_cast<TemplateFunctionDecl>(decl), isInternal);
@@ -532,6 +532,12 @@ void gulc::CodeGen::generateFunctionDecl(gulc::FunctionDecl const* functionDecl,
             if (checkProperty->container != nullptr && llvm::isa<StructDecl>(checkProperty->container)) {
                 parentStruct = llvm::dyn_cast<StructDecl>(checkProperty->container);
             }
+        } else if (llvm::isa<SubscriptOperatorDecl>(functionDecl->container)) {
+            auto checkSubscript = llvm::dyn_cast<SubscriptOperatorDecl>(functionDecl->container);
+
+            if (checkSubscript->container != nullptr && llvm::isa<StructDecl>(checkSubscript->container)) {
+                parentStruct = llvm::dyn_cast<StructDecl>(checkSubscript->container);
+            }
         }
     }
 
@@ -679,6 +685,27 @@ void gulc::CodeGen::generateStructDecl(gulc::StructDecl const* structDecl, bool 
     if (structDecl->destructor != nullptr) {
         generateDestructorDecl(structDecl->destructor, isInternal);
     }
+}
+
+void gulc::CodeGen::generateSubscriptOperatorDecl(gulc::SubscriptOperatorDecl const* subscriptOperatorDecl,
+                                                  bool isInternal) {
+    for (SubscriptOperatorGetDecl* getter : subscriptOperatorDecl->getters()) {
+        generateSubscriptOperatorGetDecl(getter, isInternal);
+    }
+
+    if (subscriptOperatorDecl->hasSetter()) {
+        generateSubscriptOperatorSetDecl(subscriptOperatorDecl->setter(), isInternal);
+    }
+}
+
+void gulc::CodeGen::generateSubscriptOperatorGetDecl(gulc::SubscriptOperatorGetDecl const* subscriptOperatorGetDecl,
+                                                     bool isInternal) {
+    generateFunctionDecl(subscriptOperatorGetDecl, isInternal);
+}
+
+void gulc::CodeGen::generateSubscriptOperatorSetDecl(gulc::SubscriptOperatorSetDecl const* subscriptOperatorSetDecl,
+                                                     bool isInternal) {
+    generateFunctionDecl(subscriptOperatorSetDecl, isInternal);
 }
 
 void gulc::CodeGen::generateTemplateFunctionDecl(gulc::TemplateFunctionDecl const* templateFunctionDecl,
@@ -1400,6 +1427,10 @@ llvm::Value* gulc::CodeGen::generateExpr(gulc::Expr const* expr) {
             return generatePropertySetCallExpr(llvm::dyn_cast<PropertySetCallExpr>(expr));
         case Expr::Kind::Ref:
             return generateRefExpr(llvm::dyn_cast<RefExpr>(expr));
+        case Expr::Kind::SubscriptOperatorGetCall:
+            return generateSubscriptOperatorGetCallExpr(llvm::dyn_cast<SubscriptOperatorGetCallExpr>(expr));
+        case Expr::Kind::SubscriptOperatorSetCall:
+            return generateSubscriptOperatorSetCallExpr(llvm::dyn_cast<SubscriptOperatorSetCallExpr>(expr));
         case Expr::Kind::TemporaryValueRef:
             return generateTemporaryValueRefExpr(llvm::dyn_cast<TemporaryValueRefExpr>(expr));
         case Expr::Kind::Ternary:
@@ -2100,6 +2131,86 @@ llvm::Value* gulc::CodeGen::generateRefExpr(gulc::RefExpr const* refExpr) {
     // At this point everything should be processed and valid. All this should be doing is logically changing the
     // underlying type from an `lvalue` to an implicit `reference`. This isn't something that requires an operation
     return generateExpr(refExpr->nestedExpr);
+}
+
+llvm::Value* gulc::CodeGen::generateSubscriptOperatorGetCallExpr(
+        gulc::SubscriptOperatorGetCallExpr const* subscriptOperatorGetCallExpr) {
+    llvm::Function* callFunction = nullptr;
+    std::vector<llvm::Value*> arguments;
+
+    switch (subscriptOperatorGetCallExpr->subscriptOperatorReference->getExprKind()) {
+        case Expr::Kind::MemberSubscriptOperatorRef: {
+            auto memberSubscriptOperatorRef =
+                    llvm::dyn_cast<MemberSubscriptOperatorRefExpr>(
+                            subscriptOperatorGetCallExpr->subscriptOperatorReference
+                    );
+
+            callFunction = _llvmModule->getFunction(
+                    subscriptOperatorGetCallExpr->subscriptOperatorGetter->mangledName());
+            arguments.push_back(generateExpr(memberSubscriptOperatorRef->object));
+            break;
+        }
+        case Expr::Kind::SubscriptOperatorRef: {
+            auto subscriptOperatorRef =
+                    llvm::dyn_cast<SubscriptOperatorRefExpr>(subscriptOperatorGetCallExpr->subscriptOperatorReference);
+
+            callFunction = _llvmModule->getFunction(
+                    subscriptOperatorGetCallExpr->subscriptOperatorGetter->mangledName());
+            break;
+        }
+        default:
+            printError("[INTERNAL] unknown subscript reference found in "
+                       "`CodeGen::generateSubscriptOperatorGetCallExpr`!",
+                       subscriptOperatorGetCallExpr->startPosition(), subscriptOperatorGetCallExpr->endPosition());
+            return nullptr;
+    }
+
+    for (LabeledArgumentExpr* argument : subscriptOperatorGetCallExpr->subscriptOperatorReference->arguments) {
+        arguments.push_back(generateExpr(argument->argument));
+    }
+
+    return _irBuilder->CreateCall(callFunction, arguments);
+}
+
+llvm::Value* gulc::CodeGen::generateSubscriptOperatorSetCallExpr(
+        gulc::SubscriptOperatorSetCallExpr const* subscriptOperatorSetCallExpr) {
+    llvm::Function* callFunction = nullptr;
+    std::vector<llvm::Value*> arguments;
+
+    switch (subscriptOperatorSetCallExpr->subscriptOperatorReference->getExprKind()) {
+        case Expr::Kind::MemberSubscriptOperatorRef: {
+            auto memberSubscriptOperatorRef =
+                    llvm::dyn_cast<MemberSubscriptOperatorRefExpr>(
+                            subscriptOperatorSetCallExpr->subscriptOperatorReference
+                    );
+
+            callFunction = _llvmModule->getFunction(
+                    subscriptOperatorSetCallExpr->subscriptOperatorSetter->mangledName());
+            arguments.push_back(generateExpr(memberSubscriptOperatorRef->object));
+            break;
+        }
+        case Expr::Kind::SubscriptOperatorRef: {
+            auto subscriptOperatorRef =
+                    llvm::dyn_cast<SubscriptOperatorRefExpr>(subscriptOperatorSetCallExpr->subscriptOperatorReference);
+
+            callFunction = _llvmModule->getFunction(
+                    subscriptOperatorSetCallExpr->subscriptOperatorSetter->mangledName());
+            break;
+        }
+        default:
+            printError("[INTERNAL] unknown subscript reference found in "
+                       "`CodeGen::generateSubscriptOperatorSetCallExpr`!",
+                       subscriptOperatorSetCallExpr->startPosition(), subscriptOperatorSetCallExpr->endPosition());
+            return nullptr;
+    }
+
+    for (LabeledArgumentExpr* argument : subscriptOperatorSetCallExpr->subscriptOperatorReference->arguments) {
+        arguments.push_back(generateExpr(argument->argument));
+    }
+
+    arguments.push_back(generateExpr(subscriptOperatorSetCallExpr->value));
+
+    return _irBuilder->CreateCall(callFunction, arguments);
 }
 
 llvm::Value* gulc::CodeGen::generateTemporaryValueRefExpr(gulc::TemporaryValueRefExpr const* temporaryValueRefExpr) {

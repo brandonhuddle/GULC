@@ -1594,10 +1594,25 @@ void gulc::DeclInstantiator::processSubscriptOperatorDecl(gulc::SubscriptOperato
     }
 
     for (SubscriptOperatorGetDecl* getter : subscriptOperatorDecl->getters()) {
+        // This is a dirty and wasteful way to do this but to give `get` and `set` their parameters we just copy the
+        // part declarations parameters into their parameter list.
+        for (ParameterDecl* parameterDecl : subscriptOperatorDecl->parameters()) {
+            getter->parameters().push_back(llvm::dyn_cast<ParameterDecl>(parameterDecl->deepCopy()));
+        }
+
         processDecl(getter);
     }
 
     if (subscriptOperatorDecl->hasSetter()) {
+        // NOTE: `set` will already have the `value` parameter.
+        auto& setterParams = subscriptOperatorDecl->setter()->parameters();
+
+        // This is a dirty and wasteful way to do this but to give `get` and `set` their parameters we just copy the
+        // part declarations parameters into their parameter list.
+        for (ParameterDecl* parameterDecl : subscriptOperatorDecl->parameters()) {
+            setterParams.push_back(llvm::dyn_cast<ParameterDecl>(parameterDecl->deepCopy()));
+        }
+
         processDecl(subscriptOperatorDecl->setter());
     }
 }

@@ -76,6 +76,8 @@
 #include <ast/exprs/ImplicitDerefExpr.hpp>
 #include <ast/exprs/PropertyGetCallExpr.hpp>
 #include <ast/exprs/PropertySetCallExpr.hpp>
+#include <ast/exprs/SubscriptOperatorGetCallExpr.hpp>
+#include <ast/exprs/SubscriptOperatorSetCallExpr.hpp>
 
 namespace gulc {
     class CodeGen {
@@ -136,6 +138,11 @@ namespace gulc {
         void generatePropertyGetDecl(PropertyGetDecl const* propertyGetDecl, bool isInternal);
         void generatePropertySetDecl(PropertySetDecl const* propertySetDecl, bool isInternal);
         void generateStructDecl(StructDecl const* structDecl, bool isInternal);
+        void generateSubscriptOperatorDecl(SubscriptOperatorDecl const* subscriptOperatorDecl, bool isInternal);
+        void generateSubscriptOperatorGetDecl(SubscriptOperatorGetDecl const* subscriptOperatorGetDecl,
+                                              bool isInternal);
+        void generateSubscriptOperatorSetDecl(SubscriptOperatorSetDecl const* subscriptOperatorSetDecl,
+                                              bool isInternal);
         void generateTemplateFunctionDecl(TemplateFunctionDecl const* templateFunctionDecl, bool isInternal);
         void generateTemplateStructDecl(TemplateStructDecl const* templateStructDecl, bool isInternal);
         void generateTemplateTraitDecl(TemplateTraitDecl const* templateTraitDecl, bool isInternal);
@@ -208,6 +215,10 @@ namespace gulc {
         llvm::Value* generatePropertyGetCallExpr(PropertyGetCallExpr const* propertyGetCallExpr);
         llvm::Value* generatePropertySetCallExpr(PropertySetCallExpr const* propertySetCallExpr);
         llvm::Value* generateRefExpr(RefExpr const* refExpr);
+        llvm::Value* generateSubscriptOperatorGetCallExpr(
+                SubscriptOperatorGetCallExpr const* subscriptOperatorGetCallExpr);
+        llvm::Value* generateSubscriptOperatorSetCallExpr(
+                SubscriptOperatorSetCallExpr const* subscriptOperatorSetCallExpr);
         llvm::Value* generateTemporaryValueRefExpr(TemporaryValueRefExpr const* temporaryValueRefExpr);
         llvm::Value* generateTemporaryValueVariableDeclExpr(VariableDeclExpr const* variableDeclExpr);
         llvm::Value* generateTernaryExpr(TernaryExpr const* ternaryExpr);

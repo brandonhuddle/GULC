@@ -57,6 +57,12 @@ namespace gulc {
                                std::string const& nameSuffix);
         void manglePropertySet(PropertySetDecl* propertySetDecl, std::string const& prefix,
                                std::string const& nameSuffix);
+        void mangleSubscript(SubscriptOperatorDecl* subscriptOperatorDecl, std::string const& prefix,
+                             std::string const& nameSuffix);
+        void mangleSubscriptGet(SubscriptOperatorGetDecl* subscriptOperatorGetDecl, std::string const& prefix,
+                                std::string const& nameSuffix);
+        void mangleSubscriptSet(SubscriptOperatorSetDecl* subscriptOperatorSetDecl, std::string const& prefix,
+                                std::string const& nameSuffix);
 
         void mangleConstructor(ConstructorDecl* constructorDecl, std::string const& prefix,
                                std::string const& nameSuffix);

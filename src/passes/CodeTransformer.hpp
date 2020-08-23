@@ -53,11 +53,9 @@
 #include <ast/exprs/MemberPostfixOperatorCallExpr.hpp>
 #include <ast/exprs/MemberPrefixOperatorCallExpr.hpp>
 #include <ast/exprs/MemberPropertyRefExpr.hpp>
-#include <ast/exprs/MemberSubscriptCallExpr.hpp>
 #include <ast/exprs/MemberVariableRefExpr.hpp>
 #include <ast/exprs/ParenExpr.hpp>
 #include <ast/exprs/PropertyRefExpr.hpp>
-#include <ast/exprs/SubscriptRefExpr.hpp>
 #include <ast/exprs/TernaryExpr.hpp>
 #include <ast/exprs/TryExpr.hpp>
 #include <ast/exprs/LValueToRValueExpr.hpp>
@@ -74,6 +72,9 @@
 #include <ast/exprs/ImplicitDerefExpr.hpp>
 #include <ast/exprs/PropertyGetCallExpr.hpp>
 #include <ast/exprs/PropertySetCallExpr.hpp>
+#include <ast/exprs/MemberSubscriptOperatorRefExpr.hpp>
+#include <ast/exprs/SubscriptOperatorGetCallExpr.hpp>
+#include <ast/exprs/SubscriptOperatorSetCallExpr.hpp>
 
 namespace gulc {
     /**
@@ -197,7 +198,7 @@ namespace gulc {
         void processMemberPostfixOperatorCallExpr(Expr*& expr);
         void processMemberPrefixOperatorCallExpr(Expr*& expr);
         void processMemberPropertyRefExpr(MemberPropertyRefExpr* memberPropertyRefExpr);
-        void processMemberSubscriptCallExpr(MemberSubscriptCallExpr* memberSubscriptCallExpr);
+        void processMemberSubscriptOperatorRefExpr(MemberSubscriptOperatorRefExpr* memberSubscriptOperatorRefExpr);
         void processMemberVariableRefExpr(MemberVariableRefExpr* memberVariableRefExpr);
         void processParenExpr(ParenExpr* parenExpr);
         void processPostfixOperatorExpr(PostfixOperatorExpr* postfixOperatorExpr);
@@ -205,6 +206,9 @@ namespace gulc {
         void processPropertyGetCallExpr(Expr*& expr);
         void processPropertySetCallExpr(PropertySetCallExpr* propertySetCallExpr);
         void processRefExpr(RefExpr* refExpr);
+        void processSubscriptOperatorGetCallExpr(Expr*& expr);
+        void processSubscriptOperatorRefExpr(SubscriptOperatorRefExpr* subscriptOperatorRefExpr);
+        void processSubscriptOperatorSetCallExpr(SubscriptOperatorSetCallExpr* subscriptOperatorSetCallExpr);
         void processTernaryExpr(TernaryExpr* ternaryExpr);
         void processTryExpr(TryExpr* tryExpr);
         void processVariableDeclExpr(VariableDeclExpr* variableDeclExpr);

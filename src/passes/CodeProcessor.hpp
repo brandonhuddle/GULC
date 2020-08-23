@@ -72,8 +72,6 @@
 #include <ast/exprs/VariableRefExpr.hpp>
 #include <ast/exprs/MemberVariableRefExpr.hpp>
 #include <ast/exprs/MemberPropertyRefExpr.hpp>
-#include <ast/exprs/SubscriptRefExpr.hpp>
-#include <ast/exprs/MemberSubscriptCallExpr.hpp>
 #include <ast/exprs/ConstructorCallExpr.hpp>
 #include <ast/exprs/CallOperatorReferenceExpr.hpp>
 #include <ast/exprs/MemberPostfixOperatorCallExpr.hpp>
@@ -81,6 +79,8 @@
 #include <ast/exprs/TryExpr.hpp>
 #include <ast/exprs/BoolLiteralExpr.hpp>
 #include <ast/exprs/RefExpr.hpp>
+#include <ast/exprs/SubscriptOperatorRefExpr.hpp>
+#include <ast/exprs/MemberSubscriptOperatorRefExpr.hpp>
 
 namespace gulc {
     /**
@@ -254,7 +254,7 @@ namespace gulc {
         void processMemberPostfixOperatorCallExpr(MemberPostfixOperatorCallExpr* memberPostfixOperatorCallExpr);
         void processMemberPrefixOperatorCallExpr(MemberPrefixOperatorCallExpr* memberPrefixOperatorCallExpr);
         void processMemberPropertyRefExpr(MemberPropertyRefExpr* memberPropertyRefExpr);
-        void processMemberSubscriptCallExpr(MemberSubscriptCallExpr* memberSubscriptCallExpr);
+        void processMemberSubscriptOperatorRefExpr(MemberSubscriptOperatorRefExpr* memberSubscriptOperatorRefExpr);
         void processMemberVariableRefExpr(MemberVariableRefExpr* memberVariableRefExpr);
         void processParenExpr(ParenExpr* parenExpr);
         void processPostfixOperatorExpr(PostfixOperatorExpr*& postfixOperatorExpr);
@@ -265,7 +265,7 @@ namespace gulc {
         SubscriptOperatorDecl* findMatchingSubscriptOperator(std::vector<Decl*>& searchDecls,
                                                              std::vector<LabeledArgumentExpr*>& arguments,
                                                              bool findStatic, bool* outIsAmbiguous);
-        void processSubscriptRefExpr(SubscriptRefExpr* subscriptReferenceExpr);
+        void processSubscriptOperatorRefExpr(SubscriptOperatorRefExpr* subscriptOperatorRefExpr);
         void processTemplateConstRefExpr(TemplateConstRefExpr* templateConstRefExpr);
         void processTernaryExpr(TernaryExpr* ternaryExpr);
         void processTryExpr(TryExpr* tryExpr);
@@ -283,9 +283,13 @@ namespace gulc {
                                    std::vector<LabeledArgumentExpr*>& arguments);
         // If the expression is a reference we dereference it.
         Expr* dereferenceReference(Expr* potentialReference) const;
+
+        // TODO: Cleanup `handleGetter` and `handleRefGetter`. They both repeat a lot of the same code between
+        //       properties and subscripts.
         // If the expression is a property or subscript we call the getter for it.
         Expr* handleGetter(Expr* potentialGetSet) const;
         Expr* handleRefGetter(PropertyRefExpr* propertyRefExpr, bool isRefMut) const;
+        Expr* handleRefGetter(SubscriptOperatorRefExpr* subscriptOperatorRefExpr, bool isRefMut) const;
 
     };
 }

@@ -24,13 +24,11 @@
 #include "LabeledArgumentExpr.hpp"
 
 namespace gulc {
+    /// `SubscriptCallExpr` is used for the `[...]` operator. This is only used for built in subscript calls, any
+    /// overloaded calls will be replaced by `SubscriptOperatorRefExpr` and `MemberSubscriptOperatorRefExpr`
     class SubscriptCallExpr : public Expr {
     public:
-        static bool classof(const Expr* expr) {
-            auto checkKind = expr->getExprKind();
-
-            return checkKind == Expr::Kind::SubscriptCall || checkKind == Expr::Kind::MemberSubscriptCall;
-        }
+        static bool classof(const Expr* expr) { return expr->getExprKind() == Expr::Kind::SubscriptCall; }
 
         Expr* subscriptReference;
         std::vector<LabeledArgumentExpr*> arguments;

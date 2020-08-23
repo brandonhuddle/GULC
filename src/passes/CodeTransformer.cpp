@@ -930,9 +930,6 @@ void gulc::CodeTransformer::processExpr(gulc::Expr*& expr) {
         case Expr::Kind::MemberPropertyRef:
             processMemberPropertyRefExpr(llvm::dyn_cast<MemberPropertyRefExpr>(expr));
             break;
-        case Expr::Kind::MemberSubscriptCall:
-            processMemberSubscriptCallExpr(llvm::dyn_cast<MemberSubscriptCallExpr>(expr));
-            break;
         case Expr::Kind::MemberVariableRef:
             processMemberVariableRefExpr(llvm::dyn_cast<MemberVariableRefExpr>(expr));
         case Expr::Kind::ParameterRef:
@@ -962,12 +959,16 @@ void gulc::CodeTransformer::processExpr(gulc::Expr*& expr) {
             processRefExpr(llvm::dyn_cast<RefExpr>(expr));
             break;
         case Expr::Kind::SubscriptCall:
+            // TODO: Remove this?? I think? We'll see when we try to add flat array and pointer support.
             printError("[INTERNAL] `SubscriptCallExpr` found in `CodeTransformer::processExpr`, "
                        "this should be impossible. Subscript operators cannot be global!",
                        expr->startPosition(), expr->endPosition());
             break;
-        case Expr::Kind::SubscriptRef:
-            // A reference to a subscript decl doesn't need processed here
+        case Expr::Kind::SubscriptOperatorGetCall:
+            processSubscriptOperatorGetCallExpr(expr);
+            break;
+        case Expr::Kind::SubscriptOperatorSetCall:
+            processSubscriptOperatorSetCallExpr(llvm::dyn_cast<SubscriptOperatorSetCallExpr>(expr));
             break;
         case Expr::Kind::TemplateConstRef:
             printError("[INTERNAL] `TemplateConstRefExpr` found in `CodeTransformer::processExpr`, "
@@ -1171,18 +1172,12 @@ void gulc::CodeTransformer::processMemberPrefixOperatorCallExpr(Expr*& expr) {
 
 void gulc::CodeTransformer::processMemberPropertyRefExpr(gulc::MemberPropertyRefExpr* memberPropertyRefExpr) {
     processExpr(memberPropertyRefExpr->object);
-
-    // TODO: We need to make the result a temporary value to be destructed later if `returnType` isn't `void`.
 }
 
-void gulc::CodeTransformer::processMemberSubscriptCallExpr(gulc::MemberSubscriptCallExpr* memberSubscriptCallExpr) {
-    processExpr(memberSubscriptCallExpr->selfArgument);
-
-    for (LabeledArgumentExpr* labeledArgumentExpr : memberSubscriptCallExpr->arguments) {
-        processExpr(labeledArgumentExpr->argument);
-    }
-
-    // TODO: We need to make the result a temporary value to be destructed later if `returnType` isn't `void`.
+void gulc::CodeTransformer::processMemberSubscriptOperatorRefExpr(
+        gulc::MemberSubscriptOperatorRefExpr* memberSubscriptOperatorRefExpr) {
+    processExpr(memberSubscriptOperatorRefExpr->object);
+    processSubscriptOperatorRefExpr(memberSubscriptOperatorRefExpr);
 }
 
 void gulc::CodeTransformer::processMemberVariableRefExpr(gulc::MemberVariableRefExpr* memberVariableRefExpr) {
@@ -1205,12 +1200,9 @@ void gulc::CodeTransformer::processPropertyGetCallExpr(gulc::Expr*& expr) {
     auto propertyGetCallExpr = llvm::dyn_cast<PropertyGetCallExpr>(expr);
 
     switch (propertyGetCallExpr->propertyReference->getExprKind()) {
-        case Expr::Kind::MemberPropertyRef: {
-            auto memberPropertyRef = llvm::dyn_cast<MemberPropertyRefExpr>(propertyGetCallExpr->propertyReference);
-
-            processExpr(memberPropertyRef->object);
+        case Expr::Kind::MemberPropertyRef:
+            processMemberPropertyRefExpr(llvm::dyn_cast<MemberPropertyRefExpr>(propertyGetCallExpr->propertyReference));
             break;
-        }
         case Expr::Kind::PropertyRef:
             // I don't think there is anything we need to do for global properties.
             break;
@@ -1241,12 +1233,9 @@ void gulc::CodeTransformer::processPropertyGetCallExpr(gulc::Expr*& expr) {
 
 void gulc::CodeTransformer::processPropertySetCallExpr(gulc::PropertySetCallExpr* propertySetCallExpr) {
     switch (propertySetCallExpr->propertyReference->getExprKind()) {
-        case Expr::Kind::MemberPropertyRef: {
-            auto memberPropertyRef = llvm::dyn_cast<MemberPropertyRefExpr>(propertySetCallExpr->propertyReference);
-
-            processExpr(memberPropertyRef->object);
+        case Expr::Kind::MemberPropertyRef:
+            processMemberPropertyRefExpr(llvm::dyn_cast<MemberPropertyRefExpr>(propertySetCallExpr->propertyReference));
             break;
-        }
         case Expr::Kind::PropertyRef:
             // I don't think there is anything we need to do for global properties.
             break;
@@ -1261,6 +1250,73 @@ void gulc::CodeTransformer::processPropertySetCallExpr(gulc::PropertySetCallExpr
 
 void gulc::CodeTransformer::processRefExpr(gulc::RefExpr* refExpr) {
     processExpr(refExpr->nestedExpr);
+}
+
+void gulc::CodeTransformer::processSubscriptOperatorGetCallExpr(gulc::Expr*& expr) {
+    auto subscriptOperatorGetCallExpr = llvm::dyn_cast<SubscriptOperatorGetCallExpr>(expr);
+
+    switch (subscriptOperatorGetCallExpr->subscriptOperatorReference->getExprKind()) {
+        case Expr::Kind::MemberSubscriptOperatorRef:
+            processMemberSubscriptOperatorRefExpr(
+                    llvm::dyn_cast<MemberSubscriptOperatorRefExpr>(
+                            subscriptOperatorGetCallExpr->subscriptOperatorReference
+                    )
+            );
+            break;
+        case Expr::Kind::SubscriptOperatorRef:
+            processSubscriptOperatorRefExpr(subscriptOperatorGetCallExpr->subscriptOperatorReference);
+            break;
+        default:
+            printError("[INTERNAL] unknown subscript reference!",
+                       subscriptOperatorGetCallExpr->startPosition(), subscriptOperatorGetCallExpr->endPosition());
+            return;
+    }
+
+    // We need to be able to call the destructor on the result of `subscript::get`, to support that we store it in a
+    // temporary value. This also gives us the added benefit of making the result an `lvalue` which is another thing we
+    // want.
+    auto tempValueLocalVarRef = createTemporaryValue(
+            subscriptOperatorGetCallExpr->valueType,
+            subscriptOperatorGetCallExpr->startPosition(),
+            subscriptOperatorGetCallExpr->endPosition()
+    );
+    auto saveGetResult = new AssignmentOperatorExpr(
+            tempValueLocalVarRef, subscriptOperatorGetCallExpr,
+            subscriptOperatorGetCallExpr->startPosition(), subscriptOperatorGetCallExpr->endPosition()
+    );
+    saveGetResult->valueType = subscriptOperatorGetCallExpr->valueType->deepCopy();
+    saveGetResult->valueType->setIsLValue(true);
+
+    // Replace the get call with a wrapped save assignment for the get
+    expr = saveGetResult;
+}
+
+void gulc::CodeTransformer::processSubscriptOperatorRefExpr(gulc::SubscriptOperatorRefExpr* subscriptOperatorRefExpr) {
+    for (LabeledArgumentExpr* argument : subscriptOperatorRefExpr->arguments) {
+        processExpr(argument->argument);
+    }
+}
+
+void gulc::CodeTransformer::processSubscriptOperatorSetCallExpr(
+        gulc::SubscriptOperatorSetCallExpr* subscriptOperatorSetCallExpr) {
+    switch (subscriptOperatorSetCallExpr->subscriptOperatorReference->getExprKind()) {
+        case Expr::Kind::MemberSubscriptOperatorRef:
+            processMemberSubscriptOperatorRefExpr(
+                    llvm::dyn_cast<MemberSubscriptOperatorRefExpr>(
+                            subscriptOperatorSetCallExpr->subscriptOperatorReference
+                    )
+            );
+            break;
+        case Expr::Kind::SubscriptOperatorRef:
+            processSubscriptOperatorRefExpr(subscriptOperatorSetCallExpr->subscriptOperatorReference);
+            break;
+        default:
+            printError("[INTERNAL] unknown subscript reference!",
+                       subscriptOperatorSetCallExpr->startPosition(), subscriptOperatorSetCallExpr->endPosition());
+            return;
+    }
+
+    processExpr(subscriptOperatorSetCallExpr->value);
 }
 
 void gulc::CodeTransformer::processTernaryExpr(gulc::TernaryExpr* ternaryExpr) {

@@ -210,8 +210,8 @@ add_executable(gulc
         src/ast/exprs/MemberPrefixOperatorCallExpr.hpp
         src/ast/exprs/MemberPropertyRefExpr.cpp
         src/ast/exprs/MemberPropertyRefExpr.hpp
-        src/ast/exprs/MemberSubscriptCallExpr.cpp
-        src/ast/exprs/MemberSubscriptCallExpr.hpp
+        src/ast/exprs/MemberSubscriptOperatorRefExpr.cpp
+        src/ast/exprs/MemberSubscriptOperatorRefExpr.hpp
         src/ast/exprs/MemberVariableRefExpr.cpp
         src/ast/exprs/MemberVariableRefExpr.hpp
         src/ast/exprs/ParameterRefExpr.cpp
@@ -234,8 +234,12 @@ add_executable(gulc
         src/ast/exprs/StructAssignmentOperatorExpr.hpp
         src/ast/exprs/SubscriptCallExpr.cpp
         src/ast/exprs/SubscriptCallExpr.hpp
-        src/ast/exprs/SubscriptRefExpr.cpp
-        src/ast/exprs/SubscriptRefExpr.hpp
+        src/ast/exprs/SubscriptOperatorGetCallExpr.cpp
+        src/ast/exprs/SubscriptOperatorGetCallExpr.hpp
+        src/ast/exprs/SubscriptOperatorRefExpr.cpp
+        src/ast/exprs/SubscriptOperatorRefExpr.hpp
+        src/ast/exprs/SubscriptOperatorSetCallExpr.cpp
+        src/ast/exprs/SubscriptOperatorSetCallExpr.hpp
         src/ast/exprs/TemplateConstRefExpr.cpp
         src/ast/exprs/TemplateConstRefExpr.hpp
         src/ast/exprs/TemporaryValueRefExpr.cpp

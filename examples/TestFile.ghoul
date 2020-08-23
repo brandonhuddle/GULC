@@ -78,6 +78,29 @@ struct vec3 {
         self.y = y
         self.z = z
     }
+
+    subscript(_ index: i32) -> i32 {
+        get {
+            if index == 0 {
+                return x
+            } else if index == 1 {
+                return y
+            } else if index == 2 {
+                return z
+            }
+
+            return -1
+        }
+        set {
+            if index == 0 {
+                x = value
+            } else if index == 1 {
+                y = value
+            } else if index == 2 {
+                z = value
+            }
+        }
+    }
 }
 
 //struct TemplateTest<T> {
@@ -101,11 +124,12 @@ func main() -> i32 {
     let testInt: ref i32 = ref testVec.Y
 
     let testRefParam = manglerTest(arg: testInt)
+    let subscriptTest = testVec[0]
 
     testVec.Z = 70
 
     if testInt == testRefParam {
-        return testVec.Z
+        return subscriptTest
     } else {
         return 90
     }
