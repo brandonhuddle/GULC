@@ -293,3 +293,53 @@ property getter every loop.
 In the above example `myList.length` would have to be called for every iteration of the loop. The reason for this is 
 even though `length` and `subscript` are pure, `insert` is not only `impure` but also explicitly `mut` making it so 
 `length` has the potential to change after `insert` is called (which it does).
+
+### Complex, Dynamic Traits
+In Ghoul using traits as object types currently can't work like `interface` in C#. That is something I would like to 
+support or at least some way of dynamically storing and using traits without needing to know the real type of the 
+object.
+
+Something like the following:
+    
+    trait InputStream {
+        // ...
+    }
+    
+    struct StreamReader {
+        var inputStream: dyn InputStream
+        
+        init<Stream>(_ inputStream: ref Stream)
+        where Stream has trait InputStream {
+            self.inputStream = inputStream
+        }
+    }
+    
+The issue with the above is we need to account for when the type implementing `InputStream` might be contained within a 
+`box<T>`.
+    
+    let stream: box<FileInputStream> = ...
+    let reader = StreamReader(stream)
+    
+We need to decide if the `reader` gets a copy of `stream`, if it gets a `ref` to `stream`, or what happens.
+
+`dyn InputStream` could have the following memory layout:
+    
+    struct dyn<T: trait> {
+        var vtable: []func(...)
+        var traitRef: ref T
+    }
+    
+Then any call to a trait function would go through `dyn::vtable`.
+
+The above could give us the benefit that `StreamReader` cannot outlive `stream` since we could validate `ref` lifetime.
+
+### Class vs Struct
+I think for Ghoul we should make `class` and `struct` almost identical except for the following:
+ 1. `class` has a virtual destructor by default
+ 2. `class` has type information by default (first index of vtable?)
+ 3. `struct` does not implicitly cast to its base by default (`class` does)
+
+The reason I think we should do this is because anyone using `class` probably wants to have the dynamic features they 
+expect of modern programming languages without the extra work.
+
+Both should be `public` by default.

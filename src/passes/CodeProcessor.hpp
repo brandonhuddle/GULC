@@ -277,8 +277,6 @@ namespace gulc {
         // If the expression is an lvalue we wrap it in an lvalue to rvalue converter.
         Expr* convertLValueToRValue(Expr* potentialLValue) const;
         /// Cast arguments and convert any lvalues to rvalues when required
-        /// NOTE: `ref` is not required in the argument list if the parameter is a `ref immut`, it IS required for
-        ///       `ref mut`
         void handleArgumentCasting(std::vector<ParameterDecl*> const& parameters,
                                    std::vector<LabeledArgumentExpr*>& arguments);
         // If the expression is a reference we dereference it.

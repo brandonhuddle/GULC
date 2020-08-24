@@ -78,6 +78,7 @@
 #include <ast/exprs/PropertySetCallExpr.hpp>
 #include <ast/exprs/SubscriptOperatorGetCallExpr.hpp>
 #include <ast/exprs/SubscriptOperatorSetCallExpr.hpp>
+#include <ast/exprs/RValueToInRefExpr.hpp>
 
 namespace gulc {
     class CodeGen {
@@ -219,6 +220,7 @@ namespace gulc {
         llvm::Value* generatePropertyGetCallExpr(PropertyGetCallExpr const* propertyGetCallExpr);
         llvm::Value* generatePropertySetCallExpr(PropertySetCallExpr const* propertySetCallExpr);
         llvm::Value* generateRefExpr(RefExpr const* refExpr);
+        llvm::Value* generateRValueToInRefExpr(RValueToInRefExpr const* rvalueToInRefExpr);
         llvm::Value* generateSubscriptOperatorGetCallExpr(
                 SubscriptOperatorGetCallExpr const* subscriptOperatorGetCallExpr);
         llvm::Value* generateSubscriptOperatorSetCallExpr(

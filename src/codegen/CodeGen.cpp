@@ -190,7 +190,14 @@ std::vector<llvm::Type*> gulc::CodeGen::generateLlvmParamTypes(std::vector<Param
     }
 
     for (ParameterDecl const* parameterDecl : parameters) {
-        paramTypes.push_back(generateLlvmType(parameterDecl->type));
+        auto paramLlvmType = generateLlvmType(parameterDecl->type);
+
+        // `in` and `out` are reference types.
+        if (parameterDecl->parameterKind() != ParameterDecl::ParameterKind::Val) {
+            paramLlvmType = llvm::PointerType::get(paramLlvmType, 0);
+        }
+
+        paramTypes.push_back(paramLlvmType);
     }
 
     return paramTypes;
@@ -1474,6 +1481,8 @@ llvm::Value* gulc::CodeGen::generateExpr(gulc::Expr const* expr) {
             return generatePropertySetCallExpr(llvm::dyn_cast<PropertySetCallExpr>(expr));
         case Expr::Kind::Ref:
             return generateRefExpr(llvm::dyn_cast<RefExpr>(expr));
+        case Expr::Kind::RValueToInRef:
+            return generateRValueToInRefExpr(llvm::dyn_cast<RValueToInRefExpr>(expr));
         case Expr::Kind::SubscriptOperatorGetCall:
             return generateSubscriptOperatorGetCallExpr(llvm::dyn_cast<SubscriptOperatorGetCallExpr>(expr));
         case Expr::Kind::SubscriptOperatorSetCall:
@@ -2177,6 +2186,13 @@ llvm::Value* gulc::CodeGen::generateRefExpr(gulc::RefExpr const* refExpr) {
     // At this point everything should be processed and valid. All this should be doing is logically changing the
     // underlying type from an `lvalue` to an implicit `reference`. This isn't something that requires an operation
     return generateExpr(refExpr->nestedExpr);
+}
+
+llvm::Value* gulc::CodeGen::generateRValueToInRefExpr(gulc::RValueToInRefExpr const* rvalueToInRefExpr) {
+    auto generatedValue = generateExpr(rvalueToInRefExpr->rvalue);
+    auto result = _irBuilder->CreateAlloca(generateLlvmType(rvalueToInRefExpr->valueType));
+    _irBuilder->CreateStore(generatedValue, result);
+    return result;
 }
 
 llvm::Value* gulc::CodeGen::generateSubscriptOperatorGetCallExpr(

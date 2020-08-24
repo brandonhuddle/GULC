@@ -81,6 +81,7 @@ namespace gulc {
             PropertyRef,
             PropertySetCall,
             Ref,
+            RValueToInRef,
             StructAssignmentOperator,
             SubscriptCall,
             SubscriptOperatorGetCall,

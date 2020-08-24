@@ -113,24 +113,24 @@ func manglerTest(arg param: ref i32) -> i32 {
     return param
 }
 
-//func boolTest() -> bool {
-//    return true
-//}
+// The difference between `ref` and `in` is that `in` doesn't require a `ref` expression in the arguments list
+// (there are more differences besides that but that is the main big one)
+func paramQualifierTest(arg param: in i32) -> i32 {
+    return param
+}
+
+// The difference between `ref` and `out` is that `out` guarantees that the function will set the `out` parameter.
+// Also `out` is implicitly `mut`
+func outParamTest(`out` result: out i32) {
+    // If we don't assign `result` on all codepaths the compiler will error saying that isn't allowed.
+    result = 54
+}
 
 func main() -> i32 {
-    let mut testVec = vec3(x: 0, y: 12, z: 44)
-//    let templateTest = TemplateTest<i32>()
-//    let testFloat: f32 = 12.0
-    let testInt: ref i32 = ref testVec.Y
+    //let mut testVec = vec3(x: 0, y: 12, z: 44)
+    let mut paramTest = paramQualifierTest(arg: 48)
 
-    let testRefParam = manglerTest(arg: testInt)
-    let subscriptTest = testVec[0]
+    outParamTest(out: paramTest)
 
-    testVec.Z = 70
-
-    if testInt == testRefParam {
-        return subscriptTest
-    } else {
-        return 90
-    }
+    return paramTest
 }

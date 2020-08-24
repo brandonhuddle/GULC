@@ -812,7 +812,9 @@ gulc::DestructorCallExpr* gulc::CodeTransformer::destructLocalVariable(gulc::Var
 
 gulc::DestructorCallExpr* gulc::CodeTransformer::destructParameter(std::size_t paramIndex,
                                                                    gulc::ParameterDecl* parameterDecl) {
-    if (llvm::isa<StructType>(parameterDecl->type)) {
+    // We only have to destruct `value` parameters. `in` and `out` are reference parameters.
+    if (llvm::isa<StructType>(parameterDecl->type) &&
+            parameterDecl->parameterKind() == ParameterDecl::ParameterKind::Val) {
         auto structType = llvm::dyn_cast<StructType>(parameterDecl->type);
         auto foundDestructor = structType->decl()->destructor;
 
@@ -957,6 +959,9 @@ void gulc::CodeTransformer::processExpr(gulc::Expr*& expr) {
             break;
         case Expr::Kind::Ref:
             processRefExpr(llvm::dyn_cast<RefExpr>(expr));
+            break;
+        case Expr::Kind::RValueToInRef:
+            processRValueToInRefExpr(llvm::dyn_cast<RValueToInRefExpr>(expr));
             break;
         case Expr::Kind::SubscriptCall:
             // TODO: Remove this?? I think? We'll see when we try to add flat array and pointer support.
@@ -1250,6 +1255,10 @@ void gulc::CodeTransformer::processPropertySetCallExpr(gulc::PropertySetCallExpr
 
 void gulc::CodeTransformer::processRefExpr(gulc::RefExpr* refExpr) {
     processExpr(refExpr->nestedExpr);
+}
+
+void gulc::CodeTransformer::processRValueToInRefExpr(gulc::RValueToInRefExpr* rvalueToInRefExpr) {
+    processExpr(rvalueToInRefExpr->rvalue);
 }
 
 void gulc::CodeTransformer::processSubscriptOperatorGetCallExpr(gulc::Expr*& expr) {

@@ -75,6 +75,7 @@
 #include <ast/exprs/MemberSubscriptOperatorRefExpr.hpp>
 #include <ast/exprs/SubscriptOperatorGetCallExpr.hpp>
 #include <ast/exprs/SubscriptOperatorSetCallExpr.hpp>
+#include <ast/exprs/RValueToInRefExpr.hpp>
 
 namespace gulc {
     /**
@@ -206,6 +207,7 @@ namespace gulc {
         void processPropertyGetCallExpr(Expr*& expr);
         void processPropertySetCallExpr(PropertySetCallExpr* propertySetCallExpr);
         void processRefExpr(RefExpr* refExpr);
+        void processRValueToInRefExpr(RValueToInRefExpr* rvalueToInRefExpr);
         void processSubscriptOperatorGetCallExpr(Expr*& expr);
         void processSubscriptOperatorRefExpr(SubscriptOperatorRefExpr* subscriptOperatorRefExpr);
         void processSubscriptOperatorSetCallExpr(SubscriptOperatorSetCallExpr* subscriptOperatorSetCallExpr);

@@ -32,8 +32,6 @@ namespace gulc {
             Val, // The normal, unlabeled parameter
             In, // An `in` reference parameter
             Out, // An `out` reference parameter, requires the parameter to be written on all codepaths
-            InOut, // A reference parameter that is treated as both `in` and `out` (it must be initialized when coming
-                   // in and must be set before returning)
         };
 
         Type* type;

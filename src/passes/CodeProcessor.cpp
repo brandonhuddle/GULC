@@ -52,6 +52,7 @@
 #include <ast/exprs/MemberSubscriptOperatorRefExpr.hpp>
 #include <ast/exprs/SubscriptOperatorGetCallExpr.hpp>
 #include <ast/exprs/SubscriptOperatorSetCallExpr.hpp>
+#include <ast/exprs/RValueToInRefExpr.hpp>
 
 void gulc::CodeProcessor::processFiles(std::vector<ASTFile>& files) {
     for (ASTFile& file : files) {
@@ -1318,6 +1319,13 @@ void gulc::CodeProcessor::processAssignmentOperatorExpr(gulc::Expr*& expr) {
             }
 
             // TODO: Validate that `rightType` can be casted to `leftType` (if they aren't the same type)
+
+            // TODO: If `leftValue` is both an `lvalue` and a `ref` what should we do?
+            //       Convert lvalue to rvalue or dereference the ref?
+            if (assignmentOperatorExpr->leftValue->valueType->isLValue() &&
+                    llvm::isa<ReferenceType>(assignmentOperatorExpr->leftValue->valueType)) {
+                assignmentOperatorExpr->leftValue = convertLValueToRValue(assignmentOperatorExpr->leftValue);
+            }
 
             assignmentOperatorExpr->valueType = assignmentOperatorExpr->leftValue->valueType->deepCopy();
             // TODO: Is this right? I believe we'll end up returning the actual alloca from CodeGen so this seems right
@@ -2727,6 +2735,12 @@ void gulc::CodeProcessor::processIdentifierExpr(gulc::Expr*& expr) {
                                                         paramIndex, parameter->identifier().name());
                     // TODO: We need to handle the variables mutability here.
                     newExpr->valueType = parameter->type->deepCopy();
+
+                    // `in` and `out` parameters are references.
+                    if (parameter->parameterKind() != ParameterDecl::ParameterKind::Val) {
+                        newExpr->valueType = new ReferenceType(Type::Qualifier::Unassigned, newExpr->valueType);
+                    }
+
                     newExpr->valueType->setIsLValue(true);
                     // Delete the old identifier
                     delete expr;
@@ -4484,19 +4498,95 @@ void gulc::CodeProcessor::handleArgumentCasting(std::vector<ParameterDecl*> cons
         if (i >= arguments.size()) {
             // TODO: Append the default value to arguments
         } else {
-            // TODO: Remember that `ref mut` MUST be a `ref mut`, no implicit conversion from `lvalue` to `ref mut`
             if (llvm::isa<ReferenceType>(parameters[i]->type)) {
-                if (!llvm::isa<ReferenceType>(arguments[i]->argument->valueType)) {
-                    // TODO: If it is an `lvalue` convert the `lvalue` to a real `ref` if possible
-                } else if (arguments[i]->argument->valueType->isLValue()) {
+                if (arguments[i]->argument->valueType->isLValue()) {
                     // If the argument is an lvalue to a reference then we convert the lvalue to an rvalue, keeping the
                     // implicit reference.
                     arguments[i]->argument = convertLValueToRValue(arguments[i]->argument);
+                    delete arguments[i]->valueType;
+                    arguments[i]->valueType = arguments[i]->argument->valueType->deepCopy();
+                }
+            } else if (parameters[i]->parameterKind() == ParameterDecl::ParameterKind::In) {
+                // TODO: We should make it possible to pass `in` parameters by value when the
+                //       `sizeof(param.type) <= sizeof(ptr)`
+                //       Passing by reference is only more efficient when structs are large.
+                //       There should be a bool part of `ParameterDecl` that says `passInByRef` or something that when
+                //       false will treat the `in` as by-value instead of by-ref (useful for `in i32`, `in bool`, etc.)
+                if (llvm::isa<ReferenceType>(parameters[i]->type)) {
+                    // If the parameter is a reference then the argument must either be a double reference or an lvalue
+                    // + reference (NOTE: I don't know why we would allow `in ref <type>`? But I'll try to support it
+                    // nonetheless.
+                    if (arguments[i]->argument->valueType->isLValue()) {
+                        // If it is a `ref ref` we convert lvalue to rvalue, else we keep the lvalue as we need the
+                        // double reference to allow `in`...
+                        if (llvm::isa<ReferenceType>(arguments[i]->argument->valueType)) {
+                            auto checkNested =
+                                    llvm::dyn_cast<ReferenceType>(arguments[i]->argument->valueType)->nestedType;
+
+                            if (llvm::isa<ReferenceType>(arguments[i]->argument->valueType)) {
+                                arguments[i]->argument = convertLValueToRValue(arguments[i]->argument);
+                                delete arguments[i]->valueType;
+                                arguments[i]->valueType = arguments[i]->argument->valueType->deepCopy();
+                            }
+                        }
+                    }
+                } else {
+                    // If argument is a reference we need to convert lvalue to rvalue
+                    // If argument is not a reference then we need to make sure it is an lvalue
+                    // If argument is not an lvalue then we need to create a temporary value to store it so we can have
+                    // a reference for it.
+                    if (llvm::isa<ReferenceType>(arguments[i]->argument->valueType)) {
+                        arguments[i]->argument = convertLValueToRValue(arguments[i]->argument);
+                        delete arguments[i]->valueType;
+                        arguments[i]->valueType = arguments[i]->argument->valueType->deepCopy();
+                    } else if (!arguments[i]->argument->valueType->isLValue()) {
+                        if (llvm::isa<StructType>(arguments[i]->argument->valueType)) {
+                            // To prevent potential memory leaks I'm putting this here. If we ever encounter a scenario
+                            // where a struct is being converted from rvalue to `in` ref then I'll handle it.
+                            printError("[INTERNAL] struct rvalue being passed to `in` parameter not supported!",
+                                       arguments[i]->argument->startPosition(), arguments[i]->argument->endPosition());
+                        }
+
+                        // Here we use `RValueToInRefExpr` to force the code generator to create a reference from the
+                        // rvalue.
+                        // TODO: Originally I was thinking we would do this to prevent a temporary value cleanup
+                        //       But now I'm thinking we actually SHOULD either `copy` or `move` the rvalue to a
+                        //       temporary and have it get cleaned up...
+                        auto rvalueToInRef = new RValueToInRefExpr(arguments[i]->argument);
+                        rvalueToInRef->valueType = arguments[i]->argument->valueType->deepCopy();
+                        rvalueToInRef->valueType->setIsLValue(true);
+                        arguments[i]->argument = rvalueToInRef;
+                        delete arguments[i]->valueType;
+                        arguments[i]->valueType = arguments[i]->argument->valueType->deepCopy();
+                    }
+                }
+            } else if (parameters[i]->parameterKind() == ParameterDecl::ParameterKind::Out) {
+                // If argument is a reference we need to convert lvalue to rvalue
+                // If argument is not a reference then we need to make sure it is an lvalue
+                // The argument MUST be `mut`
+                if (llvm::isa<ReferenceType>(arguments[i]->argument->valueType)) {
+                    if (llvm::dyn_cast<ReferenceType>(arguments[i]->argument->valueType)->nestedType->qualifier()
+                            != Type::Qualifier::Mut) {
+                        printError("`out` parameters require their arguments to be `mut`!",
+                                   arguments[i]->startPosition(), arguments[i]->endPosition());
+                    }
+
+                    arguments[i]->argument = convertLValueToRValue(arguments[i]->argument);
+                    delete arguments[i]->valueType;
+                    arguments[i]->valueType = arguments[i]->argument->valueType->deepCopy();
+                } else if (!arguments[i]->argument->valueType->isLValue()) {
+                    printError("`out` parameters require their argument to either be an lvalue or `ref mut`!",
+                               arguments[i]->startPosition(), arguments[i]->endPosition());
+                } else if (arguments[i]->argument->valueType->qualifier() != Type::Qualifier::Mut) {
+                    printError("`out` parameters require their arguments to be `mut`!",
+                               arguments[i]->startPosition(), arguments[i]->endPosition());
                 }
             } else {
                 // The parameter is a value type so we remove any `lvalue` and dereference any implicit references.
                 arguments[i]->argument = convertLValueToRValue(arguments[i]->argument);
                 // TODO: Dereference any references as well.
+                delete arguments[i]->valueType;
+                arguments[i]->valueType = arguments[i]->argument->valueType->deepCopy();
             }
         }
     }

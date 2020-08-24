@@ -230,6 +230,8 @@ add_executable(gulc
         src/ast/exprs/PropertySetCallExpr.hpp
         src/ast/exprs/RefExpr.cpp
         src/ast/exprs/RefExpr.hpp
+        src/ast/exprs/RValueToInRefExpr.cpp
+        src/ast/exprs/RValueToInRefExpr.hpp
         src/ast/exprs/StructAssignmentOperatorExpr.cpp
         src/ast/exprs/StructAssignmentOperatorExpr.hpp
         src/ast/exprs/SubscriptCallExpr.cpp

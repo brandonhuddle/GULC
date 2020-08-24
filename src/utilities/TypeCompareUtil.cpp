@@ -29,10 +29,7 @@
 
 bool gulc::TypeCompareUtil::compareAreSame(const gulc::Type* left, const gulc::Type* right,
                                            TemplateComparePlan templateComparePlan) {
-    // TODO: THis might be better as an option? There may be some scenarios where we want to know if the types are the
-    //       same WITHOUT qualifiers (or even same without top-level qualifiers)
-    if (left->qualifier() != right->qualifier() ||
-        left->getTypeKind() != right->getTypeKind()) {
+    if (left->getTypeKind() != right->getTypeKind()) {
         return false;
     }
 
@@ -68,13 +65,25 @@ bool gulc::TypeCompareUtil::compareAreSame(const gulc::Type* left, const gulc::T
             auto leftPointer = llvm::dyn_cast<PointerType>(left);
             auto rightPointer = llvm::dyn_cast<PointerType>(right);
 
-            return compareAreSame(leftPointer->nestedType, rightPointer->nestedType, templateComparePlan);
+            // For pointer and reference the nested types need to have matching qualifiers.
+            // I.e. `*mut i32 != *i32`
+            if (compareAreSame(leftPointer->nestedType, rightPointer->nestedType, templateComparePlan)) {
+                return leftPointer->nestedType->qualifier() == rightPointer->nestedType->qualifier();
+            } else {
+                return false;
+            }
         }
         case Type::Kind::Reference: {
             auto leftReference = llvm::dyn_cast<ReferenceType>(left);
             auto rightReference = llvm::dyn_cast<ReferenceType>(right);
 
-            return compareAreSame(leftReference->nestedType, rightReference->nestedType, templateComparePlan);
+            // For pointer and reference the nested types need to have matching qualifiers.
+            // I.e. `ref mut i32 != ref i32`
+            if (compareAreSame(leftReference->nestedType, rightReference->nestedType, templateComparePlan)) {
+                return leftReference->nestedType->qualifier() == rightReference->nestedType->qualifier();
+            } else {
+                return false;
+            }
         }
         case Type::Kind::Struct: {
             auto leftStruct = llvm::dyn_cast<StructType>(left);

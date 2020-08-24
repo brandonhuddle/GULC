@@ -364,6 +364,9 @@ else { tmpString += (unescapedChar); }
                 case '@':
                     PARSE_AND_RETURN_IF_TOKEN_TEXT_NOT_EMPTY();
                     RETURN_GENERIC_TOKEN(TokenType::ATSYMBOL, TokenMetaType::SPECIAL, "@", 0);
+                case '`':
+                    PARSE_AND_RETURN_IF_TOKEN_TEXT_NOT_EMPTY();
+                    RETURN_GENERIC_TOKEN(TokenType::GRAVE, TokenMetaType::SPECIAL, "`", 0);
                 case '=':
                     PARSE_AND_RETURN_IF_TOKEN_TEXT_NOT_EMPTY();
 
@@ -637,10 +640,7 @@ else { tmpString += (unescapedChar); }
                     if (isalnum(checkChar) || checkChar == '_') {
                         tmpTokenText += _sourceCode[_currentIndex];
                     } else {
-                        std::cerr << "gulc lexer error[\"" << _filePath << "\", "
-                                                           << _currentLine << ", "
-                                                           << _currentColumn << "]: "
-                                     "'" << checkChar << "' is not a valid token character!" << std::endl;
+                        printError("'" + std::string(1, checkChar) + "' is not a valid token character!");
                     }
                     break;
                 }
