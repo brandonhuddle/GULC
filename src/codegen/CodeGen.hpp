@@ -79,6 +79,8 @@
 #include <ast/exprs/SubscriptOperatorGetCallExpr.hpp>
 #include <ast/exprs/SubscriptOperatorSetCallExpr.hpp>
 #include <ast/exprs/RValueToInRefExpr.hpp>
+#include <ast/exprs/StoreTemporaryValueExpr.hpp>
+#include <ast/exprs/MemberInfixOperatorCallExpr.hpp>
 
 namespace gulc {
     class CodeGen {
@@ -108,7 +110,7 @@ namespace gulc {
         std::vector<llvm::AllocaInst*> _currentLlvmFunctionParameters;
         llvm::IRBuilder<>* _entryBlockBuilder;
         llvm::BasicBlock* _currentFunctionExitBlock;
-        llvm::AllocaInst* _currentFunctionReturnValue;
+        llvm::Value* _currentFunctionReturnValue;
         std::map<std::string, llvm::BasicBlock*> _currentLlvmFunctionLabels;
         std::vector<llvm::AllocaInst*> _currentLlvmFunctionLocalVariables;
         std::vector<llvm::AllocaInst*> _currentStmtTemporaryValues;
@@ -124,7 +126,7 @@ namespace gulc {
 
         llvm::Type* generateLlvmType(gulc::Type const* type);
         std::vector<llvm::Type*> generateLlvmParamTypes(std::vector<ParameterDecl*> const& parameters,
-                                                        StructDecl const* parentStruct);
+                                                        StructDecl const* parentStruct, gulc::Type* returnType);
         llvm::StructType* generateLlvmStructType(StructDecl const* structDecl, bool unpadded = false);
         // This is meant to grab the size from `constSize`, `constSize` will be required to be a value literal type
         std::uint64_t generateConstSize(Expr* constSize);
@@ -140,14 +142,8 @@ namespace gulc {
         void generateFunctionDecl(FunctionDecl const* functionDecl, bool isInternal);
         void generateNamespaceDecl(NamespaceDecl const* namespaceDecl);
         void generatePropertyDecl(PropertyDecl const* propertyDecl, bool isInternal);
-        void generatePropertyGetDecl(PropertyGetDecl const* propertyGetDecl, bool isInternal);
-        void generatePropertySetDecl(PropertySetDecl const* propertySetDecl, bool isInternal);
         void generateStructDecl(StructDecl const* structDecl, bool isInternal);
         void generateSubscriptOperatorDecl(SubscriptOperatorDecl const* subscriptOperatorDecl, bool isInternal);
-        void generateSubscriptOperatorGetDecl(SubscriptOperatorGetDecl const* subscriptOperatorGetDecl,
-                                              bool isInternal);
-        void generateSubscriptOperatorSetDecl(SubscriptOperatorSetDecl const* subscriptOperatorSetDecl,
-                                              bool isInternal);
         void generateTemplateFunctionDecl(TemplateFunctionDecl const* templateFunctionDecl, bool isInternal);
         void generateTemplateStructDecl(TemplateStructDecl const* templateStructDecl, bool isInternal);
         void generateTemplateTraitDecl(TemplateTraitDecl const* templateTraitDecl, bool isInternal);
@@ -156,6 +152,7 @@ namespace gulc {
         void generateVariableDecl(VariableDecl const* variableDecl, bool isInternal);
 
         void setCurrentFunction(llvm::Function* currentFunction, gulc::FunctionDecl const* currentGhoulFunction);
+        llvm::FunctionType* getFunctionType(FunctionDecl const* functionDecl, StructDecl const* parentStruct);
         llvm::Function* getFunction(FunctionDecl* functionDecl);
         bool currentFunctionLabelsContains(std::string const& labelName);
         void addCurrentFunctionLabel(std::string const& labelName, llvm::BasicBlock* basicBlock);
@@ -181,7 +178,8 @@ namespace gulc {
         void enterNestedLoop(llvm::BasicBlock* continueLoop, llvm::BasicBlock* breakLoop,
                              std::size_t* outOldNestedLoopCount);
         void leaveNestedLoop(std::size_t oldNestedLoopCount);
-        void cleanupTemporaryValues(std::vector<VariableDeclExpr*> const& temporaryValues);
+        void cleanupTemporaryValues(std::vector<VariableDeclExpr*> const& temporaryValues,
+                                    std::string const& skipTemporaryValueName = "");
 
         // Expression Generation
         llvm::Constant* generateConstant(Expr const* expr);
@@ -192,11 +190,12 @@ namespace gulc {
         llvm::Value* generateAssignmentOperatorExpr(AssignmentOperatorExpr const* assignmentOperatorExpr);
         llvm::Value* generateBoolLiteralExpr(BoolLiteralExpr const* boolLiteralExpr);
         llvm::Value* generateCallOperatorReferenceExpr(CallOperatorReferenceExpr const* callOperatorReferenceExpr);
-        llvm::Value* generateConstructorCallExpr(ConstructorCallExpr const* constructorCallExpr);
+        llvm::Value* generateConstructorCallExpr(ConstructorCallExpr const* constructorCallExpr,
+                                                 llvm::Value* replaceObjectRef = nullptr);
         llvm::Value* generateCurrentSelfExpr(CurrentSelfExpr const* currentSelfExpr);
         llvm::Value* generateDestructorCallExpr(DestructorCallExpr const* destructorCallExpr);
         llvm::Value* generateEnumConstRefExpr(EnumConstRefExpr const* enumConstRefExpr);
-        llvm::Value* generateFunctionCallExpr(FunctionCallExpr const* functionCallExpr);
+        llvm::Value* generateFunctionCallExpr(FunctionCallExpr const* functionCallExpr, llvm::Value* sret = nullptr);
         llvm::Value* generateFunctionReferenceFromExpr(Expr const* expr);
         llvm::Value* generateImplicitCastExpr(ImplicitCastExpr const* implicitCastExpr);
         llvm::Value* generateImplicitDerefExpr(ImplicitDerefExpr const* implicitDerefExpr);
@@ -207,22 +206,27 @@ namespace gulc {
                                                   TextPosition startPosition, TextPosition endPosition);
         llvm::Value* generateLocalVariableRefExpr(LocalVariableRefExpr const* localVariableRefExpr);
         llvm::Value* generateLValueToRValueExpr(LValueToRValueExpr const* lValueToRValueExpr);
-        llvm::Value* generateMemberFunctionCallExpr(MemberFunctionCallExpr const* memberFunctionCallExpr);
+        llvm::Value* generateMemberFunctionCallExpr(MemberFunctionCallExpr const* memberFunctionCallExpr,
+                                                    llvm::Value* sret = nullptr);
+        llvm::Value* generateMemberInfixOperatorCallExpr(MemberInfixOperatorCallExpr const* memberInfixOperatorCallExpr,
+                                                         llvm::Value* sret = nullptr);
         llvm::Value* generateMemberPostfixOperatorCallExpr(
-                MemberPostfixOperatorCallExpr const* memberPostfixOperatorCallExpr);
+                MemberPostfixOperatorCallExpr const* memberPostfixOperatorCallExpr, llvm::Value* sret = nullptr);
         llvm::Value* generateMemberPrefixOperatorCallExpr(
-                MemberPrefixOperatorCallExpr const* memberPrefixOperatorCallExpr);
+                MemberPrefixOperatorCallExpr const* memberPrefixOperatorCallExpr, llvm::Value* sret = nullptr);
         llvm::Value* generateMemberVariableRefExpr(MemberVariableRefExpr const* memberVariableRefExpr);
         llvm::Value* generateParameterRefExpr(ParameterRefExpr const* parameterRefExpr);
         llvm::Value* generateParenExpr(ParenExpr const* parenExpr);
         llvm::Value* generatePostfixOperatorExpr(PostfixOperatorExpr const* postfixOperatorExpr);
         llvm::Value* generatePrefixOperatorExpr(PrefixOperatorExpr const* prefixOperatorExpr);
-        llvm::Value* generatePropertyGetCallExpr(PropertyGetCallExpr const* propertyGetCallExpr);
+        llvm::Value* generatePropertyGetCallExpr(PropertyGetCallExpr const* propertyGetCallExpr,
+                                                 llvm::Value* sret = nullptr);
         llvm::Value* generatePropertySetCallExpr(PropertySetCallExpr const* propertySetCallExpr);
         llvm::Value* generateRefExpr(RefExpr const* refExpr);
         llvm::Value* generateRValueToInRefExpr(RValueToInRefExpr const* rvalueToInRefExpr);
+        llvm::Value* generateStoreTemporaryValueExpr(StoreTemporaryValueExpr const* storeTemporaryValueExpr);
         llvm::Value* generateSubscriptOperatorGetCallExpr(
-                SubscriptOperatorGetCallExpr const* subscriptOperatorGetCallExpr);
+                SubscriptOperatorGetCallExpr const* subscriptOperatorGetCallExpr, llvm::Value* sret = nullptr);
         llvm::Value* generateSubscriptOperatorSetCallExpr(
                 SubscriptOperatorSetCallExpr const* subscriptOperatorSetCallExpr);
         llvm::Value* generateTemporaryValueRefExpr(TemporaryValueRefExpr const* temporaryValueRefExpr);
@@ -244,6 +248,8 @@ namespace gulc {
         llvm::AllocaInst* getTemporaryValueOrNull(std::string const& tmpName);
         llvm::Function* getMoveConstructorForType(gulc::Type* type);
         llvm::Function* getCopyConstructorForType(gulc::Type* type);
+        llvm::Value* getVTableFunctionPointer(gulc::StructDecl* structDecl, llvm::Value* objectRef,
+                                              std::size_t vtableIndex, llvm::FunctionType* functionType);
 
     };
 }

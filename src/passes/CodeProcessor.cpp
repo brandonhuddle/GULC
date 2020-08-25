@@ -53,6 +53,7 @@
 #include <ast/exprs/SubscriptOperatorGetCallExpr.hpp>
 #include <ast/exprs/SubscriptOperatorSetCallExpr.hpp>
 #include <ast/exprs/RValueToInRefExpr.hpp>
+#include <ast/exprs/MemberInfixOperatorCallExpr.hpp>
 
 void gulc::CodeProcessor::processFiles(std::vector<ASTFile>& files) {
     for (ASTFile& file : files) {
@@ -1004,9 +1005,12 @@ void gulc::CodeProcessor::processExpr(gulc::Expr*& expr) {
         case Expr::Kind::Identifier:
             processIdentifierExpr(expr);
             break;
-        case Expr::Kind::InfixOperator:
-            processInfixOperatorExpr(llvm::dyn_cast<InfixOperatorExpr>(expr));
+        case Expr::Kind::InfixOperator: {
+            auto infixOperatorExpr = llvm::dyn_cast<InfixOperatorExpr>(expr);
+            processInfixOperatorExpr(infixOperatorExpr);
+            expr = infixOperatorExpr;
             break;
+        }
         case Expr::Kind::Is:
             processIsExpr(llvm::dyn_cast<IsExpr>(expr));
             break;
@@ -1499,7 +1503,7 @@ void gulc::CodeProcessor::processFunctionCallExpr(gulc::FunctionCallExpr*& funct
                                     new VTableFunctionReferenceExpr(
                                             functionCallExpr->functionReference->startPosition(),
                                             functionCallExpr->functionReference->endPosition(),
-                                            searchStructVTable, vtableIndex);
+                                            searchStructVTable, vtableIndex, foundFunction);
                         } else {
                             newFunctionReference = new FunctionReferenceExpr(
                                     functionCallExpr->functionReference->startPosition(),
@@ -2978,13 +2982,19 @@ bool gulc::CodeProcessor::findMatchingDecl(std::vector<Decl*> const& searchDecls
     return false;
 }
 
-void gulc::CodeProcessor::processInfixOperatorExpr(gulc::InfixOperatorExpr* infixOperatorExpr) {
+void gulc::CodeProcessor::processInfixOperatorExpr(gulc::InfixOperatorExpr*& infixOperatorExpr) {
     // NOTE: We need to make sure we check extensions as well. We will also need to check for any ambiguities on
     //       extensions. Two namespaces could define the same extension operator with the same signature causing
     //       ambiguities
-
     processExpr(infixOperatorExpr->leftValue);
     processExpr(infixOperatorExpr->rightValue);
+
+    // Before we do anything else we need to handle getters. Not doing so will cause the application to crash as we
+    // don't have type information until getters are applied.
+    // TODO: Immediately after getters handle smart references. Smart references CANNOT have their own operator
+    //       overloading.
+    infixOperatorExpr->leftValue = handleGetter(infixOperatorExpr->leftValue);
+    infixOperatorExpr->rightValue = handleGetter(infixOperatorExpr->rightValue);
 
     // TODO: For overriding do the following:
     //        1. Check if the `leftValue` type has an operator matching the `rightValue` type (check extensions as well)
@@ -3035,23 +3045,113 @@ void gulc::CodeProcessor::processInfixOperatorExpr(gulc::InfixOperatorExpr* infi
         }
 
         if (!matchingDecls.empty()) {
-            // TODO: Search the matching infix operators:
-            //        * Make sure there aren't duplicate matches (causing ambiguity)
-            //        * ???
+            // If `left` is `mut` then find the `mut` operator or `immut` operator (if no `mut` operator exists)
+            // If `left` is `immut` then only find `immut` operator
+            OperatorDecl* foundOperator = nullptr;
+            bool foundIsExact = false;
+            bool isAmbiguous = false;
+
+            if (matchingDecls.size() == 1) {
+                foundOperator = llvm::dyn_cast<OperatorDecl>(matchingDecls[0].matchingDecl);
+                foundIsExact = matchingDecls[0].kind == MatchingDecl::Kind::Match;
+            } else {
+                for (MatchingDecl& checkMatch : matchingDecls) {
+                    auto checkOperator = llvm::dyn_cast<OperatorDecl>(checkMatch.matchingDecl);
+
+                    // We skip any castables if we already found an exact match.
+                    if (foundIsExact && checkMatch.kind == MatchingDecl::Kind::Castable) {
+                        continue;
+                    }
+
+                    // If `foundOperator` is `mut` and `checkMatch` is `mut` we error for ambiguity
+                    // (we immediately error since `mut` can never be upgraded)
+                    // (NOTE FOR ABOVE: if we are `castable` we only mark for ambiguity, castable can upgrade to exact)
+                    // If `foundOperator` is `mut` and `checkMatch` is `immut` we skip
+                    // If `foundOperator` is `immut` and `checkMatch` is `mut` we replace `foundOperator`
+                    // If `foundOperator` is `immut` and `checkMatch` is `immut` we mark for ambiguity
+                    // (we only mark for ambiguity as `immut` can be upgraded to `mut` potentially)
+
+                    if (foundOperator == nullptr) {
+                        foundOperator = checkOperator;
+                        foundIsExact = checkMatch.kind == MatchingDecl::Kind::Match;
+                        continue;
+                    }
+
+                    if (foundOperator->isMutable()) {
+                        if (checkOperator->isMutable()) {
+                            isAmbiguous = true;
+
+                            // If the `checkOperator` is an exact match we immediately break out of the loop for the
+                            // error.
+                            // If `checkOperator` is "Castable" we keep searching, there can be multiple "Castable" as
+                            // long as there is a single exact match later...
+                            if (checkMatch.kind == MatchingDecl::Kind::Match) {
+                                foundOperator = checkOperator;
+                                foundIsExact = true;
+                                break;
+                            }
+                        }
+
+                        // Skip. Check is `immut` so we don't care.
+                    } else {
+                        // `immut` can be replaced by `mut`
+                        if (checkOperator->isMutable()) {
+                            foundOperator = checkOperator;
+                            foundIsExact = checkMatch.kind == MatchingDecl::Kind::Match;
+                            // If there were multiple `immut` that doesn't matter, `mut` overrides that until we find
+                            // multiple `mut`
+                            isAmbiguous = false;
+                            continue;
+                        } else {
+                            // Both are `immut` so we mark for ambiguity...
+                            isAmbiguous = true;
+                        }
+                    }
+                }
+            }
+
+            if (isAmbiguous) {
+                printError("overloaded operator is ambiguous!",
+                           infixOperatorExpr->startPosition(), infixOperatorExpr->endPosition());
+            }
+
+            if (foundOperator == nullptr) {
+                printError("no overloaded operator found for the provided types!",
+                           infixOperatorExpr->startPosition(), infixOperatorExpr->endPosition());
+            }
+
+            // TODO: Treat the rest like a normal function call (pass to the argument caster, etc.)
+
+            // We handle argument casting and conversion no matter what. The below function will handle
+            // converting from lvalue to rvalue, casting, and other rules for us.
+            handleArgumentCasting(foundOperator->parameters()[0], infixOperatorExpr->rightValue);
+
+            auto newMemberInfixOperatorCall = new MemberInfixOperatorCallExpr(
+                    foundOperator,
+                    infixOperatorExpr->infixOperator(),
+                    infixOperatorExpr->leftValue,
+                    infixOperatorExpr->rightValue
+            );
+            newMemberInfixOperatorCall->valueType = foundOperator->returnType->deepCopy();
+            newMemberInfixOperatorCall->valueType->setIsLValue(true);
+            // We steal these
+            infixOperatorExpr->leftValue = nullptr;
+            infixOperatorExpr->rightValue = nullptr;
+            delete infixOperatorExpr;
+            infixOperatorExpr = newMemberInfixOperatorCall;
+            return;
         }
     }
 
-    // TODO: For built in operators we will have to add a `dereference` instruction here if either types are references
+    // Once we've reached this point we need to convert any lvalues to rvalues and dereference any implicit references
+    infixOperatorExpr->leftValue = convertLValueToRValue(infixOperatorExpr->leftValue);
+    infixOperatorExpr->rightValue = convertLValueToRValue(infixOperatorExpr->rightValue);
+    // Dereference the references (if there are any references)
+    infixOperatorExpr->leftValue = dereferenceReference(infixOperatorExpr->leftValue);
+    infixOperatorExpr->rightValue = dereferenceReference(infixOperatorExpr->rightValue);
+
     auto leftType = infixOperatorExpr->leftValue->valueType;
     auto rightType = infixOperatorExpr->rightValue->valueType;
-
-    if (llvm::isa<ReferenceType>(leftType)) {
-        leftType = llvm::dyn_cast<ReferenceType>(leftType)->nestedType;
-    }
-
-    if (llvm::isa<ReferenceType>(rightType)) {
-        rightType = llvm::dyn_cast<ReferenceType>(rightType)->nestedType;
-    }
 
     switch (infixOperatorExpr->infixOperator()) {
         case InfixOperators::LogicalAnd: // &&
@@ -3157,15 +3257,6 @@ void gulc::CodeProcessor::processInfixOperatorExpr(gulc::InfixOperatorExpr* infi
 
         resultType = rightBuiltIn;
     }
-
-    // Once we've reached this point we need to convert any lvalues to rvalues and dereference any implicit references
-    infixOperatorExpr->leftValue = handleGetter(infixOperatorExpr->leftValue);
-    infixOperatorExpr->rightValue = handleGetter(infixOperatorExpr->rightValue);
-    infixOperatorExpr->leftValue = convertLValueToRValue(infixOperatorExpr->leftValue);
-    infixOperatorExpr->rightValue = convertLValueToRValue(infixOperatorExpr->rightValue);
-    // Dereference the references (if there are any references)
-    infixOperatorExpr->leftValue = dereferenceReference(infixOperatorExpr->leftValue);
-    infixOperatorExpr->rightValue = dereferenceReference(infixOperatorExpr->rightValue);
 
     // We need to change `resultType` if the operator is a logical (i.e. `bool`) operator.
     switch (infixOperatorExpr->infixOperator()) {
@@ -3809,6 +3900,8 @@ void gulc::CodeProcessor::processPostfixOperatorExpr(gulc::PostfixOperatorExpr*&
                 postfixOperatorExpr->startPosition(),
                 postfixOperatorExpr->endPosition());
         processMemberPostfixOperatorCallExpr(newExpr);
+        // We steal this
+        postfixOperatorExpr->nestedExpr = nullptr;
         delete postfixOperatorExpr;
         postfixOperatorExpr = newExpr;
         return;
@@ -3978,6 +4071,8 @@ void gulc::CodeProcessor::processPrefixOperatorExpr(gulc::PrefixOperatorExpr*& p
                 prefixOperatorExpr->startPosition(),
                 prefixOperatorExpr->endPosition());
         processMemberPrefixOperatorCallExpr(newExpr);
+        // We steal this
+        prefixOperatorExpr->nestedExpr = nullptr;
         delete prefixOperatorExpr;
         prefixOperatorExpr = newExpr;
         return;
@@ -4498,98 +4593,101 @@ void gulc::CodeProcessor::handleArgumentCasting(std::vector<ParameterDecl*> cons
         if (i >= arguments.size()) {
             // TODO: Append the default value to arguments
         } else {
-            if (llvm::isa<ReferenceType>(parameters[i]->type)) {
-                if (arguments[i]->argument->valueType->isLValue()) {
-                    // If the argument is an lvalue to a reference then we convert the lvalue to an rvalue, keeping the
-                    // implicit reference.
-                    arguments[i]->argument = convertLValueToRValue(arguments[i]->argument);
-                    delete arguments[i]->valueType;
-                    arguments[i]->valueType = arguments[i]->argument->valueType->deepCopy();
-                }
-            } else if (parameters[i]->parameterKind() == ParameterDecl::ParameterKind::In) {
-                // TODO: We should make it possible to pass `in` parameters by value when the
-                //       `sizeof(param.type) <= sizeof(ptr)`
-                //       Passing by reference is only more efficient when structs are large.
-                //       There should be a bool part of `ParameterDecl` that says `passInByRef` or something that when
-                //       false will treat the `in` as by-value instead of by-ref (useful for `in i32`, `in bool`, etc.)
-                if (llvm::isa<ReferenceType>(parameters[i]->type)) {
-                    // If the parameter is a reference then the argument must either be a double reference or an lvalue
-                    // + reference (NOTE: I don't know why we would allow `in ref <type>`? But I'll try to support it
-                    // nonetheless.
-                    if (arguments[i]->argument->valueType->isLValue()) {
-                        // If it is a `ref ref` we convert lvalue to rvalue, else we keep the lvalue as we need the
-                        // double reference to allow `in`...
-                        if (llvm::isa<ReferenceType>(arguments[i]->argument->valueType)) {
-                            auto checkNested =
-                                    llvm::dyn_cast<ReferenceType>(arguments[i]->argument->valueType)->nestedType;
-
-                            if (llvm::isa<ReferenceType>(arguments[i]->argument->valueType)) {
-                                arguments[i]->argument = convertLValueToRValue(arguments[i]->argument);
-                                delete arguments[i]->valueType;
-                                arguments[i]->valueType = arguments[i]->argument->valueType->deepCopy();
-                            }
-                        }
-                    }
-                } else {
-                    // If argument is a reference we need to convert lvalue to rvalue
-                    // If argument is not a reference then we need to make sure it is an lvalue
-                    // If argument is not an lvalue then we need to create a temporary value to store it so we can have
-                    // a reference for it.
-                    if (llvm::isa<ReferenceType>(arguments[i]->argument->valueType)) {
-                        arguments[i]->argument = convertLValueToRValue(arguments[i]->argument);
-                        delete arguments[i]->valueType;
-                        arguments[i]->valueType = arguments[i]->argument->valueType->deepCopy();
-                    } else if (!arguments[i]->argument->valueType->isLValue()) {
-                        if (llvm::isa<StructType>(arguments[i]->argument->valueType)) {
-                            // To prevent potential memory leaks I'm putting this here. If we ever encounter a scenario
-                            // where a struct is being converted from rvalue to `in` ref then I'll handle it.
-                            printError("[INTERNAL] struct rvalue being passed to `in` parameter not supported!",
-                                       arguments[i]->argument->startPosition(), arguments[i]->argument->endPosition());
-                        }
-
-                        // Here we use `RValueToInRefExpr` to force the code generator to create a reference from the
-                        // rvalue.
-                        // TODO: Originally I was thinking we would do this to prevent a temporary value cleanup
-                        //       But now I'm thinking we actually SHOULD either `copy` or `move` the rvalue to a
-                        //       temporary and have it get cleaned up...
-                        auto rvalueToInRef = new RValueToInRefExpr(arguments[i]->argument);
-                        rvalueToInRef->valueType = arguments[i]->argument->valueType->deepCopy();
-                        rvalueToInRef->valueType->setIsLValue(true);
-                        arguments[i]->argument = rvalueToInRef;
-                        delete arguments[i]->valueType;
-                        arguments[i]->valueType = arguments[i]->argument->valueType->deepCopy();
-                    }
-                }
-            } else if (parameters[i]->parameterKind() == ParameterDecl::ParameterKind::Out) {
-                // If argument is a reference we need to convert lvalue to rvalue
-                // If argument is not a reference then we need to make sure it is an lvalue
-                // The argument MUST be `mut`
-                if (llvm::isa<ReferenceType>(arguments[i]->argument->valueType)) {
-                    if (llvm::dyn_cast<ReferenceType>(arguments[i]->argument->valueType)->nestedType->qualifier()
-                            != Type::Qualifier::Mut) {
-                        printError("`out` parameters require their arguments to be `mut`!",
-                                   arguments[i]->startPosition(), arguments[i]->endPosition());
-                    }
-
-                    arguments[i]->argument = convertLValueToRValue(arguments[i]->argument);
-                    delete arguments[i]->valueType;
-                    arguments[i]->valueType = arguments[i]->argument->valueType->deepCopy();
-                } else if (!arguments[i]->argument->valueType->isLValue()) {
-                    printError("`out` parameters require their argument to either be an lvalue or `ref mut`!",
-                               arguments[i]->startPosition(), arguments[i]->endPosition());
-                } else if (arguments[i]->argument->valueType->qualifier() != Type::Qualifier::Mut) {
-                    printError("`out` parameters require their arguments to be `mut`!",
-                               arguments[i]->startPosition(), arguments[i]->endPosition());
-                }
-            } else {
-                // The parameter is a value type so we remove any `lvalue` and dereference any implicit references.
-                arguments[i]->argument = convertLValueToRValue(arguments[i]->argument);
-                // TODO: Dereference any references as well.
+            if (handleArgumentCasting(parameters[i], arguments[i]->argument)) {
                 delete arguments[i]->valueType;
                 arguments[i]->valueType = arguments[i]->argument->valueType->deepCopy();
             }
         }
     }
+}
+
+bool gulc::CodeProcessor::handleArgumentCasting(gulc::ParameterDecl* parameter, gulc::Expr*& argument) {
+    if (llvm::isa<ReferenceType>(parameter->type)) {
+        if (argument->valueType->isLValue()) {
+            // If the argument is an lvalue to a reference then we convert the lvalue to an rvalue, keeping the
+            // implicit reference.
+            argument = convertLValueToRValue(argument);
+            return true;
+        }
+    } else if (parameter->parameterKind() == ParameterDecl::ParameterKind::In) {
+        // TODO: We should make it possible to pass `in` parameters by value when the
+        //       `sizeof(param.type) <= sizeof(ptr)`
+        //       Passing by reference is only more efficient when structs are large.
+        //       There should be a bool part of `ParameterDecl` that says `passInByRef` or something that when
+        //       false will treat the `in` as by-value instead of by-ref (useful for `in i32`, `in bool`, etc.)
+        if (llvm::isa<ReferenceType>(parameter->type)) {
+            // If the parameter is a reference then the argument must either be a double reference or an lvalue
+            // + reference (NOTE: I don't know why we would allow `in ref <type>`? But I'll try to support it
+            // nonetheless.
+            if (argument->valueType->isLValue()) {
+                // If it is a `ref ref` we convert lvalue to rvalue, else we keep the lvalue as we need the
+                // double reference to allow `in`...
+                if (llvm::isa<ReferenceType>(argument->valueType)) {
+                    auto checkNested =
+                            llvm::dyn_cast<ReferenceType>(argument->valueType)->nestedType;
+
+                    if (llvm::isa<ReferenceType>(argument->valueType)) {
+                        argument = convertLValueToRValue(argument);
+                        return true;
+                    }
+                }
+            }
+        } else {
+            // If argument is a reference we need to convert lvalue to rvalue
+            // If argument is not a reference then we need to make sure it is an lvalue
+            // If argument is not an lvalue then we need to create a temporary value to store it so we can have
+            // a reference for it.
+            if (llvm::isa<ReferenceType>(argument->valueType)) {
+                argument = convertLValueToRValue(argument);
+                return true;
+            } else if (!argument->valueType->isLValue()) {
+                if (llvm::isa<StructType>(argument->valueType)) {
+                    // To prevent potential memory leaks I'm putting this here. If we ever encounter a scenario
+                    // where a struct is being converted from rvalue to `in` ref then I'll handle it.
+                    printError("[INTERNAL] struct rvalue being passed to `in` parameter not supported!",
+                               argument->startPosition(), argument->endPosition());
+                }
+
+                // Here we use `RValueToInRefExpr` to force the code generator to create a reference from the
+                // rvalue.
+                // TODO: Originally I was thinking we would do this to prevent a temporary value cleanup
+                //       But now I'm thinking we actually SHOULD either `copy` or `move` the rvalue to a
+                //       temporary and have it get cleaned up...
+                auto rvalueToInRef = new RValueToInRefExpr(argument);
+                rvalueToInRef->valueType = argument->valueType->deepCopy();
+                rvalueToInRef->valueType->setIsLValue(true);
+                argument = rvalueToInRef;
+                return true;
+            }
+        }
+    } else if (parameter->parameterKind() == ParameterDecl::ParameterKind::Out) {
+        // If argument is a reference we need to convert lvalue to rvalue
+        // If argument is not a reference then we need to make sure it is an lvalue
+        // The argument MUST be `mut`
+        if (llvm::isa<ReferenceType>(argument->valueType)) {
+            if (llvm::dyn_cast<ReferenceType>(argument->valueType)->nestedType->qualifier()
+                != Type::Qualifier::Mut) {
+                printError("`out` parameters require their arguments to be `mut`!",
+                           argument->startPosition(), argument->endPosition());
+            }
+
+            argument = convertLValueToRValue(argument);
+            return true;
+        } else if (!argument->valueType->isLValue()) {
+            printError("`out` parameters require their argument to either be an lvalue or `ref mut`!",
+                       argument->startPosition(), argument->endPosition());
+        } else if (argument->valueType->qualifier() != Type::Qualifier::Mut) {
+            printError("`out` parameters require their arguments to be `mut`!",
+                       argument->startPosition(), argument->endPosition());
+        }
+    } else {
+        // The parameter is a value type so we remove any `lvalue` and dereference any implicit references.
+        argument = convertLValueToRValue(argument);
+        // TODO: Dereference any references as well.
+        return true;
+    }
+
+    return false;
 }
 
 gulc::Expr* gulc::CodeProcessor::dereferenceReference(gulc::Expr* potentialReference) const {

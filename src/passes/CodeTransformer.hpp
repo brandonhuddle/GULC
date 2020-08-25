@@ -196,6 +196,7 @@ namespace gulc {
         void processLabeledArgumentExpr(LabeledArgumentExpr* labeledArgumentExpr);
         void processLValueToRValueExpr(LValueToRValueExpr* lValueToRValueExpr);
         void processMemberFunctionCallExpr(Expr*& expr);
+        void processMemberInfixOperatorCallExpr(Expr*& expr);
         void processMemberPostfixOperatorCallExpr(Expr*& expr);
         void processMemberPrefixOperatorCallExpr(Expr*& expr);
         void processMemberPropertyRefExpr(MemberPropertyRefExpr* memberPropertyRefExpr);

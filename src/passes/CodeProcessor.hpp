@@ -243,7 +243,7 @@ namespace gulc {
         // TODO: This can probably be merged with `findMatchingMemberDecl`
         bool findMatchingDecl(std::vector<Decl*> const& searchDecls, IdentifierExpr* identifierExpr,
                               Decl** outFoundDecl);
-        void processInfixOperatorExpr(InfixOperatorExpr* infixOperatorExpr);
+        void processInfixOperatorExpr(InfixOperatorExpr*& infixOperatorExpr);
         bool fillListOfMatchingInfixOperators(std::vector<Decl*>& decls, InfixOperators findOperator, Type* argType,
                                               std::vector<MatchingDecl>& matchingDecls);
         void processIsExpr(IsExpr* isExpr);
@@ -279,6 +279,8 @@ namespace gulc {
         /// Cast arguments and convert any lvalues to rvalues when required
         void handleArgumentCasting(std::vector<ParameterDecl*> const& parameters,
                                    std::vector<LabeledArgumentExpr*>& arguments);
+        // Returns true if the argument potentially had a type change
+        bool handleArgumentCasting(ParameterDecl* parameter, Expr*& argument);
         // If the expression is a reference we dereference it.
         Expr* dereferenceReference(Expr* potentialReference) const;
 

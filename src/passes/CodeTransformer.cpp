@@ -23,6 +23,8 @@
 #include <ast/exprs/CurrentSelfExpr.hpp>
 #include <ast/types/ReferenceType.hpp>
 #include <ast/exprs/TemporaryValueRefExpr.hpp>
+#include <ast/exprs/StoreTemporaryValueExpr.hpp>
+#include <ast/exprs/MemberInfixOperatorCallExpr.hpp>
 
 void gulc::CodeTransformer::processFiles(std::vector<ASTFile>& files) {
     for (ASTFile& file : files) {
@@ -923,6 +925,9 @@ void gulc::CodeTransformer::processExpr(gulc::Expr*& expr) {
         case Expr::Kind::MemberFunctionCall:
             processMemberFunctionCallExpr(expr);
             break;
+        case Expr::Kind::MemberInfixOperatorCall:
+            processMemberInfixOperatorCallExpr(expr);
+            break;
         case Expr::Kind::MemberPostfixOperatorCall:
             processMemberPostfixOperatorCallExpr(expr);
             break;
@@ -1055,7 +1060,7 @@ void gulc::CodeTransformer::processFunctionCallExpr(gulc::Expr*& expr) {
                 functionCallExpr->startPosition(),
                 functionCallExpr->endPosition()
             );
-        auto saveFunctionResult = new AssignmentOperatorExpr(
+        auto saveFunctionResult = new StoreTemporaryValueExpr(
                 tempValueLocalVarRef, functionCallExpr,
                 functionCallExpr->startPosition(), functionCallExpr->endPosition()
             );
@@ -1111,7 +1116,7 @@ void gulc::CodeTransformer::processMemberFunctionCallExpr(gulc::Expr*& expr) {
                 memberFunctionCallExpr->startPosition(),
                 memberFunctionCallExpr->endPosition()
         );
-        auto saveFunctionResult = new AssignmentOperatorExpr(
+        auto saveFunctionResult = new StoreTemporaryValueExpr(
                 tempValueLocalVarRef, memberFunctionCallExpr,
                 memberFunctionCallExpr->startPosition(), memberFunctionCallExpr->endPosition()
         );
@@ -1120,6 +1125,33 @@ void gulc::CodeTransformer::processMemberFunctionCallExpr(gulc::Expr*& expr) {
 
         // Replace the function call with a wrapped save assignment for the function call
         expr = saveFunctionResult;
+    }
+}
+
+void gulc::CodeTransformer::processMemberInfixOperatorCallExpr(gulc::Expr*& expr) {
+    auto memberInfixOperatorCallExpr = llvm::dyn_cast<MemberInfixOperatorCallExpr>(expr);
+
+    processExpr(memberInfixOperatorCallExpr->leftValue);
+    processExpr(memberInfixOperatorCallExpr->rightValue);
+
+    // If the function doesn't return void then we have to store the value as a temporary value. The reason we do this
+    // is to make the result able to be passed into a destructor when needed.
+    if (!(llvm::isa<BuiltInType>(memberInfixOperatorCallExpr->valueType) &&
+          llvm::dyn_cast<BuiltInType>(memberInfixOperatorCallExpr->valueType)->sizeInBytes() == 0)) {
+        auto tempValueLocalVarRef = createTemporaryValue(
+                memberInfixOperatorCallExpr->valueType,
+                memberInfixOperatorCallExpr->startPosition(),
+                memberInfixOperatorCallExpr->endPosition()
+        );
+        auto saveInfixOperatorResult = new StoreTemporaryValueExpr(
+                tempValueLocalVarRef, memberInfixOperatorCallExpr,
+                memberInfixOperatorCallExpr->startPosition(), memberInfixOperatorCallExpr->endPosition()
+        );
+        saveInfixOperatorResult->valueType = memberInfixOperatorCallExpr->valueType->deepCopy();
+        saveInfixOperatorResult->valueType->setIsLValue(true);
+
+        // Replace the function call with a wrapped save assignment for the function call
+        expr = saveInfixOperatorResult;
     }
 }
 
@@ -1137,7 +1169,7 @@ void gulc::CodeTransformer::processMemberPostfixOperatorCallExpr(Expr*& expr) {
                 memberPostfixOperatorCallExpr->startPosition(),
                 memberPostfixOperatorCallExpr->endPosition()
         );
-        auto savePostfixOperatorResult = new AssignmentOperatorExpr(
+        auto savePostfixOperatorResult = new StoreTemporaryValueExpr(
                 tempValueLocalVarRef, memberPostfixOperatorCallExpr,
                 memberPostfixOperatorCallExpr->startPosition(), memberPostfixOperatorCallExpr->endPosition()
         );
@@ -1163,7 +1195,7 @@ void gulc::CodeTransformer::processMemberPrefixOperatorCallExpr(Expr*& expr) {
                 memberPrefixOperatorCallExpr->startPosition(),
                 memberPrefixOperatorCallExpr->endPosition()
         );
-        auto savePrefixOperatorResult = new AssignmentOperatorExpr(
+        auto savePrefixOperatorResult = new StoreTemporaryValueExpr(
                 tempValueLocalVarRef, memberPrefixOperatorCallExpr,
                 memberPrefixOperatorCallExpr->startPosition(), memberPrefixOperatorCallExpr->endPosition()
         );
@@ -1225,7 +1257,7 @@ void gulc::CodeTransformer::processPropertyGetCallExpr(gulc::Expr*& expr) {
             propertyGetCallExpr->startPosition(),
             propertyGetCallExpr->endPosition()
     );
-    auto saveGetResult = new AssignmentOperatorExpr(
+    auto saveGetResult = new StoreTemporaryValueExpr(
             tempValueLocalVarRef, propertyGetCallExpr,
             propertyGetCallExpr->startPosition(), propertyGetCallExpr->endPosition()
     );
@@ -1289,7 +1321,7 @@ void gulc::CodeTransformer::processSubscriptOperatorGetCallExpr(gulc::Expr*& exp
             subscriptOperatorGetCallExpr->startPosition(),
             subscriptOperatorGetCallExpr->endPosition()
     );
-    auto saveGetResult = new AssignmentOperatorExpr(
+    auto saveGetResult = new StoreTemporaryValueExpr(
             tempValueLocalVarRef, subscriptOperatorGetCallExpr,
             subscriptOperatorGetCallExpr->startPosition(), subscriptOperatorGetCallExpr->endPosition()
     );

@@ -181,9 +181,35 @@ llvm::Type* gulc::CodeGen::generateLlvmType(gulc::Type const* type) {
 }
 
 std::vector<llvm::Type*> gulc::CodeGen::generateLlvmParamTypes(std::vector<ParameterDecl*> const& parameters,
-                                                               gulc::StructDecl const* parentStruct) {
+                                                               gulc::StructDecl const* parentStruct,
+                                                               gulc::Type* returnType) {
     std::vector<llvm::Type*> paramTypes{};
     paramTypes.reserve(parameters.size());
+
+    // If the result is a `struct` then we make the first parameter an `sret` parameter. The reason for this is
+    // because I can't find the LLVM pass that is changing:
+    //     ret struct %0
+    // Into:
+    //     %.fca.0.gep = getelementptr
+    //     %.fca.0.load = load
+    //     %.fca.0.insert = insertvalue
+    //     %.fca.1.gep = getelementptr
+    //     %.fca.1.load = load
+    //     %.fca.1.insert = insertvalue
+    //     %.fca.2.gep = getelementptr
+    //     %.fca.2.load = load
+    //     %.fca.2.insert = insertvalue
+    //     %.fca.3.gep = getelementptr
+    //     %.fca.3.load = load
+    //     %.fca.3.insert = insertvalue
+    // And on and on. I can't be bothered to find out what is causing this. LLVM has awful documentation and from what
+    // I read online this isn't even supposed to happen. LLVM is supposed to be doing the `sret` for us but oh well.
+    // I don't care enough to find out what this is right now. Maybe later.
+    if (returnType != nullptr && llvm::isa<StructType>(returnType)) {
+        auto sretType = generateLlvmType(returnType);
+
+        paramTypes.push_back(llvm::PointerType::get(sretType, 0));
+    }
 
     if (parentStruct) {
         paramTypes.push_back(llvm::PointerType::getUnqual(generateLlvmStructType(parentStruct)));
@@ -305,7 +331,8 @@ llvm::Function* gulc::CodeGen::getFunctionFromDecl(gulc::FunctionDecl* functionD
         }
     }
 
-    std::vector<llvm::Type*> paramTypes = generateLlvmParamTypes(functionDecl->parameters(), parentStruct);
+    std::vector<llvm::Type*> paramTypes = generateLlvmParamTypes(functionDecl->parameters(), parentStruct,
+                                                                 functionDecl->returnType);
     llvm::Type* returnType = nullptr;
 
     if (functionDecl->returnType == nullptr) {
@@ -346,6 +373,7 @@ void gulc::CodeGen::generateDecl(gulc::Decl const* decl, bool isInternal) {
             break;
         case Decl::Kind::TemplateFunctionInst:
         case Decl::Kind::Function:
+        case Decl::Kind::Operator:
             generateFunctionDecl(llvm::dyn_cast<FunctionDecl>(decl), isInternal);
             break;
         case Decl::Kind::Namespace:
@@ -387,7 +415,7 @@ void gulc::CodeGen::generateDecl(gulc::Decl const* decl, bool isInternal) {
 void gulc::CodeGen::generateConstructorDecl(gulc::ConstructorDecl const* constructorDecl, bool isInternal) {
     auto parentStruct = llvm::dyn_cast<StructDecl>(constructorDecl->container);
 
-    std::vector<llvm::Type*> paramTypes = generateLlvmParamTypes(constructorDecl->parameters(), parentStruct);
+    std::vector<llvm::Type*> paramTypes = generateLlvmParamTypes(constructorDecl->parameters(), parentStruct, nullptr);
     // All constructors return void. We construct the `this` parameter. Memory allocation for the struct is
     // NOT handled by the constructor
     llvm::Type* returnType = llvm::Type::getVoidTy(*_llvmContext);
@@ -520,7 +548,7 @@ void gulc::CodeGen::generateDestructorDecl(gulc::DestructorDecl const* destructo
     auto parentStruct = llvm::dyn_cast<StructDecl>(destructorDecl->container);
 
     // Destructors DO NOT support parameters except for the single `this` parameter
-    std::vector<llvm::Type*> paramTypes = generateLlvmParamTypes({}, parentStruct);
+    std::vector<llvm::Type*> paramTypes = generateLlvmParamTypes({}, parentStruct, nullptr);
     // All constructors return void. We construct the `this` parameter. Memory allocation for the struct is
     // NOT handled by the constructor
     llvm::Type* returnType = llvm::Type::getVoidTy(*_llvmContext);
@@ -595,9 +623,7 @@ void gulc::CodeGen::generateFunctionDecl(gulc::FunctionDecl const* functionDecl,
         }
     }
 
-    std::vector<llvm::Type*> paramTypes = generateLlvmParamTypes(functionDecl->parameters(), parentStruct);
-    llvm::Type* returnType = generateLlvmType(functionDecl->returnType);
-    llvm::FunctionType* functionType = llvm::FunctionType::get(returnType, paramTypes, false);
+    llvm::FunctionType* functionType = getFunctionType(functionDecl, parentStruct);
     llvm::Function* function = _llvmModule->getFunction(functionDecl->mangledName());
 
     if (!function) {
@@ -621,7 +647,12 @@ void gulc::CodeGen::generateFunctionDecl(gulc::FunctionDecl const* functionDecl,
     if (functionDecl->returnType != nullptr &&
         !(llvm::isa<BuiltInType>(functionDecl->returnType) &&
           llvm::dyn_cast<BuiltInType>(functionDecl->returnType)->sizeInBytes() == 0)) {
-        _currentFunctionReturnValue = _irBuilder->CreateAlloca(generateLlvmType(functionDecl->returnType));
+        // If the return type is `struct` we make the return value `*structType param 0`...
+        if (llvm::isa<StructType>(functionDecl->returnType)) {
+            _currentFunctionReturnValue = _irBuilder->CreateLoad(_currentLlvmFunctionParameters[0]);
+        } else {
+            _currentFunctionReturnValue = _irBuilder->CreateAlloca(generateLlvmType(functionDecl->returnType));
+        }
     }
 
     // Generate the function body
@@ -631,7 +662,13 @@ void gulc::CodeGen::generateFunctionDecl(gulc::FunctionDecl const* functionDecl,
     _irBuilder->SetInsertPoint(_currentFunctionExitBlock);
 
     if (_currentFunctionReturnValue != nullptr) {
-        _irBuilder->CreateRet(_irBuilder->CreateLoad(_currentFunctionReturnValue));
+        // If the function returns a struct we need to store the value in `sret` param 0 then return void
+        if (llvm::isa<StructType>(functionDecl->returnType)) {
+            //_irBuilder->CreateStore(_currentFunctionReturnValue, _currentLlvmFunctionParameters[0]);
+            _irBuilder->CreateRetVoid();
+        } else {
+            _irBuilder->CreateRet(_irBuilder->CreateLoad(_currentFunctionReturnValue));
+        }
     } else {
         _irBuilder->CreateRetVoid();
     }
@@ -655,20 +692,12 @@ void gulc::CodeGen::generateNamespaceDecl(gulc::NamespaceDecl const* namespaceDe
 
 void gulc::CodeGen::generatePropertyDecl(gulc::PropertyDecl const* propertyDecl, bool isInternal) {
     for (PropertyGetDecl* getter : propertyDecl->getters()) {
-        generatePropertyGetDecl(getter, isInternal);
+        generateFunctionDecl(getter, isInternal);
     }
 
     if (propertyDecl->hasSetter()) {
-        generatePropertySetDecl(propertyDecl->setter(), isInternal);
+        generateFunctionDecl(propertyDecl->setter(), isInternal);
     }
-}
-
-void gulc::CodeGen::generatePropertyGetDecl(gulc::PropertyGetDecl const* propertyGetDecl, bool isInternal) {
-    generateFunctionDecl(propertyGetDecl, isInternal);
-}
-
-void gulc::CodeGen::generatePropertySetDecl(gulc::PropertySetDecl const* propertySetDecl, bool isInternal) {
-    generateFunctionDecl(propertySetDecl, isInternal);
 }
 
 void gulc::CodeGen::generateStructDecl(gulc::StructDecl const* structDecl, bool isInternal) {
@@ -688,7 +717,7 @@ void gulc::CodeGen::generateStructDecl(gulc::StructDecl const* structDecl, bool 
             if (structDecl->destructor != nullptr && structDecl->destructor->isAnyVirtual() &&
                     functionDecl == structDecl->destructor) {
                 // Destructors DO NOT support parameters except for the single `this` parameter
-                std::vector<llvm::Type*> paramTypes = generateLlvmParamTypes({}, structDecl);
+                std::vector<llvm::Type*> paramTypes = generateLlvmParamTypes({}, structDecl, nullptr);
                 // All constructors return void. We construct the `this` parameter. Memory allocation for the struct is
                 // NOT handled by the constructor
                 llvm::Type* returnType = llvm::Type::getVoidTy(*_llvmContext);
@@ -744,22 +773,12 @@ void gulc::CodeGen::generateStructDecl(gulc::StructDecl const* structDecl, bool 
 void gulc::CodeGen::generateSubscriptOperatorDecl(gulc::SubscriptOperatorDecl const* subscriptOperatorDecl,
                                                   bool isInternal) {
     for (SubscriptOperatorGetDecl* getter : subscriptOperatorDecl->getters()) {
-        generateSubscriptOperatorGetDecl(getter, isInternal);
+        generateFunctionDecl(getter, isInternal);
     }
 
     if (subscriptOperatorDecl->hasSetter()) {
-        generateSubscriptOperatorSetDecl(subscriptOperatorDecl->setter(), isInternal);
+        generateFunctionDecl(subscriptOperatorDecl->setter(), isInternal);
     }
-}
-
-void gulc::CodeGen::generateSubscriptOperatorGetDecl(gulc::SubscriptOperatorGetDecl const* subscriptOperatorGetDecl,
-                                                     bool isInternal) {
-    generateFunctionDecl(subscriptOperatorGetDecl, isInternal);
-}
-
-void gulc::CodeGen::generateSubscriptOperatorSetDecl(gulc::SubscriptOperatorSetDecl const* subscriptOperatorSetDecl,
-                                                     bool isInternal) {
-    generateFunctionDecl(subscriptOperatorSetDecl, isInternal);
 }
 
 void gulc::CodeGen::generateTemplateFunctionDecl(gulc::TemplateFunctionDecl const* templateFunctionDecl,
@@ -844,6 +863,21 @@ void gulc::CodeGen::setCurrentFunction(llvm::Function* currentFunction,
     }
 }
 
+llvm::FunctionType* gulc::CodeGen::getFunctionType(gulc::FunctionDecl const* functionDecl,
+                                                   StructDecl const* parentStruct) {
+    std::vector<llvm::Type*> paramTypes = generateLlvmParamTypes(functionDecl->parameters(), parentStruct,
+                                                                 functionDecl->returnType);
+    llvm::Type* returnType;
+
+    if (llvm::isa<StructType>(functionDecl->returnType)) {
+        returnType = llvm::Type::getVoidTy(*_llvmContext);
+    } else {
+        returnType = generateLlvmType(functionDecl->returnType);
+    }
+
+    return llvm::FunctionType::get(returnType, paramTypes, false);
+}
+
 llvm::Function* gulc::CodeGen::getFunction(gulc::FunctionDecl* functionDecl) {
     gulc::StructDecl* parentStruct = nullptr;
 
@@ -851,7 +885,8 @@ llvm::Function* gulc::CodeGen::getFunction(gulc::FunctionDecl* functionDecl) {
         parentStruct = llvm::dyn_cast<StructDecl>(functionDecl->container);
     }
 
-    std::vector<llvm::Type*> paramTypes = generateLlvmParamTypes(functionDecl->parameters(), parentStruct);
+    std::vector<llvm::Type*> paramTypes = generateLlvmParamTypes(functionDecl->parameters(), parentStruct,
+                                                                 functionDecl->returnType);
     llvm::Type* returnType = generateLlvmType(functionDecl->returnType);
     llvm::FunctionType* functionType = llvm::FunctionType::get(returnType, paramTypes, false);
 
@@ -1228,15 +1263,56 @@ void gulc::CodeGen::generateLabeledStmt(gulc::LabeledStmt const* labeledStmt) {
 
 void gulc::CodeGen::generateReturnStmt(gulc::ReturnStmt const* returnStmt) {
     if (returnStmt->returnValue != nullptr) {
-        llvm::Value* returnValue = generateExpr(returnStmt->returnValue);
+        // If the function returns a struct we have to do a few "hacks" to account for the first parameter being the
+        // return value instead of having LLVM handle it as `ret`...
+        if (llvm::isa<StructType>(_currentGhoulFunction->returnType)) {
+            // Returning a struct should always be a `LValueToRValue(ConstructorCall(self: temporaryValue))`.
+            // The constructor call could be a normal constructor or a copy/move constructor.
+            // It doesn't matter which, all that matters is we need to replace the `temporaryValue` with
+            // `_currentFunctionReturnValue` and prevent `temporaryValue` from being passed to `deinit`.
+            if (!llvm::isa<LValueToRValueExpr>(returnStmt->returnValue)) {
+                printError("[INTERNAL] attempted to move return value to `sret`, failed due to missing `LValueToRValue`!",
+                           returnStmt->startPosition(), returnStmt->endPosition());
+            }
 
-        cleanupTemporaryValues(returnStmt->temporaryValues);
+            auto checkLValueToRValue = llvm::dyn_cast<LValueToRValueExpr>(returnStmt->returnValue);
 
-        for (Expr* deferredExpr : returnStmt->preReturnDeferred) {
-            generateExpr(deferredExpr);
+            if (!llvm::isa<ConstructorCallExpr>(checkLValueToRValue->lvalue)) {
+                printError("[INTERNAL] attempted to move return value to `sret`, failed due to missing constructor call!",
+                           returnStmt->startPosition(), returnStmt->endPosition());
+            }
+
+            auto modifyConstructorCall = llvm::dyn_cast<ConstructorCallExpr>(checkLValueToRValue->lvalue);
+            // What we're doing here is telling the `generateConstructorCallExpr` to use `_currentFunctionReturnValue`
+            // as the `self` reference instead of what is stored inside `modifyConstructorCall`
+            generateConstructorCallExpr(modifyConstructorCall, _currentFunctionReturnValue);
+
+            // We need to cancel the destructor call for the temporary value `modifyConstructorCall->objectRef`
+            // since it is not constructed. It could cause an error if we allow that to slip by.
+            if (!llvm::isa<TemporaryValueRefExpr>(modifyConstructorCall->objectRef)) {
+                printError("[INTERNAL] attempted to cancel `sret` deinit, failed due to missing temporary value reference!",
+                           returnStmt->startPosition(), returnStmt->endPosition());
+            }
+
+            auto tempValueRef = llvm::dyn_cast<TemporaryValueRefExpr>(modifyConstructorCall->objectRef);
+
+            cleanupTemporaryValues(returnStmt->temporaryValues, tempValueRef->temporaryName());
+
+            for (Expr* deferredExpr : returnStmt->preReturnDeferred) {
+                generateExpr(deferredExpr);
+            }
+        } else {
+            // The normal way of handling a return value...
+            llvm::Value* returnValue = generateExpr(returnStmt->returnValue);
+
+            cleanupTemporaryValues(returnStmt->temporaryValues);
+
+            for (Expr* deferredExpr : returnStmt->preReturnDeferred) {
+                generateExpr(deferredExpr);
+            }
+
+            _irBuilder->CreateStore(returnValue, _currentFunctionReturnValue);
         }
-
-        _irBuilder->CreateStore(returnValue, _currentFunctionReturnValue);
     } else {
         cleanupTemporaryValues(returnStmt->temporaryValues);
 
@@ -1315,8 +1391,11 @@ void gulc::CodeGen::leaveNestedLoop(std::size_t oldNestedLoopCount) {
     _nestedLoopBreaks.resize(oldNestedLoopCount);
 }
 
-void gulc::CodeGen::cleanupTemporaryValues(std::vector<VariableDeclExpr*> const& temporaryValues) {
+void gulc::CodeGen::cleanupTemporaryValues(std::vector<VariableDeclExpr*> const& temporaryValues,
+                                           std::string const& skipTemporaryValueName) {
     for (auto temporaryValue : temporaryValues) {
+        if (skipTemporaryValueName == temporaryValue->identifier().name()) continue;
+
         llvm::AllocaInst* temporaryValueAlloca = getTemporaryValueOrNull(temporaryValue->identifier().name());
 
         if (temporaryValueAlloca == nullptr) {
@@ -1461,6 +1540,8 @@ llvm::Value* gulc::CodeGen::generateExpr(gulc::Expr const* expr) {
             return generateLValueToRValueExpr(llvm::dyn_cast<LValueToRValueExpr>(expr));
         case Expr::Kind::MemberFunctionCall:
             return generateMemberFunctionCallExpr(llvm::dyn_cast<MemberFunctionCallExpr>(expr));
+        case Expr::Kind::MemberInfixOperatorCall:
+            return generateMemberInfixOperatorCallExpr(llvm::dyn_cast<MemberInfixOperatorCallExpr>(expr));
         case Expr::Kind::MemberPostfixOperatorCall:
             return generateMemberPostfixOperatorCallExpr(llvm::dyn_cast<MemberPostfixOperatorCallExpr>(expr));
         case Expr::Kind::MemberPrefixOperatorCall:
@@ -1483,6 +1564,8 @@ llvm::Value* gulc::CodeGen::generateExpr(gulc::Expr const* expr) {
             return generateRefExpr(llvm::dyn_cast<RefExpr>(expr));
         case Expr::Kind::RValueToInRef:
             return generateRValueToInRefExpr(llvm::dyn_cast<RValueToInRefExpr>(expr));
+        case Expr::Kind::StoreTemporaryValue:
+            return generateStoreTemporaryValueExpr(llvm::dyn_cast<StoreTemporaryValueExpr>(expr));
         case Expr::Kind::SubscriptOperatorGetCall:
             return generateSubscriptOperatorGetCallExpr(llvm::dyn_cast<SubscriptOperatorGetCallExpr>(expr));
         case Expr::Kind::SubscriptOperatorSetCall:
@@ -1561,8 +1644,17 @@ llvm::Value* gulc::CodeGen::generateCallOperatorReferenceExpr(
     return nullptr;
 }
 
-llvm::Value* gulc::CodeGen::generateConstructorCallExpr(gulc::ConstructorCallExpr const* constructorCallExpr) {
-    llvm::Value* objectRef = generateExpr(constructorCallExpr->objectRef);
+llvm::Value* gulc::CodeGen::generateConstructorCallExpr(gulc::ConstructorCallExpr const* constructorCallExpr,
+                                                        llvm::Value* replaceObjectRef) {
+    llvm::Value* objectRef;
+
+    // If there is a `replaceObjectRef` then we don't even generate the original object ref
+    // This is currently only used for replacing `tempValue` with `returnParam` in `generateReturnStmt`
+    if (replaceObjectRef != nullptr) {
+        objectRef = replaceObjectRef;
+    } else {
+        objectRef = generateExpr(constructorCallExpr->objectRef);
+    }
 
     auto constructorReferenceExpr = llvm::dyn_cast<gulc::ConstructorReferenceExpr>(
             constructorCallExpr->functionReference);
@@ -1585,9 +1677,13 @@ llvm::Value* gulc::CodeGen::generateConstructorCallExpr(gulc::ConstructorCallExp
 }
 
 llvm::Value* gulc::CodeGen::generateCurrentSelfExpr(gulc::CurrentSelfExpr const* currentSelfExpr) {
+    // If the function returns a struct we make it the first parameter.
+    std::size_t sretMod =
+            _currentGhoulFunction->returnType != nullptr && llvm::isa<StructType>(_currentGhoulFunction->returnType) ?
+            1 : 0;
     // NOTE: `self` is always parameter `0`. Error checking to make sure a `self` parameter exists should be performed
     //       in a prior check.
-    return _currentLlvmFunctionParameters[0];
+    return _currentLlvmFunctionParameters[sretMod];
 }
 
 llvm::Value* gulc::CodeGen::generateDestructorCallExpr(gulc::DestructorCallExpr const* destructorCallExpr) {
@@ -1605,10 +1701,15 @@ llvm::Value* gulc::CodeGen::generateEnumConstRefExpr(gulc::EnumConstRefExpr cons
     return generateExpr(enumConstRefExpr->enumConst()->constValue);
 }
 
-llvm::Value* gulc::CodeGen::generateFunctionCallExpr(gulc::FunctionCallExpr const* functionCallExpr) {
+llvm::Value* gulc::CodeGen::generateFunctionCallExpr(gulc::FunctionCallExpr const* functionCallExpr,
+                                                     llvm::Value* sret) {
     llvm::Value* functionPointer = generateFunctionReferenceFromExpr(functionCallExpr->functionReference);
 
     std::vector<llvm::Value*> llvmArgs{};
+
+    if (sret != nullptr) {
+        llvmArgs.push_back(sret);
+    }
 
     if (functionCallExpr->hasArguments()) {
         llvmArgs.reserve(functionCallExpr->arguments.size());
@@ -1828,24 +1929,85 @@ llvm::Value* gulc::CodeGen::generateLValueToRValueExpr(gulc::LValueToRValueExpr 
     return _irBuilder->CreateLoad(lvalue);
 }
 
-llvm::Value* gulc::CodeGen::generateMemberFunctionCallExpr(gulc::MemberFunctionCallExpr const* memberFunctionCallExpr) {
-    printError("member function calling not yet supported!",
-               memberFunctionCallExpr->startPosition(), memberFunctionCallExpr->endPosition());
-    return nullptr;
+llvm::Value* gulc::CodeGen::generateMemberFunctionCallExpr(gulc::MemberFunctionCallExpr const* memberFunctionCallExpr,
+                                                           llvm::Value* sret) {
+    llvm::Value* functionPointer;
+    llvm::Value* selfArgument = generateExpr(memberFunctionCallExpr->selfArgument);
+
+    if (llvm::isa<VTableFunctionReferenceExpr>(memberFunctionCallExpr->functionReference)) {
+        auto vtableFunctionReference =
+                llvm::dyn_cast<VTableFunctionReferenceExpr>(memberFunctionCallExpr->functionReference);
+
+        llvm::FunctionType* functionType = getFunctionType(vtableFunctionReference->functionDecl(),
+                                                           vtableFunctionReference->structDecl());
+
+        functionPointer =
+                getVTableFunctionPointer(vtableFunctionReference->structDecl(), selfArgument,
+                        vtableFunctionReference->vtableIndex(), functionType);
+    } else {
+        functionPointer = generateFunctionReferenceFromExpr(memberFunctionCallExpr->functionReference);
+    }
+
+    std::vector<llvm::Value*> llvmArgs;
+
+    if (sret != nullptr) {
+        llvmArgs.push_back(sret);
+    }
+
+    llvmArgs.push_back(selfArgument);
+
+    if (memberFunctionCallExpr->hasArguments()) {
+        llvmArgs.reserve(memberFunctionCallExpr->arguments.size());
+
+        for (gulc::LabeledArgumentExpr *labeledArgumentExpr : memberFunctionCallExpr->arguments) {
+            llvmArgs.push_back(generateExpr(labeledArgumentExpr->argument));
+        }
+    }
+
+    return _irBuilder->CreateCall(functionPointer, llvmArgs);
+}
+
+llvm::Value* gulc::CodeGen::generateMemberInfixOperatorCallExpr(
+        gulc::MemberInfixOperatorCallExpr const* memberInfixOperatorCallExpr, llvm::Value* sret) {
+    llvm::Function* functionPointer = getFunctionFromDecl(memberInfixOperatorCallExpr->infixOperatorDecl);
+    std::vector<llvm::Value*> llvmArgs;
+
+    if (sret != nullptr) {
+        llvmArgs.push_back(sret);
+    }
+
+    llvmArgs.push_back(generateExpr(memberInfixOperatorCallExpr->leftValue));
+    llvmArgs.push_back(generateExpr(memberInfixOperatorCallExpr->rightValue));
+
+    return _irBuilder->CreateCall(functionPointer, llvmArgs);
 }
 
 llvm::Value* gulc::CodeGen::generateMemberPostfixOperatorCallExpr(
-        gulc::MemberPostfixOperatorCallExpr const* memberPostfixOperatorCallExpr) {
-    printError("member postfix operator calling not yet supported!",
-               memberPostfixOperatorCallExpr->startPosition(), memberPostfixOperatorCallExpr->endPosition());
-    return nullptr;
+        gulc::MemberPostfixOperatorCallExpr const* memberPostfixOperatorCallExpr, llvm::Value* sret) {
+    llvm::Function* functionPointer = getFunctionFromDecl(memberPostfixOperatorCallExpr->postfixOperatorDecl);
+    std::vector<llvm::Value*> llvmArgs;
+
+    if (sret != nullptr) {
+        llvmArgs.push_back(sret);
+    }
+
+    llvmArgs.push_back(generateExpr(memberPostfixOperatorCallExpr->nestedExpr));
+
+    return _irBuilder->CreateCall(functionPointer, llvmArgs);
 }
 
 llvm::Value* gulc::CodeGen::generateMemberPrefixOperatorCallExpr(
-        gulc::MemberPrefixOperatorCallExpr const* memberPrefixOperatorCallExpr) {
-    printError("member prefix operator calling not yet supported!",
-               memberPrefixOperatorCallExpr->startPosition(), memberPrefixOperatorCallExpr->endPosition());
-    return nullptr;
+        gulc::MemberPrefixOperatorCallExpr const* memberPrefixOperatorCallExpr, llvm::Value* sret) {
+    llvm::Function* functionPointer = getFunctionFromDecl(memberPrefixOperatorCallExpr->prefixOperatorDecl);
+    std::vector<llvm::Value*> llvmArgs;
+
+    if (sret != nullptr) {
+        llvmArgs.push_back(sret);
+    }
+
+    llvmArgs.push_back(generateExpr(memberPrefixOperatorCallExpr->nestedExpr));
+
+    return _irBuilder->CreateCall(functionPointer, llvmArgs);
 }
 
 llvm::Value* gulc::CodeGen::generateMemberVariableRefExpr(gulc::MemberVariableRefExpr const* memberVariableRefExpr) {
@@ -1894,10 +2056,14 @@ llvm::Value* gulc::CodeGen::generateMemberVariableRefExpr(gulc::MemberVariableRe
 }
 
 llvm::Value* gulc::CodeGen::generateParameterRefExpr(gulc::ParameterRefExpr const* parameterRefExpr) {
+    // If the function returns a struct we make it the first parameter.
+    std::size_t sretMod =
+            _currentGhoulFunction->returnType != nullptr && llvm::isa<StructType>(_currentGhoulFunction->returnType) ?
+                    1 : 0;
     // If the function is a member function (i.e. has `self` argument) we need to add one to the param
     // index.
     std::size_t paramMod = _currentGhoulFunction->isMemberFunction() ? 1 : 0;
-    std::size_t paramIndex = parameterRefExpr->parameterIndex() + paramMod;
+    std::size_t paramIndex = parameterRefExpr->parameterIndex() + paramMod + sretMod;
 
     if (paramIndex < _currentLlvmFunctionParameters.size()) {
         return _currentLlvmFunctionParameters[paramIndex];
@@ -2126,9 +2292,14 @@ llvm::Value* gulc::CodeGen::generatePrefixOperatorExpr(gulc::PrefixOperatorExpr 
     return nullptr;
 }
 
-llvm::Value* gulc::CodeGen::generatePropertyGetCallExpr(gulc::PropertyGetCallExpr const* propertyGetCallExpr) {
+llvm::Value* gulc::CodeGen::generatePropertyGetCallExpr(gulc::PropertyGetCallExpr const* propertyGetCallExpr,
+                                                        llvm::Value* sret) {
     llvm::Function* callFunction = nullptr;
     std::vector<llvm::Value*> arguments;
+
+    if (sret != nullptr) {
+        arguments.push_back(sret);
+    }
 
     switch (propertyGetCallExpr->propertyReference->getExprKind()) {
         case Expr::Kind::MemberPropertyRef: {
@@ -2195,10 +2366,76 @@ llvm::Value* gulc::CodeGen::generateRValueToInRefExpr(gulc::RValueToInRefExpr co
     return result;
 }
 
+llvm::Value* gulc::CodeGen::generateStoreTemporaryValueExpr(
+        gulc::StoreTemporaryValueExpr const* storeTemporaryValueExpr) {
+    auto tempValueRef = generateTemporaryValueRefExpr(storeTemporaryValueExpr->temporaryValue);
+    llvm::Value* storeValue = nullptr;
+
+    // If the temporary value is a struct then we will have to manually inject the temporary value as the first
+    // argument to various function calls.
+    if (llvm::isa<StructType>(storeTemporaryValueExpr->temporaryValue->valueType)) {
+        switch (storeTemporaryValueExpr->storeValue->getExprKind()) {
+            case Expr::Kind::FunctionCall:
+                storeValue = generateFunctionCallExpr(
+                        llvm::dyn_cast<FunctionCallExpr>(storeTemporaryValueExpr->storeValue),
+                        tempValueRef
+                );
+                break;
+            case Expr::Kind::MemberFunctionCall:
+                storeValue = generateMemberFunctionCallExpr(
+                        llvm::dyn_cast<MemberFunctionCallExpr>(storeTemporaryValueExpr->storeValue),
+                        tempValueRef
+                );
+                break;
+            case Expr::Kind::MemberInfixOperatorCall:
+                storeValue = generateMemberInfixOperatorCallExpr(
+                        llvm::dyn_cast<MemberInfixOperatorCallExpr>(storeTemporaryValueExpr->storeValue),
+                        tempValueRef
+                );
+                break;
+            case Expr::Kind::MemberPostfixOperatorCall:
+                storeValue = generateMemberPostfixOperatorCallExpr(
+                        llvm::dyn_cast<MemberPostfixOperatorCallExpr>(storeTemporaryValueExpr->storeValue),
+                        tempValueRef
+                );
+                break;
+            case Expr::Kind::MemberPrefixOperatorCall:
+                storeValue = generateMemberPrefixOperatorCallExpr(
+                        llvm::dyn_cast<MemberPrefixOperatorCallExpr>(storeTemporaryValueExpr->storeValue),
+                        tempValueRef
+                );
+                break;
+            case Expr::Kind::PropertyGetCall:
+                storeValue = generatePropertyGetCallExpr(
+                        llvm::dyn_cast<PropertyGetCallExpr>(storeTemporaryValueExpr->storeValue),
+                        tempValueRef
+                );
+                break;
+            case Expr::Kind::SubscriptOperatorGetCall:
+                storeValue = generateSubscriptOperatorGetCallExpr(
+                        llvm::dyn_cast<SubscriptOperatorGetCallExpr>(storeTemporaryValueExpr->storeValue),
+                        tempValueRef
+                );
+                break;
+            default:
+                printError("[INTERNAL] unsupported expression found in `CodeGen::generateStoreTemporaryValueExpr`!",
+                           storeTemporaryValueExpr->startPosition(), storeTemporaryValueExpr->endPosition());
+        }
+    } else {
+        storeValue = generateExpr(storeTemporaryValueExpr->storeValue);
+    }
+
+    return tempValueRef;
+}
+
 llvm::Value* gulc::CodeGen::generateSubscriptOperatorGetCallExpr(
-        gulc::SubscriptOperatorGetCallExpr const* subscriptOperatorGetCallExpr) {
+        gulc::SubscriptOperatorGetCallExpr const* subscriptOperatorGetCallExpr, llvm::Value* sret) {
     llvm::Function* callFunction = nullptr;
     std::vector<llvm::Value*> arguments;
+
+    if (sret != nullptr) {
+        arguments.push_back(sret);
+    }
 
     switch (subscriptOperatorGetCallExpr->subscriptOperatorReference->getExprKind()) {
         case Expr::Kind::MemberSubscriptOperatorRef: {
@@ -2562,4 +2799,37 @@ llvm::Function* gulc::CodeGen::getCopyConstructorForType(gulc::Type* type) {
     }
 
     return getFunctionFromDecl(structDecl->cachedCopyConstructor);
+}
+
+llvm::Value* gulc::CodeGen::getVTableFunctionPointer(gulc::StructDecl* structDecl, llvm::Value* objectRef,
+                                                     std::size_t vtableIndex, llvm::FunctionType* functionType) {
+    llvm::Type* indexType = llvm::Type::getInt32Ty(*_llvmContext);
+    llvm::Value* index0 = llvm::ConstantInt::get(indexType, 0);
+
+    // If the current struct type isn't the vtable owner we have to cast it to the owner to grab the vtable
+    if (structDecl->vtableOwner != structDecl) {
+        llvm::Type* vtableOwnerType = generateLlvmStructType(structDecl->vtableOwner);
+
+        objectRef = _irBuilder->CreateBitCast(objectRef, llvm::PointerType::getUnqual(vtableOwnerType));
+    }
+
+    llvm::Value* vtablePointer = _irBuilder->CreateStructGEP(nullptr, objectRef, 0);
+    llvm::Value* indexVTableEntry = llvm::ConstantInt::get(indexType, vtableIndex);
+
+    // Load the vtable entry pointer
+    llvm::Value* vtableFunctionPointer = _irBuilder->CreateGEP(nullptr, vtablePointer, index0);
+
+    vtableFunctionPointer = _irBuilder->CreateLoad(vtableFunctionPointer);
+
+    // Cast the vtable entry pointer to the appropriate function pointer type
+    llvm::Type* vtableFunctionType = llvm::PointerType::getUnqual(functionType);
+    vtableFunctionType = llvm::PointerType::getUnqual(vtableFunctionType);
+
+    // This is now a vtable where all function are the type we need...
+    llvm::Value* vtableFunctions = _irBuilder->CreateBitCast(vtableFunctionPointer, vtableFunctionType);
+
+    // This is finally a pointer to the function
+    llvm::Value* finalFunctionPointer = _irBuilder->CreateGEP(nullptr, vtableFunctions, indexVTableEntry);
+
+    return _irBuilder->CreateLoad(finalFunctionPointer);
 }

@@ -107,8 +107,7 @@ namespace gulc {
         InfixOperators infixOperator() const { return _infixOperator; }
 
         InfixOperatorExpr(InfixOperators infixOperator, Expr* leftValue, Expr* rightValue)
-                : Expr(Expr::Kind::InfixOperator),
-                  leftValue(leftValue), rightValue(rightValue), _infixOperator(infixOperator) {}
+                : InfixOperatorExpr(Expr::Kind::InfixOperator, infixOperator, leftValue, rightValue) {}
 
         TextPosition startPosition() const override { return leftValue->startPosition(); }
         TextPosition endPosition() const override { return rightValue->endPosition(); }
@@ -130,6 +129,10 @@ namespace gulc {
 
     protected:
         InfixOperators _infixOperator;
+
+        InfixOperatorExpr(Expr::Kind exprKind, InfixOperators infixOperator, Expr* leftValue, Expr* rightValue)
+                : Expr(exprKind),
+                  leftValue(leftValue), rightValue(rightValue), _infixOperator(infixOperator) {}
 
     };
 }

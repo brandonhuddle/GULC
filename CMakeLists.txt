@@ -204,6 +204,8 @@ add_executable(gulc
         src/ast/exprs/MemberAccessCallExpr.hpp
         src/ast/exprs/MemberFunctionCallExpr.cpp
         src/ast/exprs/MemberFunctionCallExpr.hpp
+        src/ast/exprs/MemberInfixOperatorCallExpr.cpp
+        src/ast/exprs/MemberInfixOperatorCallExpr.hpp
         src/ast/exprs/MemberPostfixOperatorCallExpr.cpp
         src/ast/exprs/MemberPostfixOperatorCallExpr.hpp
         src/ast/exprs/MemberPrefixOperatorCallExpr.cpp
@@ -232,6 +234,8 @@ add_executable(gulc
         src/ast/exprs/RefExpr.hpp
         src/ast/exprs/RValueToInRefExpr.cpp
         src/ast/exprs/RValueToInRefExpr.hpp
+        src/ast/exprs/StoreTemporaryValueExpr.cpp
+        src/ast/exprs/StoreTemporaryValueExpr.hpp
         src/ast/exprs/StructAssignmentOperatorExpr.cpp
         src/ast/exprs/StructAssignmentOperatorExpr.hpp
         src/ast/exprs/SubscriptCallExpr.cpp

@@ -37,17 +37,21 @@ namespace gulc {
         static bool classof(const Expr *expr) { return expr->getExprKind() == Kind::VTableFunctionReference; }
 
         VTableFunctionReferenceExpr(TextPosition startPosition, TextPosition endPosition,
-                                    StructDecl* structDecl, std::size_t vtableIndex)
+                                    StructDecl* structDecl, std::size_t vtableIndex, FunctionDecl* functionDecl)
                 : Expr(Expr::Kind::VTableFunctionReference),
                   _startPosition(startPosition), _endPosition(endPosition),
-                  _structDecl(structDecl), _vtableIndex(vtableIndex) {}
+                  _structDecl(structDecl), _vtableIndex(vtableIndex), _functionDecl(functionDecl) {}
 
         TextPosition startPosition() const override { return _startPosition; }
         TextPosition endPosition() const override { return _endPosition; }
 
+        StructDecl* structDecl() const { return _structDecl; }
+        std::size_t vtableIndex() const { return _vtableIndex; }
+        FunctionDecl* functionDecl() const { return _functionDecl; }
+
         Expr* deepCopy() const override {
             auto result = new VTableFunctionReferenceExpr(_startPosition, _endPosition,
-                                                          _structDecl, _vtableIndex);
+                                                          _structDecl, _vtableIndex, _functionDecl);
             result->valueType = valueType == nullptr ? nullptr : valueType->deepCopy();
             return result;
         }
@@ -64,6 +68,7 @@ namespace gulc {
         StructDecl* _structDecl;
         /// The actual index within the vtable this function was found at.
         std::size_t _vtableIndex;
+        FunctionDecl* _functionDecl;
 
     };
 }

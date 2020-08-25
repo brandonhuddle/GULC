@@ -178,6 +178,8 @@ void gulc::ItaniumMangler::mangleStruct(gulc::StructDecl* structDecl, std::strin
 //        } else
         if (llvm::isa<CallOperatorDecl>(decl)) {
             mangleCallOperator(llvm::dyn_cast<CallOperatorDecl>(decl), "N" + nPrefix, "E");
+        } else if (llvm::isa<OperatorDecl>(decl)) {
+            mangleOperator(llvm::dyn_cast<OperatorDecl>(decl), "N" + nPrefix, "E");
         } else if (llvm::isa<FunctionDecl>(decl)) {
             mangleFunction(llvm::dyn_cast<FunctionDecl>(decl), "N" + nPrefix, "E");
         } else if (llvm::isa<PropertyDecl>(decl)) {
@@ -211,6 +213,8 @@ void gulc::ItaniumMangler::mangleTrait(gulc::TraitDecl* traitDecl, std::string c
 //        } else
         if (llvm::isa<CallOperatorDecl>(decl)) {
             mangleCallOperator(llvm::dyn_cast<CallOperatorDecl>(decl), "N" + nPrefix, "E");
+        } else if (llvm::isa<OperatorDecl>(decl)) {
+            mangleOperator(llvm::dyn_cast<OperatorDecl>(decl), "N" + nPrefix, "E");
         } else if (llvm::isa<FunctionDecl>(decl)) {
             mangleFunction(llvm::dyn_cast<FunctionDecl>(decl), "N" + nPrefix, "E");
         } else if (llvm::isa<PropertyDecl>(decl)) {
@@ -228,6 +232,22 @@ void gulc::ItaniumMangler::mangleCallOperator(gulc::CallOperatorDecl* callOperat
     mangledName += bareFunctionType(callOperatorDecl->parameters());
 
     callOperatorDecl->setMangledName(mangledName);
+}
+
+void gulc::ItaniumMangler::mangleOperator(gulc::OperatorDecl* operatorDecl, std::string const& prefix,
+                                          std::string const& nameSuffix) {
+    // All mangled names start with "_Z"...
+    std::string mangledName = "_Z" + prefix +
+            operatorName(operatorDecl->operatorType(), operatorDecl->operatorIdentifier().name()) + nameSuffix;
+
+    mangledName += bareFunctionType(operatorDecl->parameters());
+
+    operatorDecl->setMangledName(mangledName);
+
+    // TODO: At some point we will need to account for a function that checks the contracts and one that doesn't
+    //       We need that because the compiler will optimize out some contracts, which will require us to move the
+    //       contracts outside of the function. But the default function should handle the contracts to allow calling
+    //       the function from C
 }
 
 void gulc::ItaniumMangler::mangleProperty(gulc::PropertyDecl* propertyDecl, std::string const& prefix,
@@ -427,6 +447,12 @@ std::string gulc::ItaniumMangler::bareFunctionType(std::vector<ParameterDecl*>& 
         // TODO: Should we go the `Ual` route instead? Still use `U` so some tools should be ok but then `al` for
         //       "argument label" then the source name of the argument label. Leading us to: `Ual3arg`?
         result += "U" + sourceName(param->argumentLabel().name());
+
+        if (param->parameterKind() == ParameterDecl::ParameterKind::In) {
+            result+= "U2in";
+        } else if (param->parameterKind() == ParameterDecl::ParameterKind::Out) {
+            result+= "U3out";
+        }
 
         // Parameters that reference template type parameters have to use the template reference strings `T_` and `T{n}_`
 //        if (param->typeTemplateParamNumber > 0) {
