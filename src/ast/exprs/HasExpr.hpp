@@ -19,50 +19,53 @@
 #define GULC_HASEXPR_HPP
 
 #include <ast/Expr.hpp>
-#include <ast/Type.hpp>
+#include <ast/Decl.hpp>
 #include "IdentifierExpr.hpp"
 
 namespace gulc {
+    // TODO: Support:
+    //           T has init(x: i32, y: i32)
+    //           T has func sum(_: []item) -> 12
+    //           T has deinit
+    //           T has const var identity: T
+    //           T has trait Addable
+    //           T has var example: i32
+    //           T has prop test: f32 { get; get ref; set }
+
     /**
-     * Used to check if a type `has` a trait.
-     *
-     * Example:
-     *     Ex has TAddable<Ex, Ex, Ex> // Ex::static operator infix +(left: in Ex, right: in Ex) -> Ex
-     *     Ex has TDivisible<Ex, Ex, Ex> // Ex::static operator infix /(left: in Ex, right: in Ex) -> Ex
-     *     Ex has TToString<Ex> // Ex::static func toString(ex: in Ex) -> Ex
-     *     Ex has TAssignable<Ex> // Ex::static operator infix =(lvalue: inout Ex, right: in Ex)
+     * Used to check if a type `has` a decl or implements trait
      */
     class HasExpr : public Expr {
     public:
         static bool classof(const Expr* expr) { return expr->getExprKind() == Expr::Kind::Has; }
 
         Expr* expr;
-        Type* trait;
+        Decl* decl;
 
-        HasExpr(Expr* expr, Type* trait, TextPosition hasStartPosition, TextPosition hasEndPosition)
+        HasExpr(Expr* expr, Decl* decl, TextPosition hasStartPosition, TextPosition hasEndPosition)
                 : Expr(Expr::Kind::Has),
-                  expr(expr), trait(trait),
+                  expr(expr), decl(decl),
                   _hasStartPosition(hasStartPosition), _hasEndPosition(hasEndPosition) {}
 
         TextPosition startPosition() const override { return expr->startPosition(); }
-        TextPosition endPosition() const override { return trait->endPosition(); }
+        TextPosition endPosition() const override { return decl->endPosition(); }
         TextPosition hasStartPosition() const { return _hasStartPosition; }
         TextPosition hasEndPosition() const { return _hasEndPosition; }
 
         Expr* deepCopy() const override {
-            auto result = new HasExpr(expr->deepCopy(), trait->deepCopy(),
+            auto result = new HasExpr(expr->deepCopy(), decl->deepCopy(),
                                       _hasStartPosition, _hasEndPosition);
             result->valueType = valueType == nullptr ? nullptr : valueType->deepCopy();
             return result;
         }
 
         std::string toString() const override {
-            return expr->toString() + " has " + trait->toString();
+            return expr->toString() + " has " + decl->getPrototypeString();
         }
 
         ~HasExpr() override {
             delete expr;
-            delete trait;
+            delete decl;
         }
 
     protected:

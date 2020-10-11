@@ -51,7 +51,6 @@ namespace gulc {
                              std::move(inheritedTypes), std::move(contracts), std::move(ownedMembers),
                              std::move(constructors), destructor) {}
 
-//        bool isClass() const { return _isClass; }
         Kind structKind() const { return _structKind; }
         std::string structKindName() const {
             switch (_structKind) {
@@ -135,6 +134,16 @@ namespace gulc {
             result->containedInTemplate = containedInTemplate;
             result->containerTemplateType = (containerTemplateType == nullptr ? nullptr : containerTemplateType->deepCopy());
             result->originalDecl = (originalDecl == nullptr ? this : originalDecl);
+            return result;
+        }
+
+        std::string getPrototypeString() const override {
+            std::string result = getDeclModifiersString(_declModifiers);
+
+            if (!result.empty()) result += " ";
+
+            result += structKindName() + " " + _identifier.name();
+
             return result;
         }
 

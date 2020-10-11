@@ -75,6 +75,28 @@ namespace gulc {
             return result;
         }
 
+        std::string getPrototypeString() const override {
+            std::string result = getDeclModifiersString(_declModifiers);
+
+            if (!result.empty()) result += " ";
+
+            result += _argumentLabel.name() + ": ";
+
+            switch (_parameterKind) {
+                case ParameterKind::Val:
+                    result += type->toString();
+                    break;
+                case ParameterKind::In:
+                    result += "in " + type->toString();
+                    break;
+                case ParameterKind::Out:
+                    result += "out " + type->toString();
+                    break;
+            }
+
+            return result;
+        }
+
         ~ParameterDecl() override {
             delete type;
             delete defaultValue;

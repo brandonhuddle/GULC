@@ -57,6 +57,7 @@ namespace gulc {
             TemplateStruct,
             TemplateStructInst,
             Trait,
+            TraitPrototype,
             TemplateTrait,
             TemplateTraitInst,
 
@@ -75,7 +76,9 @@ namespace gulc {
             Variable,
 
             Parameter,
-            TemplateParameter
+            TemplateParameter,
+
+            ImaginaryType
         };
 
         enum class Visibility {
@@ -97,6 +100,7 @@ namespace gulc {
         bool isConstExpr() const { return _isConstExpr; }
 
         virtual Decl* deepCopy() const = 0;
+        virtual std::string getPrototypeString() const = 0;
 
         void setAttributes(std::vector<Attr*> attributes) {
             assert(_attributes.empty());

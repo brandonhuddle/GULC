@@ -30,6 +30,8 @@ namespace gulc {
         void mangleDecl(StructDecl* structDecl) override;
         void mangleDecl(TraitDecl* traitDecl) override;
         void mangleDecl(NamespaceDecl* namespaceDecl) override;
+        void mangleDecl(TemplateStructDecl* templateStructDecl) override;
+        void mangleDecl(TemplateTraitDecl* templateTraitDecl) override;
 
         void mangle(FunctionDecl* functionDecl) override;
         void mangle(VariableDecl* variableDecl) override;
@@ -38,18 +40,33 @@ namespace gulc {
         void mangle(TraitDecl* traitDecl) override;
         void mangle(CallOperatorDecl* callOperatorDecl) override;
         void mangle(PropertyDecl* propertyDecl) override;
+        void mangle(TemplateStructDecl* templateStructDecl) override;
+        void mangle(TemplateTraitDecl* templateTraitDecl) override;
+        void mangle(TemplateFunctionDecl* templateFunctionDecl) override;
 
     private:
         void mangleDeclEnum(EnumDecl* enumDecl, std::string const& prefix, std::string const& nameSuffix);
         void mangleDeclStruct(StructDecl* structDecl, std::string const& prefix, std::string const& nameSuffix);
         void mangleDeclTrait(TraitDecl* traitDecl, std::string const& prefix, std::string const& nameSuffix);
         void mangleDeclNamespace(NamespaceDecl* namespaceDecl, std::string const& prefix);
+        void mangleDeclTemplateStruct(TemplateStructDecl* templateStructDecl, std::string const& prefix,
+                                      std::string const& nameSuffix);
+        void mangleDeclTemplateTrait(TemplateTraitDecl* templateTraitDecl, std::string const& prefix,
+                                     std::string const& nameSuffix);
+        void mangleDeclTemplateStructInst(TemplateStructInstDecl* templateStructInstDecl, std::string const& prefix,
+                                          std::string const& nameSuffix);
+        void mangleDeclTemplateTraitInst(TemplateTraitInstDecl* templateTraitInstDecl, std::string const& prefix,
+                                         std::string const& nameSuffix);
 
         void mangleFunction(FunctionDecl* functionDecl, std::string const& prefix, std::string const& nameSuffix);
+        void mangleTemplateFunction(TemplateFunctionDecl* templateFunctionDecl, std::string const& prefix,
+                                    std::string const& nameSuffix);
         void mangleVariable(VariableDecl* variableDecl, std::string const& prefix, std::string const& nameSuffix);
         void mangleNamespace(NamespaceDecl* namespaceDecl, std::string const& prefix);
         void mangleStruct(StructDecl* structDecl, std::string const& prefix);
         void mangleTrait(TraitDecl* traitDecl, std::string const& prefix);
+        void mangleTemplateStruct(TemplateStructDecl* templateStructDecl, std::string const& prefix);
+        void mangleTemplateTrait(TemplateTraitDecl* templateTraitDecl, std::string const& prefix);
         void mangleCallOperator(CallOperatorDecl* callOperatorDecl, std::string const& prefix,
                                 std::string const& nameSuffix);
         void mangleOperator(OperatorDecl* operatorDecl, std::string const& prefix, std::string const& nameSuffix);
@@ -73,6 +90,8 @@ namespace gulc {
         std::string unqualifiedName(VariableDecl* variableDecl);
 
         std::string sourceName(std::string const& s);
+        std::string sourceName(StructDecl* structDecl);
+        std::string sourceName(TraitDecl* traitDecl);
         std::string bareFunctionType(std::vector<ParameterDecl*>& params);
         std::string typeName(gulc::Type* type);
 

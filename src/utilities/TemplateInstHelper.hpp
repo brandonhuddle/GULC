@@ -23,7 +23,7 @@
 #include <ast/decls/VariableDecl.hpp>
 #include <ast/stmts/CaseStmt.hpp>
 #include <ast/stmts/CatchStmt.hpp>
-#include <ast/stmts/DoWhileStmt.hpp>
+#include <ast/stmts/RepeatWhileStmt.hpp>
 #include <ast/stmts/ForStmt.hpp>
 #include <ast/stmts/IfStmt.hpp>
 #include <ast/stmts/LabeledStmt.hpp>
@@ -96,21 +96,21 @@ namespace gulc {
         Type* _currentContainerTemplateType;
 
         void instantiateAttr(Attr* attr) const;
-        void instantiateCont(Cont* cont) const;
-        void instantiateType(Type*& type) const;
+        void instantiateCont(Cont* cont);
+        void instantiateType(Type*& type);
         void instantiateDecl(Decl* decl);
-        void instantiateStmt(Stmt* stmt) const;
-        void instantiateExpr(Expr* expr) const;
+        void instantiateStmt(Stmt* stmt);
+        void instantiateExpr(Expr* expr);
 
         void instantiateCallOperatorDecl(CallOperatorDecl* callOperatorDecl);
         void instantiateConstructorDecl(ConstructorDecl* constructorDecl);
         void instantiateDestructorDecl(DestructorDecl* destructorDecl);
-        void instantiateEnumDecl(EnumDecl* enumDecl) const;
+        void instantiateEnumDecl(EnumDecl* enumDecl);
         void instantiateFunctionDecl(FunctionDecl* functionDecl);
 //        void instantiateImportDecl(ImportDecl* importDecl) const;
 //        void instantiateNamespaceDecl(NamespaceDecl* namespaceDecl) const;
         void instantiateOperatorDecl(OperatorDecl* operatorDecl);
-        void instantiateParameterDecl(ParameterDecl* parameterDecl) const;
+        void instantiateParameterDecl(ParameterDecl* parameterDecl);
         void instantiatePropertyDecl(PropertyDecl* propertyDecl);
         void instantiatePropertyGetDecl(PropertyGetDecl* propertyGetDecl);
         void instantiatePropertySetDecl(PropertySetDecl* propertySetDecl);
@@ -119,49 +119,49 @@ namespace gulc {
         void instantiateSubscriptOperatorGetDecl(SubscriptOperatorGetDecl* subscriptOperatorGetDecl);
         void instantiateSubscriptOperatorSetDecl(SubscriptOperatorSetDecl* subscriptOperatorSetDecl);
         void instantiateTemplateFunctionDecl(TemplateFunctionDecl* templateFunctionDecl);
-        void instantiateTemplateParameterDecl(TemplateParameterDecl* templateParameterDecl) const;
+        void instantiateTemplateParameterDecl(TemplateParameterDecl* templateParameterDecl);
         void instantiateTemplateStructDecl(TemplateStructDecl* templateStructDecl);
         void instantiateTemplateStructInstDecl(TemplateStructInstDecl* templateStructInstDecl);
         void instantiateTemplateTraitDecl(TemplateTraitDecl* templateTraitDecl);
         void instantiateTemplateTraitInstDecl(TemplateTraitInstDecl* templateTraitInstDecl);
         void instantiateTraitDecl(TraitDecl* traitDecl, bool setTemplateContainer);
-        void instantiateTypeAliasDecl(TypeAliasDecl* typeAliasDecl) const;
-        void instantiateVariableDecl(VariableDecl* variableDecl) const;
+        void instantiateTypeAliasDecl(TypeAliasDecl* typeAliasDecl);
+        void instantiateVariableDecl(VariableDecl* variableDecl);
 
 //        void instantiateBreakStmt(BreakStmt* breakStmt) const;
-        void instantiateCaseStmt(CaseStmt* caseStmt) const;
-        void instantiateCatchStmt(CatchStmt* catchStmt) const;
-        void instantiateCompoundStmt(CompoundStmt* compoundStmt) const;
+        void instantiateCaseStmt(CaseStmt* caseStmt);
+        void instantiateCatchStmt(CatchStmt* catchStmt);
+        void instantiateCompoundStmt(CompoundStmt* compoundStmt);
 //        void instantiateContinueStmt(ContinueStmt* continueStmt) const;
-        void instantiateDoCatchStmt(DoCatchStmt* doCatchStmt) const;
-        void instantiateDoWhileStmt(DoWhileStmt* doWhileStmt) const;
-        void instantiateForStmt(ForStmt* forStmt) const;
+        void instantiateDoCatchStmt(DoCatchStmt* doCatchStmt);
+        void instantiateForStmt(ForStmt* forStmt);
 //        void instantiateGotoStmt(GotoStmt* gotoStmt) const;
-        void instantiateIfStmt(IfStmt* ifStmt) const;
-        void instantiateLabeledStmt(LabeledStmt* labeledStmt) const;
-        void instantiateReturnStmt(ReturnStmt* returnStmt) const;
-        void instantiateSwitchStmt(SwitchStmt* switchStmt) const;
-        void instantiateWhileStmt(WhileStmt* whileStmt) const;
+        void instantiateIfStmt(IfStmt* ifStmt);
+        void instantiateLabeledStmt(LabeledStmt* labeledStmt);
+        void instantiateRepeatWhileStmt(RepeatWhileStmt* repeatWhileStmt);
+        void instantiateReturnStmt(ReturnStmt* returnStmt);
+        void instantiateSwitchStmt(SwitchStmt* switchStmt);
+        void instantiateWhileStmt(WhileStmt* whileStmt);
 
-        void instantiateArrayLiteralExpr(ArrayLiteralExpr* arrayLiteralExpr) const;
-        void instantiateAsExpr(AsExpr* asExpr) const;
-        void instantiateAssignmentOperatorExpr(AssignmentOperatorExpr* assignmentOperatorExpr) const;
-        void instantiateCheckExtendsTypeExpr(CheckExtendsTypeExpr* checkExtendsTypeExpr) const;
-        void instantiateFunctionCallExpr(FunctionCallExpr* functionCallExpr) const;
-        void instantiateHasExpr(HasExpr* hasExpr) const;
-        void instantiateIdentifierExpr(IdentifierExpr* identifierExpr) const;
-        void instantiateInfixOperatorExpr(InfixOperatorExpr* infixOperatorExpr) const;
-        void instantiateIsExpr(IsExpr* isExpr) const;
-        void instantiateLabeledArgumentExpr(LabeledArgumentExpr* labeledArgumentExpr) const;
-        void instantiateMemberAccessCallExpr(MemberAccessCallExpr* memberAccessCallExpr) const;
-        void instantiateParenExpr(ParenExpr* parenExpr) const;
-        void instantiatePostfixOperatorExpr(PostfixOperatorExpr* postfixOperatorExpr) const;
-        void instantiatePrefixOperatorExpr(PrefixOperatorExpr* prefixOperatorExpr) const;
-        void instantiateSubscriptCallExpr(SubscriptCallExpr* subscriptCallExpr) const;
-        void instantiateTernaryExpr(TernaryExpr* ternaryExpr) const;
-        void instantiateTypeExpr(TypeExpr* typeExpr) const;
+        void instantiateArrayLiteralExpr(ArrayLiteralExpr* arrayLiteralExpr);
+        void instantiateAsExpr(AsExpr* asExpr);
+        void instantiateAssignmentOperatorExpr(AssignmentOperatorExpr* assignmentOperatorExpr);
+        void instantiateCheckExtendsTypeExpr(CheckExtendsTypeExpr* checkExtendsTypeExpr);
+        void instantiateFunctionCallExpr(FunctionCallExpr* functionCallExpr);
+        void instantiateHasExpr(HasExpr* hasExpr);
+        void instantiateIdentifierExpr(IdentifierExpr* identifierExpr);
+        void instantiateInfixOperatorExpr(InfixOperatorExpr* infixOperatorExpr);
+        void instantiateIsExpr(IsExpr* isExpr);
+        void instantiateLabeledArgumentExpr(LabeledArgumentExpr* labeledArgumentExpr);
+        void instantiateMemberAccessCallExpr(MemberAccessCallExpr* memberAccessCallExpr);
+        void instantiateParenExpr(ParenExpr* parenExpr);
+        void instantiatePostfixOperatorExpr(PostfixOperatorExpr* postfixOperatorExpr);
+        void instantiatePrefixOperatorExpr(PrefixOperatorExpr* prefixOperatorExpr);
+        void instantiateSubscriptCallExpr(SubscriptCallExpr* subscriptCallExpr);
+        void instantiateTernaryExpr(TernaryExpr* ternaryExpr);
+        void instantiateTypeExpr(TypeExpr* typeExpr);
 //        void instantiateValueLiteralExpr(ValueLiteralExpr* valueLiteralExpr) const;
-        void instantiateVariableDeclExpr(VariableDeclExpr* variableDeclExpr) const;
+        void instantiateVariableDeclExpr(VariableDeclExpr* variableDeclExpr);
 
     };
 }

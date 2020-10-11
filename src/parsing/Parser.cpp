@@ -46,6 +46,8 @@
 #include <ast/exprs/CheckExtendsTypeExpr.hpp>
 #include <ast/exprs/TryExpr.hpp>
 #include <ast/exprs/RefExpr.hpp>
+#include <ast/decls/TraitPrototypeDecl.hpp>
+#include <ast/stmts/DoStmt.hpp>
 #include "Parser.hpp"
 
 using namespace gulc;
@@ -310,6 +312,11 @@ Type* Parser::parseType() {
 
             return new DimensionType(Type::Qualifier::Unassigned, parseType(), dimensions);
         }
+        case TokenType::LPAREN: {
+            printError("tuple types not yet supported!",
+                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
+            return nullptr;
+        }
         case TokenType::SYMBOL: {
             std::vector<Identifier> namespacePath;
             Identifier typeIdentifier(parseIdentifier());
@@ -545,22 +552,22 @@ Decl* Parser::parseDecl() {
             return parseTypeSuffixDecl(attributes, visibility, isConst, declModifiers, startPosition);
 
         case TokenType::FUNC:
-            return parseFunctionDecl(attributes, visibility, isConst, declModifiers, startPosition);
+            return parseFunctionDecl(attributes, visibility, isConst, declModifiers, startPosition, false);
         case TokenType::INIT:
-            return parseConstructorDecl(attributes, visibility, isConst, declModifiers, startPosition);
+            return parseConstructorDecl(attributes, visibility, isConst, declModifiers, startPosition, false);
         case TokenType::DEINIT:
-            return parseDestructorDecl(attributes, visibility, isConst, declModifiers, startPosition);
+            return parseDestructorDecl(attributes, visibility, isConst, declModifiers, startPosition, false);
         case TokenType::CALL:
             // NOTE: Functors/functionoids cannot have templates parameters. This would potentially lead to confusing
             //       syntax
-            return parseCallOperatorDecl(attributes, visibility, isConst, declModifiers, startPosition);
+            return parseCallOperatorDecl(attributes, visibility, isConst, declModifiers, startPosition, false);
         case TokenType::SUBSCRIPT:
-            return parseSubscriptOperator(attributes, visibility, isConst, startPosition, declModifiers);
+            return parseSubscriptOperator(attributes, visibility, isConst, startPosition, declModifiers, false);
         case TokenType::PROP:
             // NOTE: Properties shouldn't be able to be templates, throwing random `variable.prop<int> = 21` looks weird
-            return parsePropertyDecl(attributes, visibility, isConst, declModifiers, startPosition);
+            return parsePropertyDecl(attributes, visibility, isConst, declModifiers, startPosition, false);
         case TokenType::OPERATOR:
-            return parseOperatorDecl(attributes, visibility, isConst, declModifiers, startPosition);
+            return parseOperatorDecl(attributes, visibility, isConst, declModifiers, startPosition, false);
         case TokenType::STRUCT:
             return parseStructDecl(attributes, visibility, isConst, startPosition, declModifiers,
                                    StructDecl::Kind::Struct);
@@ -585,7 +592,7 @@ Decl* Parser::parseDecl() {
             if ((declModifiers & DeclModifiers::Virtual) == DeclModifiers::Virtual) printError("enum case cannot be `virtual`!", startPosition, _lexer.peekEndPosition());
             if ((declModifiers & DeclModifiers::Override) == DeclModifiers::Override) printError("enum case cannot be `override`!", startPosition, _lexer.peekEndPosition());
 
-            return parseEnumConstDecl(attributes, startPosition);
+            return parseEnumConstDecl(attributes, startPosition, false);
         case TokenType::EXTENSION:
             return parseExtensionDecl(attributes, visibility, isConst, declModifiers, startPosition);
 
@@ -597,7 +604,7 @@ Decl* Parser::parseDecl() {
             _lexer.consumeType(TokenType::VAR);
 
             VariableDecl* result = parseVariableDecl(attributes, visibility, isConst, startPosition,
-                                                     declModifiers);
+                                                     declModifiers, false);
 
             // Semicolons are now optional, we should do a validation check to make sure statements and declarations
             // aren't all on the same line
@@ -625,9 +632,96 @@ Decl* Parser::parseDecl() {
     return nullptr;
 }
 
+Decl* Parser::parsePrototypeDecl() {
+    // TODO: Allow:
+    //        * Const
+    //        * static
+    //        * mut
+    //        * virtual (NOT `virtual` or `override`)
+    // TODO: Should we allow attributes? `parsePrototypeDecl` will only really be used by the `has` operator, which I'm
+    //       not sure if it should be able to specify attributes.
+    if (_lexer.peekType() == TokenType::PUBLIC || _lexer.peekType() == TokenType::PRIVATE ||
+        _lexer.peekType() == TokenType::PROTECTED || _lexer.peekType() == TokenType::INTERNAL) {
+        printError("declaration prototypes cannot have visibility modifiers in this context!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    bool isConst = false;
+    DeclModifiers declModifiers = parseDeclModifiers(&isConst);
+
+    if (declModifiers != DeclModifiers::None && declModifiers != DeclModifiers::Static &&
+        declModifiers != DeclModifiers::Mut && declModifiers != DeclModifiers::Virtual) {
+        printError("unsupported decl modifier on prototype!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    // We need to make sure the declaration stores that it is a prototype.
+    declModifiers = declModifiers | DeclModifiers::Prototype;
+
+    TextPosition startPosition = _lexer.peekStartPosition();
+
+    switch (_lexer.peekType()) {
+        case TokenType::TRAIT: {
+            _lexer.consumeType(TokenType::TRAIT);
+
+            Type* traitType = parseType();
+
+            return new TraitPrototypeDecl(_fileID, {}, traitType, startPosition, traitType->endPosition());
+        }
+        case TokenType::VAR: {
+            if ((declModifiers & DeclModifiers::Virtual) == DeclModifiers::Virtual) {
+                printError("`var` declarations cannot be `virtual`!",
+                           _lexer.peekStartPosition(), _lexer.peekEndPosition());
+            }
+
+            _lexer.consumeType(TokenType::VAR);
+            return parseVariableDecl({}, Decl::Visibility::Unassigned, isConst, startPosition, declModifiers, true);
+        }
+        case TokenType::PROP: {
+            return parsePropertyDecl({}, Decl::Visibility::Unassigned, isConst, declModifiers, startPosition, true);
+        }
+        case TokenType::SUBSCRIPT: {
+            return parseSubscriptOperator({}, Decl::Visibility::Unassigned, isConst, startPosition, declModifiers, true);
+        }
+        case TokenType::FUNC: {
+            return parseFunctionDecl({}, Decl::Visibility::Unassigned, isConst, declModifiers, startPosition, true);
+        }
+        case TokenType::OPERATOR: {
+            return parseOperatorDecl({}, Decl::Visibility::Unassigned, isConst, declModifiers, startPosition, true);
+        }
+        case TokenType::CALL: {
+            return parseCallOperatorDecl({}, Decl::Visibility::Unassigned, isConst, declModifiers, startPosition, true);
+        }
+        case TokenType::INIT: {
+            return parseConstructorDecl({}, Decl::Visibility::Unassigned, isConst, declModifiers, startPosition, true);
+        }
+        case TokenType::DEINIT: {
+            return parseDestructorDecl({}, Decl::Visibility::Unassigned, isConst,declModifiers, startPosition, true);
+        }
+        case TokenType::CASE: {
+            if ((declModifiers & DeclModifiers::Virtual) == DeclModifiers::Virtual) {
+                printError("enum `case` declarations cannot be `virtual`!",
+                           _lexer.peekStartPosition(), _lexer.peekEndPosition());
+            } else if ((declModifiers & DeclModifiers::Static) == DeclModifiers::Static) {
+                printError("enum `case` declarations cannot be `static`!",
+                           _lexer.peekStartPosition(), _lexer.peekEndPosition());
+            } else if (isConst) {
+                printError("enum `case` declarations cannot be marked `const`!",
+                           _lexer.peekStartPosition(), _lexer.peekEndPosition());
+            }
+
+            return parseEnumConstDecl({}, startPosition, true);
+        }
+        default:
+            printError("unexpected token '" + _lexer.peekToken().currentSymbol + "', expected prototype declaration!",
+                       _lexer.peekToken().startPosition, _lexer.peekToken().endPosition);
+            return nullptr;
+    }
+}
+
 CallOperatorDecl* Parser::parseCallOperatorDecl(std::vector<Attr*> attributes, Decl::Visibility visibility,
                                                 bool isConstExpr, DeclModifiers declModifiers,
-                                                TextPosition startPosition) {
+                                                TextPosition startPosition, bool parsePrototype) {
     Identifier callKeyword(_lexer.peekStartPosition(), _lexer.peekEndPosition(), "call");
 
     if (!_lexer.consumeType(TokenType::CALL)) {
@@ -661,7 +755,7 @@ CallOperatorDecl* Parser::parseCallOperatorDecl(std::vector<Attr*> attributes, D
 
     // Semicolons are now optional. Instead of checking for `;` to make it a prototype we now just check if there isn't
     // an `{` at the end. If there isn't then it is a prototype and we continue parsing.
-    if (_lexer.peekType() != TokenType::LCURLY) {
+    if (parsePrototype || _lexer.peekType() != TokenType::LCURLY) {
         // If there isn't `{` then the function is marked as a `prototype`, mainly used for `trait` parsing
         body = new CompoundStmt({}, {}, {});
         declModifiers |= DeclModifiers::Prototype;
@@ -674,8 +768,8 @@ CallOperatorDecl* Parser::parseCallOperatorDecl(std::vector<Attr*> attributes, D
 }
 
 ConstructorDecl* Parser::parseConstructorDecl(std::vector<Attr*> attributes, Decl::Visibility visibility,
-                                              bool isConstExpr,
-                                              DeclModifiers declModifiers, TextPosition startPosition) {
+                                              bool isConstExpr, DeclModifiers declModifiers,
+                                              TextPosition startPosition, bool parsePrototype) {
     Identifier initKeyword(_lexer.peekStartPosition(), _lexer.peekEndPosition(), "init");
     ConstructorType constructorType = ConstructorType::Normal;
 
@@ -757,7 +851,7 @@ ConstructorDecl* Parser::parseConstructorDecl(std::vector<Attr*> attributes, Dec
 
     // Semicolons are now optional. Instead of checking for `;` to make it a prototype we now just check if there isn't
     // an `{` at the end. If there isn't then it is a prototype and we continue parsing.
-    if (_lexer.peekType() != TokenType::LCURLY) {
+    if (parsePrototype || _lexer.peekType() != TokenType::LCURLY) {
         // If there isn't `{` then the function is marked as a `prototype`, mainly used for `trait` parsing
         body = new CompoundStmt({}, {}, {});
         declModifiers |= DeclModifiers::Prototype;
@@ -771,8 +865,8 @@ ConstructorDecl* Parser::parseConstructorDecl(std::vector<Attr*> attributes, Dec
 }
 
 DestructorDecl* Parser::parseDestructorDecl(std::vector<Attr*> attributes, Decl::Visibility visibility,
-                                            bool isConstExpr,
-                                            DeclModifiers declModifiers, TextPosition startPosition) {
+                                            bool isConstExpr, DeclModifiers declModifiers,
+                                            TextPosition startPosition, bool parsePrototype) {
     Identifier deinitKeyword(_lexer.peekStartPosition(), _lexer.peekEndPosition(), "deinit");
 
     if (!_lexer.consumeType(TokenType::DEINIT)) {
@@ -802,7 +896,7 @@ DestructorDecl* Parser::parseDestructorDecl(std::vector<Attr*> attributes, Decl:
 
     // Semicolons are now optional. Instead of checking for `;` to make it a prototype we now just check if there isn't
     // an `{` at the end. If there isn't then it is a prototype and we continue parsing.
-    if (_lexer.peekType() != TokenType::LCURLY) {
+    if (parsePrototype || _lexer.peekType() != TokenType::LCURLY) {
         // If there isn't `{` then the function is marked as a `prototype`, mainly used for `trait` parsing
         body = new CompoundStmt({}, {}, {});
         declModifiers |= DeclModifiers::Prototype;
@@ -874,7 +968,8 @@ EnumDecl* Parser::parseEnumDecl(std::vector<Attr*> attributes, Decl::Visibility 
                         constType, enumConsts, ownedMembers);
 }
 
-EnumConstDecl* Parser::parseEnumConstDecl(std::vector<Attr*> attributes, TextPosition startPosition) {
+EnumConstDecl* Parser::parseEnumConstDecl(std::vector<Attr*> attributes, TextPosition startPosition,
+                                          bool parsePrototype) {
     if (!_lexer.consumeType(TokenType::CASE)) {
         printError("expected `case` after attributes, found `" + _lexer.peekCurrentSymbol() + "`!",
                    _lexer.peekStartPosition(), _lexer.peekEndPosition());
@@ -890,7 +985,9 @@ EnumConstDecl* Parser::parseEnumConstDecl(std::vector<Attr*> attributes, TextPos
     TextPosition enumConstEndPosition = enumConstIdentifier.endPosition();
     Expr* enumConstValue = nullptr;
 
-    if (_lexer.consumeType(TokenType::EQUALS)) {
+    // We only parse the value if `parsePrototype` is false, this is mainly used to improve error handling if someone
+    // types `t has case Example = false` instead of `t has case Example == false`
+    if (!parsePrototype && _lexer.consumeType(TokenType::EQUALS)) {
         enumConstValue = parseExpr();
         enumConstEndPosition = enumConstValue->endPosition();
     }
@@ -975,7 +1072,7 @@ ExtensionDecl* Parser::parseExtensionDecl(std::vector<Attr*> attributes, Decl::V
 }
 
 FunctionDecl* Parser::parseFunctionDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
-                                        DeclModifiers declModifiers, TextPosition startPosition) {
+                                        DeclModifiers declModifiers, TextPosition startPosition, bool parsePrototype) {
     if (!_lexer.consumeType(TokenType::FUNC)) {
         printError("expected `func`, found `" + _lexer.peekCurrentSymbol() + "`!",
                    _lexer.peekStartPosition(), _lexer.peekEndPosition());
@@ -1004,7 +1101,8 @@ FunctionDecl* Parser::parseFunctionDecl(std::vector<Attr*> attributes, Decl::Vis
 
     // Semicolons are now optional. Instead of checking for `;` to make it a prototype we now just check if there isn't
     // an `{` at the end. If there isn't then it is a prototype and we continue parsing.
-    if (_lexer.peekType() != TokenType::LCURLY) {
+    // Or it can be forced into being a prototype with `parsePrototype`
+    if (parsePrototype || _lexer.peekType() != TokenType::LCURLY) {
         // If there isn't `{` then the function is marked as a `prototype`, mainly used for `trait` parsing
         body = new CompoundStmt({}, {}, {});
         declModifiers |= DeclModifiers::Prototype;
@@ -1109,7 +1207,7 @@ NamespaceDecl* Parser::parseNamespaceDecl(std::vector<Attr*> attributes) {
 }
 
 OperatorDecl* Parser::parseOperatorDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
-                                        DeclModifiers declModifiers, TextPosition startPosition) {
+                                        DeclModifiers declModifiers, TextPosition startPosition, bool parsePrototype) {
     if (!_lexer.consumeType(TokenType::OPERATOR)) {
         printError("expected `operator`, found `" + _lexer.peekCurrentSymbol() + "`!",
                    _lexer.peekStartPosition(), _lexer.peekEndPosition());
@@ -1153,7 +1251,8 @@ OperatorDecl* Parser::parseOperatorDecl(std::vector<Attr*> attributes, Decl::Vis
 
     // Semicolons are now optional. Instead of checking for `;` to make it a prototype we now just check if there isn't
     // an `{` at the end. If there isn't then it is a prototype and we continue parsing.
-    if (_lexer.peekType() != TokenType::LCURLY) {
+    // Or it can be forced into being a prototype with `parsePrototype`
+    if (parsePrototype || _lexer.peekType() != TokenType::LCURLY) {
         // If there isn't `{` then the function is marked as a `prototype`, mainly used for `trait` parsing
         body = new CompoundStmt({}, {}, {});
         declModifiers |= DeclModifiers::Prototype;
@@ -1166,7 +1265,6 @@ OperatorDecl* Parser::parseOperatorDecl(std::vector<Attr*> attributes, Decl::Vis
 }
 
 std::vector<TemplateParameterDecl*> Parser::parseTemplateParameters() {
-    // TODO: Support default values
     if (!_lexer.consumeType(TokenType::LESS)) {
         printError("expected beginning `<` for template parameters, found `" + _lexer.peekCurrentSymbol() + "`!",
                    _lexer.peekStartPosition(), _lexer.peekEndPosition());
@@ -1183,32 +1281,43 @@ std::vector<TemplateParameterDecl*> Parser::parseTemplateParameters() {
                        _lexer.peekStartPosition(), _lexer.peekEndPosition());
         }
 
-        if (_lexer.consumeType(TokenType::CONST)) {
-            Identifier constIdentifier = parseIdentifier();
+        TextPosition templateParamStartPosition = _lexer.peekStartPosition();
+        TemplateParameterDecl::TemplateParameterKind templateParameterKind =
+                TemplateParameterDecl::TemplateParameterKind::Typename;
+        Type* type = nullptr;
+        Expr* defaultValue = nullptr;
 
-            if (!_lexer.consumeType(TokenType::COLON)) {
+        if (_lexer.consumeType(TokenType::CONST)) {
+            templateParameterKind = TemplateParameterDecl::TemplateParameterKind::Const;
+        }
+
+        Identifier parameterIdentifier = parseIdentifier();
+        TextPosition templateParamEndPosition = parameterIdentifier.endPosition();
+
+        if (_lexer.consumeType(TokenType::COLON)) {
+            type = parseType();
+            templateParamEndPosition = type->endPosition();
+        } else {
+            // If a `typename` is missing a `:` for type specialization that's OK, only `const` _requires_ a type
+            if (templateParameterKind == TemplateParameterDecl::TemplateParameterKind::Const) {
                 printError("template const parameters MUST have a type!",
                            _lexer.peekStartPosition(), _lexer.peekEndPosition());
             }
-
-            Type* type = parseType();
-
-            templateParameters.push_back(new TemplateParameterDecl(_fileID, {}, constIdentifier, type,
-                                                                   constIdentifier.startPosition(),
-                                                                   type->endPosition()));
-        } else {
-            Identifier typenameIdentifier = parseIdentifier();
-
-            if (_lexer.peekType() == TokenType::COLON) {
-                printError("template typename parameters cannot have types! (did you mean `const " +
-                           typenameIdentifier.name() + ": ...` instead?)",
-                           _lexer.peekStartPosition(), _lexer.peekEndPosition());
-            }
-
-            templateParameters.push_back(new TemplateParameterDecl(_fileID, {}, typenameIdentifier,
-                                                                   typenameIdentifier.startPosition(),
-                                                                   typenameIdentifier.endPosition()));
         }
+
+        if (_lexer.consumeType(TokenType::EQUALS)) {
+            // We call `parseIdentifierOrLiteralExpr` instead of `parseExpr` for two reasons:
+            //  1. I don't want people using `>` within the default value unless it is nested within a `ParenExpr`
+            //  2. By default you really only should be using either `const var` calls or literal values, anything else
+            //     should be rare.
+            defaultValue = parseIdentifierOrLiteralExpr();
+            templateParamEndPosition = defaultValue->endPosition();
+        }
+
+        templateParameters.push_back(
+                new TemplateParameterDecl(_fileID, {}, templateParameterKind,
+                                          parameterIdentifier, type, defaultValue,
+                                          templateParamStartPosition, templateParamEndPosition));
 
         if (!_lexer.consumeType(TokenType::COMMA)) {
             break;
@@ -1331,7 +1440,7 @@ std::vector<ParameterDecl*> Parser::parseParameters(TextPosition* paramsEndPosit
 }
 
 PropertyDecl* Parser::parsePropertyDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
-                                        DeclModifiers declModifiers, TextPosition startPosition) {
+                                        DeclModifiers declModifiers, TextPosition startPosition, bool parsePrototype) {
     if (!_lexer.consumeType(TokenType::PROP)) {
         printError("expected `prop`, found `" + _lexer.peekCurrentSymbol() + "`!",
                    _lexer.peekStartPosition(), _lexer.peekEndPosition());
@@ -1353,8 +1462,21 @@ PropertyDecl* Parser::parsePropertyDecl(std::vector<Attr*> attributes, Decl::Vis
                    _lexer.peekStartPosition(), _lexer.peekEndPosition());
     }
 
+    // We use these for detecting multiple `get` or `set` on the same line without `;` separating them
+    bool isFirst = true;
+    TextPosition previousEndPosition = TextPosition(0, 0, 0);
+
     while (_lexer.peekType() != TokenType::RCURLY && _lexer.peekType() != TokenType::ENDOFFILE) {
         TextPosition getSetStartPosition = _lexer.peekStartPosition();
+
+        if (!isFirst) {
+            if (previousEndPosition.line == getSetStartPosition.line) {
+                printError("multiple `get` and `set` declarations can only be on the same line when separated by `;`!",
+                           _lexer.peekStartPosition(), _lexer.peekEndPosition());
+            }
+        } else {
+            isFirst = false;
+        }
 
         std::vector<Attr*> getSetAttributes = parseAttrs();
         Decl::Visibility getSetVisibility = parseDeclVisibility();
@@ -1389,7 +1511,8 @@ PropertyDecl* Parser::parsePropertyDecl(std::vector<Attr*> attributes, Decl::Vis
 
             // Semicolons are now optional. Instead of checking for `;` to make it a prototype we now just check if there isn't
             // an `{` at the end. If there isn't then it is a prototype and we continue parsing.
-            if (_lexer.peekType() != TokenType::LCURLY) {
+            // `parsePrototype` can be used to force us to parse a prototype
+            if (parsePrototype || _lexer.peekType() != TokenType::LCURLY) {
                 // If there isn't `{` then the function is marked as a `prototype`, mainly used for `trait` parsing
                 getterBody = new CompoundStmt({}, {}, {});
                 declModifiers |= DeclModifiers::Prototype;
@@ -1400,13 +1523,15 @@ PropertyDecl* Parser::parsePropertyDecl(std::vector<Attr*> attributes, Decl::Vis
             getters.push_back(new PropertyGetDecl(_fileID, getSetAttributes, getSetVisibility, isConst,
                                                   getIdentifier, getSetModifiers, getReturnType, contracts, getterBody,
                                                   getSetStartPosition, getEndPosition, getResultType));
+
+            previousEndPosition = getEndPosition;
         } else if (getOrSet == "set") {
             if (setter != nullptr) {
                 printError("duplicate `set` found! (there can only be one `set` body per property)",
                            _lexer.peekStartPosition(), _lexer.peekEndPosition());
             }
 
-            Identifier setIdentifier(_lexer.peekStartPosition(), _lexer.peekEndPosition(), "get");
+            Identifier setIdentifier(_lexer.peekStartPosition(), _lexer.peekEndPosition(), "set");
             TextPosition setEndPosition = _lexer.peekEndPosition();
 
             _lexer.consumeType(TokenType::SYMBOL);
@@ -1416,7 +1541,8 @@ PropertyDecl* Parser::parsePropertyDecl(std::vector<Attr*> attributes, Decl::Vis
 
             // Semicolons are now optional. Instead of checking for `;` to make it a prototype we now just check if there isn't
             // an `{` at the end. If there isn't then it is a prototype and we continue parsing.
-            if (_lexer.peekType() != TokenType::LCURLY) {
+            // `parsePrototype` can be used to force us to parse a prototype
+            if (parsePrototype || _lexer.peekType() != TokenType::LCURLY) {
                 // If there isn't `{` then the function is marked as a `prototype`, mainly used for `trait` parsing
                 setterBody = new CompoundStmt({}, {}, {});
                 declModifiers |= DeclModifiers::Prototype;
@@ -1427,6 +1553,8 @@ PropertyDecl* Parser::parsePropertyDecl(std::vector<Attr*> attributes, Decl::Vis
             setter = new PropertySetDecl(_fileID, getSetAttributes, getSetVisibility, isConstExpr, setIdentifier,
                                          getSetModifiers, propertyType->deepCopy(), contracts, setterBody,
                                          getSetStartPosition, setEndPosition);
+
+            previousEndPosition = setEndPosition;
         } else {
             printError("unknown keyword `" + getOrSet + "`, expected `get` or `set`!",
                        _lexer.peekStartPosition(), _lexer.peekEndPosition());
@@ -1437,6 +1565,15 @@ PropertyDecl* Parser::parsePropertyDecl(std::vector<Attr*> attributes, Decl::Vis
         printError("expected closing `}` for property, found `" + _lexer.peekCurrentSymbol() + "`!",
                    _lexer.peekStartPosition(), _lexer.peekEndPosition());
     }
+
+    // TODO: We need to support initial values by checking if there is a `=` here. This should only be allowed in the
+    //       following situations:
+    //        1. The `prop` is non-static, non-const and contained within a `struct` or `class`. The value can be any
+    //           expression. Value cannot `throw`
+    //        2. The `prop` is `const`, the value must also be `const` solvable
+    //        3. The `prop` is `static` but the value doesn't `throw`
+    //       The main issue with initial values is what happens in C++: the exception must be caught for the initial
+    //       set. By denying the ability to allow `throw` in the initial value makes it so we don't have this issue.
 
     return new PropertyDecl(_fileID, std::move(attributes), visibility, isConstExpr, propertyIdentifier, propertyType,
                             startPosition, propertyType->endPosition(), declModifiers, getters, setter);
@@ -1543,7 +1680,7 @@ StructDecl* Parser::parseStructDecl(std::vector<Attr*> attributes, Decl::Visibil
 
 SubscriptOperatorDecl* Parser::parseSubscriptOperator(std::vector<Attr*> attributes, Decl::Visibility visibility,
                                                       bool isConstExpr, TextPosition startPosition,
-                                                      DeclModifiers declModifiers) {
+                                                      DeclModifiers declModifiers, bool parsePrototype) {
     Identifier subscriptKeyword(_lexer.peekStartPosition(), _lexer.peekEndPosition(),
                                 "subscript");
 
@@ -1569,8 +1706,21 @@ SubscriptOperatorDecl* Parser::parseSubscriptOperator(std::vector<Attr*> attribu
                    _lexer.peekStartPosition(), _lexer.peekEndPosition());
     }
 
+    // We use these for detecting multiple `get` or `set` on the same line without `;` separating them
+    bool isFirst = true;
+    TextPosition previousEndPosition = TextPosition(0, 0, 0);
+
     while (_lexer.peekType() != TokenType::RCURLY && _lexer.peekType() != TokenType::ENDOFFILE) {
         TextPosition getSetStartPosition = _lexer.peekStartPosition();
+
+        if (!isFirst) {
+            if (previousEndPosition.line == getSetStartPosition.line) {
+                printError("multiple `get` and `set` declarations can only be on the same line when separated by `;`!",
+                           _lexer.peekStartPosition(), _lexer.peekEndPosition());
+            }
+        } else {
+            isFirst = false;
+        }
 
         std::vector<Attr*> getSetAttributes = parseAttrs();
         Decl::Visibility getSetVisibility = parseDeclVisibility();
@@ -1605,7 +1755,8 @@ SubscriptOperatorDecl* Parser::parseSubscriptOperator(std::vector<Attr*> attribu
 
             // Semicolons are now optional. Instead of checking for `;` to make it a prototype we now just check if there isn't
             // an `{` at the end. If there isn't then it is a prototype and we continue parsing.
-            if (_lexer.peekType() != TokenType::LCURLY) {
+            // `parsePrototype` can be used to force us to parse a prototype
+            if (parsePrototype || _lexer.peekType() != TokenType::LCURLY) {
                 // If there isn't `{` then the function is marked as a `prototype`, mainly used for `trait` parsing
                 getterBody = new CompoundStmt({}, {}, {});
                 declModifiers |= DeclModifiers::Prototype;
@@ -1616,6 +1767,8 @@ SubscriptOperatorDecl* Parser::parseSubscriptOperator(std::vector<Attr*> attribu
             getters.push_back(new SubscriptOperatorGetDecl(_fileID, getSetAttributes, getSetVisibility, isConst,
                                                   getIdentifier, getSetModifiers, getReturnType, contracts, getterBody,
                                                   getSetStartPosition, getEndPosition, getResultType));
+
+            previousEndPosition = getEndPosition;
         } else if (getOrSet == "set") {
             if (setter != nullptr) {
                 printError("duplicate `set` found! (there can only be one `set` body per subscript)",
@@ -1632,7 +1785,8 @@ SubscriptOperatorDecl* Parser::parseSubscriptOperator(std::vector<Attr*> attribu
 
             // Semicolons are now optional. Instead of checking for `;` to make it a prototype we now just check if there isn't
             // an `{` at the end. If there isn't then it is a prototype and we continue parsing.
-            if (_lexer.peekType() != TokenType::LCURLY) {
+            // `parsePrototype` can be used to force us to parse a prototype
+            if (parsePrototype || _lexer.peekType() != TokenType::LCURLY) {
                 // If there isn't `{` then the function is marked as a `prototype`, mainly used for `trait` parsing
                 setterBody = new CompoundStmt({}, {}, {});
                 declModifiers |= DeclModifiers::Prototype;
@@ -1643,6 +1797,8 @@ SubscriptOperatorDecl* Parser::parseSubscriptOperator(std::vector<Attr*> attribu
             setter = new SubscriptOperatorSetDecl(_fileID, getSetAttributes, getSetVisibility, isConstExpr,
                                                   setIdentifier, getSetModifiers, subscriptType->deepCopy(), contracts,
                                                   setterBody, getSetStartPosition, setEndPosition);
+
+            previousEndPosition = setEndPosition;
         } else {
             printError("unknown keyword `" + getOrSet + "`, expected `get` or `set`!",
                        _lexer.peekStartPosition(), _lexer.peekEndPosition());
@@ -1833,7 +1989,7 @@ TypeSuffixDecl* Parser::parseTypeSuffixDecl(std::vector<Attr*> attributes, Decl:
 }
 
 VariableDecl* Parser::parseVariableDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
-                                        TextPosition startPosition, DeclModifiers declModifiers) {
+                                        TextPosition startPosition, DeclModifiers declModifiers, bool parsePrototype) {
     if (_lexer.peekType() != TokenType::SYMBOL && _lexer.peekType() != TokenType::GRAVE) {
         printError("expected variable identifier, found `" + _lexer.peekCurrentSymbol() + "`!",
                    _lexer.peekStartPosition(), _lexer.peekEndPosition());
@@ -1851,7 +2007,8 @@ VariableDecl* Parser::parseVariableDecl(std::vector<Attr*> attributes, Decl::Vis
 
     Expr* initialValue = nullptr;
 
-    if (_lexer.consumeType(TokenType::EQUALS)) {
+    // We only parse the `= value` if we're not parsing for a prototype.
+    if (!parsePrototype && _lexer.consumeType(TokenType::EQUALS)) {
         initialValue = parseExpr();
     }
 
@@ -1977,8 +2134,6 @@ Stmt* Parser::parseStmt() {
             return parseBreakStmt();
         case TokenType::CASE:
             return parseCaseStmt();
-        case TokenType::LCURLY:
-            return parseCompoundStmt();
         case TokenType::CONTINUE:
             return parseContinueStmt();
         case TokenType::DO:
@@ -1991,12 +2146,18 @@ Stmt* Parser::parseStmt() {
             return parseGotoStmt();
         case TokenType::IF:
             return parseIfStmt();
+        case TokenType::REPEAT:
+            return parseRepeatWhileStmt();
         case TokenType::RETURN:
             return parseReturnStmt();
         case TokenType::SWITCH:
             return parseSwitchStmt();
         case TokenType::WHILE:
             return parseWhileStmt();
+        case TokenType::LCURLY:
+            printError("`{` cannot appear alone as a statement, did you mean `do {`?",
+                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
+            return nullptr;
         default: {
             Expr* resultExpr = parseVariableExpr();
 
@@ -2217,27 +2378,33 @@ Stmt* Parser::parseDoStmt() {
     CompoundStmt* doStmt = parseCompoundStmt();
 
     if (_lexer.peekType() == TokenType::CATCH || _lexer.peekType() == TokenType::FINALLY) {
-        // Continue parsing in `parseTryStmt` as this is a `do {} catch {} finally {}` instead of `do {} while()`
-        return parseTryStmt(doStartPosition, doEndPosition, doStmt);
+        // Continue parsing in `parseTryStmt` as this is a `do {} catch {} finally {}` instead of `do {}`
+        return parseDoCatchStmt(doStartPosition, doEndPosition, doStmt);
+    } else {
+        return new DoStmt(doStartPosition, doEndPosition, doStmt);
+    }
+}
+
+DoCatchStmt* Parser::parseDoCatchStmt(TextPosition doStartPosition, TextPosition doEndPosition, CompoundStmt* doStmt) {
+    std::vector<CatchStmt*> catchStatements;
+    CompoundStmt* finallyStatement = nullptr;
+
+    while (_lexer.peekType() == TokenType::CATCH || _lexer.peekType() == TokenType::FINALLY) {
+        if (_lexer.peekType() == TokenType::CATCH) {
+            catchStatements.push_back(parseCatchStmt());
+        } else if (_lexer.peekType() == TokenType::FINALLY) {
+            if (finallyStatement != nullptr) {
+                printError("a `try` statement cannot have multiple `finally` statements!",
+                           _lexer.peekStartPosition(), _lexer.peekEndPosition());
+            }
+
+            _lexer.consumeType(TokenType::FINALLY);
+
+            finallyStatement = parseCompoundStmt();
+        }
     }
 
-    TextPosition whileStartPosition = _lexer.peekStartPosition();
-    TextPosition whileEndPosition = _lexer.peekEndPosition();
-
-    if (!_lexer.consumeType(TokenType::WHILE)) {
-        printError("expected `while` to end `do` loop, found `" + _lexer.peekCurrentSymbol() + "`!",
-                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
-    }
-
-    Expr* condition = parseExpr();
-
-    // Semicolons are now optional
-//    if (!_lexer.consumeType(TokenType::SEMICOLON)) {
-//        printError("expected `;` after `do...while` condition, found `" + _lexer.peekCurrentSymbol() + "`!",
-//                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
-//    }
-
-    return new DoWhileStmt(doStmt, condition, doStartPosition, doEndPosition, whileStartPosition, whileEndPosition);
+    return new DoCatchStmt(doStartPosition, doEndPosition, doStmt, catchStatements, finallyStatement);
 }
 
 FallthroughStmt* Parser::parseFallthroughStmt() {
@@ -2340,6 +2507,27 @@ IfStmt* Parser::parseIfStmt() {
     return new IfStmt(startPosition, endPosition, condition, trueStmt, falseStmt);
 }
 
+RepeatWhileStmt* Parser::parseRepeatWhileStmt() {
+    TextPosition repeatStartPosition = _lexer.peekStartPosition();
+    TextPosition repeatEndPosition = _lexer.peekEndPosition();
+
+    _lexer.consumeType(TokenType::REPEAT);
+
+    CompoundStmt* repeatStmt = parseCompoundStmt();
+    TextPosition whileStartPosition = _lexer.peekStartPosition();
+    TextPosition whileEndPosition = _lexer.peekEndPosition();
+
+    if (!_lexer.consumeType(TokenType::WHILE)) {
+        printError("expected `while` to end `repeat` loop, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    Expr* condition = parseExpr();
+
+    return new RepeatWhileStmt(repeatStmt, condition, repeatStartPosition, repeatEndPosition,
+                               whileStartPosition, whileEndPosition);
+}
+
 ReturnStmt* Parser::parseReturnStmt() {
     TextPosition startPosition = _lexer.peekStartPosition();
     TextPosition endPosition = _lexer.peekEndPosition();
@@ -2421,28 +2609,6 @@ SwitchStmt* Parser::parseSwitchStmt() {
     }
 
     return new SwitchStmt(startPosition, endPosition, condition, cases);
-}
-
-DoCatchStmt* Parser::parseTryStmt(TextPosition doStartPosition, TextPosition doEndPosition, CompoundStmt* doStmt) {
-    std::vector<CatchStmt*> catchStatements;
-    CompoundStmt* finallyStatement = nullptr;
-
-    while (_lexer.peekType() == TokenType::CATCH || _lexer.peekType() == TokenType::FINALLY) {
-        if (_lexer.peekType() == TokenType::CATCH) {
-            catchStatements.push_back(parseCatchStmt());
-        } else if (_lexer.peekType() == TokenType::FINALLY) {
-            if (finallyStatement != nullptr) {
-                printError("a `try` statement cannot have multiple `finally` statements!",
-                           _lexer.peekStartPosition(), _lexer.peekEndPosition());
-            }
-
-            _lexer.consumeType(TokenType::FINALLY);
-
-            finallyStatement = parseCompoundStmt();
-        }
-    }
-
-    return new DoCatchStmt(doStartPosition, doEndPosition, doStmt, catchStatements, finallyStatement);
 }
 
 WhileStmt* Parser::parseWhileStmt() {
@@ -2938,9 +3104,9 @@ Expr* Parser::parseIsAsHas() {
                 TextPosition hasEndPosition = _lexer.peekEndPosition();
                 _lexer.consumeType(TokenType::HAS);
 
-                Type* traitType = parseType();
+                Decl* prototype = parsePrototypeDecl();
 
-                result = new HasExpr(result, traitType, hasStartPosition, hasEndPosition);
+                result = new HasExpr(result, prototype, hasStartPosition, hasEndPosition);
                 continue;
             }
             default:
@@ -3148,7 +3314,7 @@ std::vector<LabeledArgumentExpr*> Parser::parseCallArguments(TokenType closeToke
 
             if (!_lexer.consumeType(TokenType::COLON)) {
                 printError("expected `:` after argument label `" + argumentLabel.name() + "`, "
-                                                                                          "found `" + _lexer.peekCurrentSymbol() + "`!",
+                           "found `" + _lexer.peekCurrentSymbol() + "`!",
                            _lexer.peekStartPosition(), _lexer.peekEndPosition());
             }
 
@@ -3196,23 +3362,8 @@ Expr* Parser::parseIdentifierOrLiteralExpr() {
         case TokenType::TRUE:
         case TokenType::FALSE:
             return parseBooleanLiteralExpr();
-        case TokenType::LPAREN: {
-            // TODO: Support tuples by checking for a comma after.
-            TextPosition startPosition = _lexer.peekStartPosition();
-
-            _lexer.consumeType(TokenType::LPAREN);
-
-            Expr* nestedExpr = parseExpr();
-
-            TextPosition endPosition = _lexer.peekEndPosition();
-
-            if (!_lexer.consumeType(TokenType::RPAREN)) {
-                printError("expected ending `)`, found `" + _lexer.peekCurrentSymbol() + "`!",
-                           _lexer.peekStartPosition(), _lexer.peekEndPosition());
-            }
-
-            return new ParenExpr(nestedExpr, startPosition, endPosition);
-        }
+        case TokenType::LPAREN:
+            return parseTupleOrParenExpr();
         case TokenType::LCURLY: {
             return parseArrayLiteralOrDimensionType();
         }
@@ -3496,4 +3647,27 @@ Expr* Parser::parseArrayLiteralOrDimensionType() {
 
         return new ArrayLiteralExpr(indexes, startPosition, endPosition);
     }
+}
+
+Expr* Parser::parseTupleOrParenExpr() {
+    // TODO: Support tuples
+    TextPosition startPosition = _lexer.peekStartPosition();
+
+    _lexer.consumeType(TokenType::LPAREN);
+
+    Expr* nestedExpr = parseExpr();
+
+    TextPosition endPosition = _lexer.peekEndPosition();
+
+    if (!_lexer.consumeType(TokenType::RPAREN)) {
+        if (_lexer.peekType() == TokenType::COMMA) {
+            printError("tuple values are not yet supported!",
+                       _lexer.peekStartPosition(), _lexer.peekEndPosition());
+        }
+
+        printError("expected ending `)`, found `" + _lexer.peekCurrentSymbol() + "`!",
+                   _lexer.peekStartPosition(), _lexer.peekEndPosition());
+    }
+
+    return new ParenExpr(nestedExpr, startPosition, endPosition);
 }

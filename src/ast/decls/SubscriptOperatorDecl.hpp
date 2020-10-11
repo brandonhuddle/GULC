@@ -97,6 +97,36 @@ namespace gulc {
             return result;
         }
 
+        std::string getPrototypeString() const override {
+            std::string result = getDeclModifiersString(_declModifiers);
+
+            if (!result.empty()) result += " ";
+
+            result += "subscript " + _identifier.name() + "(";
+
+            for (std::size_t i = 0; i < _parameters.size(); ++i) {
+                if (i != 0) result += ", ";
+
+                result += _parameters[i]->getPrototypeString();
+            }
+
+            result += ") { ";
+
+            for (std::size_t i = 0; i < _getters.size(); ++i) {
+                if (i != 0) result += "; ";
+
+                result += _getters[i]->getPrototypeString();
+            }
+
+            if (_setter != nullptr) {
+                if (!_getters.empty()) result += "; ";
+
+                result += _setter->getPrototypeString();
+            }
+
+            return result + " }";
+        }
+
         ~SubscriptOperatorDecl() override {
             for (ParameterDecl* parameter : _parameters) {
                 delete parameter;

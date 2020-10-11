@@ -97,11 +97,11 @@ namespace gulc {
         void instantiateCompoundStmt(CompoundStmt* compoundStmt) const;
 //        void instantiateContinueStmt(ContinueStmt* continueStmt) const;
         void instantiateDoCatchStmt(DoCatchStmt* doCatchStmt) const;
-        void instantiateDoWhileStmt(DoWhileStmt* doWhileStmt) const;
         void instantiateForStmt(ForStmt* forStmt) const;
 //        void instantiateGotoStmt(GotoStmt* gotoStmt) const;
         void instantiateIfStmt(IfStmt* ifStmt) const;
         void instantiateLabeledStmt(LabeledStmt* labeledStmt) const;
+        void instantiateRepeatWhileStmt(RepeatWhileStmt* repeatWhileStmt) const;
         void instantiateReturnStmt(ReturnStmt* returnStmt) const;
         void instantiateSwitchStmt(SwitchStmt* switchStmt) const;
         void instantiateWhileStmt(WhileStmt* whileStmt) const;

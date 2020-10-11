@@ -107,6 +107,16 @@ namespace gulc {
             return result;
         }
 
+        std::string getPrototypeString() const override {
+            std::string result = "import " + importPathToString();
+
+            if (_importAlias.has_value()) {
+                result += " as " + _importAlias.value().name();
+            }
+
+            return result;
+        }
+
     protected:
         // These are the start and end positions just for the keyword `import`
         const TextPosition _importStartPosition;

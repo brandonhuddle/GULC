@@ -15,8 +15,8 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-#ifndef GULC_DOWHILESTMT_HPP
-#define GULC_DOWHILESTMT_HPP
+#ifndef GULC_REPEATWHILESTMT_HPP
+#define GULC_REPEATWHILESTMT_HPP
 
 #include <ast/Stmt.hpp>
 #include <ast/Expr.hpp>
@@ -24,17 +24,18 @@
 #include "CompoundStmt.hpp"
 
 namespace gulc {
-    class DoWhileStmt : public Stmt {
+    class RepeatWhileStmt : public Stmt {
     public:
-        static bool classof(const Stmt* stmt) { return stmt->getStmtKind() == Stmt::Kind::DoWhile; }
+        static bool classof(const Stmt* stmt) { return stmt->getStmtKind() == Stmt::Kind::RepeatWhile; }
 
         Expr* condition;
 
-        DoWhileStmt(CompoundStmt* body, Expr* condition,
-                    TextPosition doStartPosition, TextPosition doEndPosition,
-                    TextPosition whileStartPosition, TextPosition whileEndPosition)
-                : Stmt(Stmt::Kind::DoWhile),
-                  condition(condition), _body(body), _doStartPosition(doStartPosition), _doEndPosition(doEndPosition),
+        RepeatWhileStmt(CompoundStmt* body, Expr* condition,
+                        TextPosition repeatStartPosition, TextPosition repeatEndPosition,
+                        TextPosition whileStartPosition, TextPosition whileEndPosition)
+                : Stmt(Stmt::Kind::RepeatWhile),
+                  condition(condition), _body(body),
+                  _repeatStartPosition(repeatStartPosition), _repeatEndPosition(repeatEndPosition),
                   _whileStartPosition(whileStartPosition), _whileEndPosition(whileEndPosition) {}
 
         CompoundStmt* body() const { return _body; }
@@ -42,31 +43,31 @@ namespace gulc {
         TextPosition whileStartPosition() const { return _whileStartPosition; }
         TextPosition whileEndPosition() const { return _whileEndPosition; }
 
-        TextPosition startPosition() const override { return _doStartPosition; }
-        TextPosition endPosition() const override { return _doEndPosition; }
+        TextPosition startPosition() const override { return _repeatStartPosition; }
+        TextPosition endPosition() const override { return _repeatEndPosition; }
 
         Stmt* deepCopy() const override {
-            return new DoWhileStmt(llvm::dyn_cast<CompoundStmt>(_body->deepCopy()), condition->deepCopy(),
-                                   _doStartPosition, _doEndPosition,
-                                   _whileStartPosition, _whileEndPosition);
+            return new RepeatWhileStmt(llvm::dyn_cast<CompoundStmt>(_body->deepCopy()), condition->deepCopy(),
+                                       _repeatStartPosition, _repeatEndPosition,
+                                       _whileStartPosition, _whileEndPosition);
         }
 
         // This is used by the passes to store the number of local variables that exist in the context of the for loop
-        unsigned int currentNumLocalVariables;
+        unsigned int currentNumLocalVariables = 0;
 
-        ~DoWhileStmt() override {
+        ~RepeatWhileStmt() override {
             delete condition;
             delete _body;
         }
 
     protected:
         CompoundStmt* _body;
-        TextPosition _doStartPosition;
-        TextPosition _doEndPosition;
+        TextPosition _repeatStartPosition;
+        TextPosition _repeatEndPosition;
         TextPosition _whileStartPosition;
         TextPosition _whileEndPosition;
 
     };
 }
 
-#endif //GULC_DOWHILESTMT_HPP
+#endif //GULC_REPEATWHILESTMT_HPP

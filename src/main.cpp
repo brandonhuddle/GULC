@@ -68,6 +68,7 @@ using namespace gulc;
 //       Cons:
 //        * Rust already has set the idea up as `panic` (even though earlier implementations called in `abandon` as
 //          well, such as the Midori OS's programming language)
+//        * It seems like Go also uses `panic`
 
 // TODO: We need to clean up how we handle local variables. Anywhere where we access them we are manually regenerating
 //       the list for the context. I think we could do better than that by storing a list for each context
@@ -77,20 +78,99 @@ using namespace gulc;
 //       The idea is mainly just to give a way to specialize a template for certain types that might be better off
 //       treated differently.
 
-// TODO: Finish `ref` support
-// TODO: Support `<=>`
-// TODO: Support `func` in `enum` declarations
-// TODO: Finish `prop` and `subscript` (they currently will crash the compiler)
-// TODO: Finish `import` support (requires `implicitExtern` stuff)
-// TODO: Finish operator overloading
-// TODO: Finish extensions
-// TODO: Finish templates (e.g. specialization and general usage)
+
+// TODO: We need to finish the following:
+//        7. We need to have a test `Template*InstDecl` that creates an `ImaginaryType` constructed based on both the
+//           specialized type (for `baseStruct` and the `has *` for the rest of the members.)
+//        8. We need to validate template specialization works in `DeclInstantiator` when the `<T: vec3>` is used
+//           before `vec3` and `vec3i` are declared in the file with:
+//               struct Example<T: vec3> {}
+//               let test: Example<vec3i>
+//               struct vec3 {}
+//               struct vec3i: vec3 {}
+// TODO: For specialization if there are `T: GrandParent` and `T: Parent` and you pass `Child` it should use
+//       `parent depth` in the inheritance list to choose. The one that is closer to `Child` in the list is the one we
+//       choose. So in this case we choose `T: Parent` instead of `T: GrandParent` since it goes
+//       `Child: Parent: Grandparent`
 // TODO: Support `trait`
+// TODO: Support `<=>`
+// TODO: Finish extensions
+// TODO: Finish static-array/flat-array support. (e.g. `[i32; 12]`)
+// TODO: Finish literal suffixes
+//       To do this we will need something like such:
+//           public typesuffix str<const length: usize>(_ input: [u8; N]) -> string { ... }
+//       We will need to make type suffixes templates to allow for n-length character arrays.
+//       The above would then allow you to do:
+//           let strLiteral = "hello!"str
+//       With the `str` suffix `strLiteral` will be of type `string`, without `str` then `strLiteral` will be of type
+//       `[u8; N]`
+// TODO: Finish `DimensionType` so we can declare `[]i32`, `[,,]*bool`, etc.
+// TODO: Support tuples (put on hold due to how much needs to be changed for tuples to be supported. They might be
+//       better off being added to the bootstrapped compiler instead of now...)
+// TODO: Support top-level-statements. This would allow the below:
+//           import std.io
+//           Console.write("Hello, world!")
+//       The way this would work is by using a `TopLevelStmtDecl` which would all be combined into an auto-generated
+//       "func main() -> void"
+//       It would have to follow these rules:
+//           1. Top-level statements can only appear in a single file of a project (not multiple, that would be nearly
+//              impossible to solve properly and would be too ambiguous on when any code gets called)
+//           2. You CANNOT mix top-level statements and a custom "func main() -> void".
+//           3. `var` rules still apply. You MUST have `static var` or `const var`, `var` is NOT allowed at top-level
+//           4. `const var` CANNOT reference top-level `let`
+//       We will need to answer the following:
+//           1. Can `static var` reference top-level `let`? It is translatable...
+//           2. Do we auto initialization of `static var` when using top-level statements? Without using TLS you would
+//              assign the `static var` manually but there isn't a `main` to do it manually with top-level statements
+//           3. Should we have a `static var std.os.args: ref []string` to allow CLI argument access from TL-Stmt?
+// TODO: I think we should go hardcore into English keywords and pattern matching. I've been thinking about this for a
+//       while but have been worried others won't like it. But I've realized this language is for me. If no one else
+//       likes it who cares.
+//       We should remove any non-English boolean logic operators (except the maths ones)
+//       Examples of what I mean:
+//           if t is not i32 {}
+//           if t is null {}
+//           if t is not null {}
+//           switch someValue {
+//               case is i32: //
+//               case > 0 and < 12: // someValue > 0 and someValue < 12
+//               case let (x, y): // Only if `someValue` is a tuple...
+//               case (0, _): // If `someValue.0 == 0`
+//               case (12, 44): // If `someValue.0 == 12 and someValue.1 == 44`
+//           }
+//           // This might be difficult to parse properly... But if we can do this it would be awesome
+//           if t is > 0 and (< 12 or 44) // t > 0 && (t < 12 || t == 44)
+//           if t is <= 44 and let x: i32 // if t <= 44 then let x: i32 = t.value { ... } is this needed?
+//           // For the above we would have to make it only work with the boolean operators and no-custom operators.
+//           // So `[ >, >=, <, <=, <=>, not, ==, != ]`
+//           // Continuing...
+//           let x: ?i32 = null
+//           if let xValue = x // Only works when `x` isn't null, when `x` isn't null `xValue` contains the value
+//           let nullArray: []?i32 = [ null, 12, 44, null, 0 ]
+//           @for let value in nullArray // Skips any null indexes, assigns `value` the `i32` type when the index isn't null
+//           // Also we should support the parsing order where `and` is parsed before `or` to allow:
+//           if i is >= 12 and <= 16 or >= 28 and <= 32
+//           // The above should be equal to:
+//           if i is (>= 12 and <= 16) or (>= 28 and <= 32)
+// TODO: Since we'll already be changing the parser for more english words, it could be beneficial to go ahead and
+//       redesign the parser to do the following:
+//           * Combine ALL expressions into a `RawListExpr` that contains every symbol individually. That way we can
+//             allow macros and custom operators
+//           * Create a new compiler pass to handle converting expression lists into their final form
+//             (i.e. `i is >= 12 and <= 16` to `i >= 12 and i <= 16)`)
+// TODO: We need to start planning the support for `async`/`await`:
+//        * Do we go the "lazy" route like Rust? Calling an async function only creates the `future` it doesn't
+//          schedule it?
+//        * Do we make this key to the actual compiler? For the `future` result that goes against what I want but might
+//          be necessary
+//        * Do we want to try to think of a better way to do this? I've heard a lot of doubts about async/await and I'm
+//          not sure there could be anything better. But it would be interesting to try to think of a better way to
+//          handle it.
 
 // TODO: Improve error messages (e.g. add checks to validate everything is how it is supposed to be, output source code
 //       of where the error went wrong, etc.)
 
-// TODO: I think we should support `operator infix .()` or `operator prefix deref` to allow smart references.
+// TODO: I think we should support `operator infix .()` or `operator deref` to allow smart references.
 //       C++ is starting to move towards the idea of `operator .()` and I really like the idea. I think this would be
 //       nicer though:
 //           struct box<T> {
@@ -137,6 +217,29 @@ using namespace gulc;
 //           }
 //           let window: box<Window> = ...
 //           let windowPtr: *Window = box<Window>::getPointer(window)
+
+// TODO: We need to disable argument labels on these functors:
+//        * Operators
+//        * Type alias
+//        * Type suffix
+
+// TODO: We need to support initial value on properties like in C#:
+//           struct Example {
+//               prop Defaulted: i32 { get; set } = 12
+//           }
+//       And
+//           namespace example {
+//               prop Defaulted: i32 { get; set } = 12
+//           }
+//       One thing to note is that a `MemberProperty` can have a "runtime expression" for the initial value but the
+//       normal `GlobalProperty` requires the initial value to be const-solvable same as a normal `const var` or
+//       `static var` initial value.
+
+// TODO: Cleanup name mangling for `prop` and `subscript`
+
+// TODO: We should probably rename `FlatArrayType` to `StaticArrayType`. Technically our dynamic array that we will be
+//       making will be a `FlatArray`, `StaticArray` makes much more sense imo..
+
 
 int main() {
     Target target = Target::getHostTarget();

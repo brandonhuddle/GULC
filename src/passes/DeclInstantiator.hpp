@@ -43,8 +43,32 @@
 #include <ast/conts/WhereCont.hpp>
 #include <ast/exprs/TemplateConstRefExpr.hpp>
 #include <ast/exprs/TryExpr.hpp>
+#include <ast/decls/TraitPrototypeDecl.hpp>
+#include <ast/decls/ImaginaryTypeDecl.hpp>
 
 namespace gulc {
+    struct TemplateDeclMatch {
+        enum class Kind {
+            // The match is entirely exact
+            Exact,
+            // The match is exact but requires parameter default values
+            DefaultValues,
+            // The match is not exact, you need to apply implicit casts for it to work.
+            Castable,
+            Unknown
+        };
+
+        Kind kind;
+        Decl* decl;
+        // For template types that are specialized we need to know the `strength` of the specialized type match
+        // (NOTE: Strength is distance in the inheritance list from one type to the other)
+        std::vector<std::size_t> argMatchStrengths;
+
+        TemplateDeclMatch(Kind kind, Decl* decl, std::vector<std::size_t> argMatchStrengths)
+                : kind(kind), decl(decl), argMatchStrengths(std::move(argMatchStrengths)) {}
+
+    };
+
     /**
      * DeclInstantiator handles resolving `StructDecl` base types, resolving `TemplatedType`s to their
      * `Template*InstDecl` counterparts, creates `StructDecl` vtable, creates missing destructors, creates the memory
@@ -110,7 +134,8 @@ namespace gulc {
 
         void compareDeclTemplateArgsToParams(std::vector<Expr*> const& args,
                                              std::vector<TemplateParameterDecl*> const& params,
-                                             bool* outIsMatch, bool* outIsExact) const;
+                                             bool* outIsMatch, bool* outIsExact,
+                                             std::vector<std::size_t>& outArgMatchStrengths) const;
 
         // Process the where contracts and output an easy to read error message for any failed contracts
         void errorOnWhereContractFailure(std::vector<Cont*> const& contracts,
@@ -122,6 +147,7 @@ namespace gulc {
         void processContract(Cont* contract);
 
         void processDecl(Decl* decl, bool isGlobal = true);
+        void processPrototypeDecl(Decl* decl, bool isGlobal = true);
         void processEnumDecl(EnumDecl* enumDecl);
         void processExtensionDecl(ExtensionDecl* extensionDecl);
         void processFunctionDecl(FunctionDecl* functionDecl);
@@ -147,6 +173,7 @@ namespace gulc {
         void processTemplateTraitInstDecl(TemplateTraitInstDecl* templateTraitInstDecl);
         void processTraitDeclInheritedTypes(TraitDecl* traitDecl);
         void processTraitDecl(TraitDecl* traitDecl);
+        void processTraitPrototypeDecl(TraitPrototypeDecl* traitPrototypeDecl);
         void processTypeAliasDecl(TypeAliasDecl* typeAliasDecl);
         void processTypeAliasDeclContracts(TypeAliasDecl* typeAliasDecl);
         void processVariableDecl(VariableDecl* variableDecl, bool isGlobal);
@@ -154,6 +181,12 @@ namespace gulc {
         // This will process the `where` contract and modify the referenced template parameter accordingly
         // (e.g. this will fill `TemplateParameterDecl::inheritedTypes` etc.)
         void descriptTemplateParameterForWhereCont(WhereCont* whereCont);
+        std::vector<Expr*> createImaginaryTemplateArguments(std::vector<TemplateParameterDecl*>& templateParameters,
+                                                            std::vector<Cont*>& contracts);
+        void createValidationTemplateFunctionInstDecl(TemplateFunctionDecl* templateFunctionDecl);
+        void createValidationTemplateStructInstDecl(TemplateStructDecl* templateStructDecl);
+        void createValidationTemplateTraitInstDecl(TemplateTraitDecl* templateTraitDecl);
+        void processImaginaryTypeDecl(ImaginaryTypeDecl* imaginaryTypeDecl);
 
         // This will process a `Decl` while also checking for any circular dependencies using `_workingDecls`
         void processDependantDecl(Decl* decl);
@@ -165,10 +198,10 @@ namespace gulc {
         void processCatchStmt(CatchStmt* catchStmt);
         void processCompoundStmt(CompoundStmt* compoundStmt);
         void processDoCatchStmt(DoCatchStmt* doCatchStmt);
-        void processDoWhileStmt(DoWhileStmt* doWhileStmt);
         void processForStmt(ForStmt* forStmt);
         void processIfStmt(IfStmt* ifStmt);
         void processLabeledStmt(LabeledStmt* labeledStmt);
+        void processRepeatWhileStmt(RepeatWhileStmt* repeatWhileStmt);
         void processReturnStmt(ReturnStmt* returnStmt);
         void processSwitchStmt(SwitchStmt* switchStmt);
         void processWhileStmt(WhileStmt* whileStmt);

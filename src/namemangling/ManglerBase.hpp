@@ -27,6 +27,8 @@
 #include <ast/decls/SubscriptOperatorDecl.hpp>
 #include <ast/decls/TraitDecl.hpp>
 #include <ast/decls/PropertyDecl.hpp>
+#include <ast/decls/TemplateStructDecl.hpp>
+#include <ast/decls/TemplateTraitDecl.hpp>
 
 namespace gulc {
     // I'm making the name mangler an abstract class to allow us to use Itanium on nearly every platform but on Windows
@@ -47,6 +49,8 @@ namespace gulc {
         virtual void mangleDecl(StructDecl* structDecl) = 0;
         virtual void mangleDecl(TraitDecl* traitDecl) = 0;
         virtual void mangleDecl(NamespaceDecl* namespaceDecl) = 0;
+        virtual void mangleDecl(TemplateStructDecl* templateStructDecl) = 0;
+        virtual void mangleDecl(TemplateTraitDecl* templateTraitDecl) = 0;
 
         virtual void mangle(FunctionDecl* functionDecl) = 0;
         virtual void mangle(VariableDecl* variableDecl) = 0;
@@ -55,6 +59,9 @@ namespace gulc {
         virtual void mangle(TraitDecl* traitDecl) = 0;
         virtual void mangle(CallOperatorDecl* callOperatorDecl) = 0;
         virtual void mangle(PropertyDecl* propertyDecl) = 0;
+        virtual void mangle(TemplateStructDecl* templateStructDecl) = 0;
+        virtual void mangle(TemplateTraitDecl* templateTraitDecl) = 0;
+        virtual void mangle(TemplateFunctionDecl* templateFunctionDecl) = 0;
 
         virtual ~ManglerBase() = default;
 

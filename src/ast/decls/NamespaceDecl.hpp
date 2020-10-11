@@ -84,6 +84,12 @@ namespace gulc {
             return result;
         }
 
+        std::string getPrototypeString() const override {
+            std::string result = "namespace " + _identifier.name();
+
+            return result;
+        }
+
         ~NamespaceDecl() override {
             for (Decl* decl : _nestedDecls) {
                 if (_isPrototype && !llvm::isa<NamespaceDecl>(decl)) {

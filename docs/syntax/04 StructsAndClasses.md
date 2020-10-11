@@ -2,15 +2,17 @@
 Structs and classes are almost identical how they act in C++ with the notably difference being no multiple inheritance 
 of other structs and `immut` by default for functions.
 
+The other notable difference between C++ and Ghoul classes is that `struct` does NOT store its type for RTTI. `class` 
+is always polymorphic (`virtual deinit` always) and will always store the type of class in its `vtable`.
+
 Unlike Rust, Ghoul does support inheritance though it is recommended to be used sparingly. Not all situations need to 
 have inheritance and it is recommended to use `trait` in nearly all situations inheritance would be used instead.
 
 The main reason inheritance is still supported is because no one paradigm fits all. While it can be overused, competent 
 developers can use it to make libraries that are much easier to write, maintain, and read for SOME problems.
 
-Multiple inheritance is not supported due to complexity, basic problems caused by it, and the general fact that from my 
-own experience the use of `trait` will cover 99.99% of all situations that multiple inheritance would have been used 
-for.
+Multiple inheritance is not supported due to complexity, basic problems caused by it, and because `trait` should cover
+nearly all use cases of MI.
 
 #### Examples
     
@@ -81,8 +83,8 @@ for.
     example[12]
     
 ##### Destructor
-NOTE: Destructors are not virtual by default, it is recommended to make them virtual if you plan to use inheritance 
-      though.
+NOTE: For `class` the `deinit` is `virtual` by default and cannot be made `final`.
+      For `struct` the `deinit` is `final` by default but can be changed to `virtual`.
     
     struct Example {
         // NOTE: Cannot be `private` or `protected`
@@ -150,3 +152,49 @@ per the type with the same syntax.
 
 NOTE: `@shadows` is just my current thought for how to remove the `shadows` warning, this may change within the 
       standard library definition.
+
+#### Runtime Types
+In Ghoul creating a `class` will automatically store the `typeid` within the `class::vtable` to allow for runtime type 
+checking.
+
+`struct` will never store the `typeid` within the `struct::vtable`.
+
+    
+    class View { ... }
+    class Window: View { ... }
+    
+    let rootView: View = Window(title: "Hello, World!")
+    
+    // NOTE: This syntax is undecided...
+    // Since `View` is a `class` we will check `View::vtable` for type information to validate this cast at runtime.
+    if let window = rootView as? Window {
+        
+    }
+    
+    if rootView is Window {
+        print("rootView is a Window!")
+    }
+    
+Though `struct` cannot contain type info within its `vtable` you can still hold type information about any type using a 
+`box<T>`. `box<T>` stores the typeid of `T` that it was constructed with:
+    
+    // Note the struct instead of class...
+    struct View { ... }
+    struct Window: View { ... }
+    
+    let rootView: box<View> = box(Window(title: "Hello, World!"))
+    
+    // NOTE: This syntax is undecided...
+    // Since `box<T>` overloads the `as`, `is`, etc. operators it is able to change this check to validate against 
+    // `box<T>::typeid`. In turn allowing you to store and check the runtime type information about a struct.
+    if let window = rootView as? Window {
+        
+    }
+    
+One potential "gotcha" about `box<T>` is that it stores the type it was _constructed_ with. What that means is if you 
+do:
+    
+    let window: ref View = Window(title: "")
+    let boxedView: box<View> = box<View>(window)
+    
+The `box<T>::typeid` will be `View` because `typeof(window) == ref View` not `ref Window`.

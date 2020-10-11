@@ -75,6 +75,22 @@ namespace gulc {
             return result;
         }
 
+        std::string getPrototypeString() const override {
+            std::string result = getDeclModifiersString(_declModifiers);
+
+            if (!result.empty()) result += " ";
+
+            result += "call(";
+
+            for (std::size_t i = 0; i < _parameters.size(); ++i) {
+                if (i != 0) result += ", ";
+
+                result += _parameters[i]->getPrototypeString();
+            }
+
+            return result + ")";
+        }
+
     };
 }
 

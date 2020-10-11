@@ -25,6 +25,7 @@
 #include <ast/exprs/TemporaryValueRefExpr.hpp>
 #include <ast/exprs/StoreTemporaryValueExpr.hpp>
 #include <ast/exprs/MemberInfixOperatorCallExpr.hpp>
+#include <utilities/ConstSolver.hpp>
 
 void gulc::CodeTransformer::processFiles(std::vector<ASTFile>& files) {
     for (ASTFile& file : files) {
@@ -288,9 +289,6 @@ bool gulc::CodeTransformer::processStmt(gulc::Stmt*& stmt) {
         case Stmt::Kind::DoCatch:
             returnsOnAllCodePaths = processDoCatchStmt(llvm::dyn_cast<DoCatchStmt>(stmt));
             break;
-        case Stmt::Kind::DoWhile:
-            returnsOnAllCodePaths = processDoWhileStmt(llvm::dyn_cast<DoWhileStmt>(stmt));
-            break;
         case Stmt::Kind::For:
             returnsOnAllCodePaths = processForStmt(llvm::dyn_cast<ForStmt>(stmt));
             break;
@@ -302,6 +300,9 @@ bool gulc::CodeTransformer::processStmt(gulc::Stmt*& stmt) {
             break;
         case Stmt::Kind::Labeled:
             returnsOnAllCodePaths = processLabeledStmt(llvm::dyn_cast<LabeledStmt>(stmt));
+            break;
+        case Stmt::Kind::RepeatWhile:
+            returnsOnAllCodePaths = processRepeatWhileStmt(llvm::dyn_cast<RepeatWhileStmt>(stmt));
             break;
         case Stmt::Kind::Return:
             returnsOnAllCodePaths = processReturnStmt(llvm::dyn_cast<ReturnStmt>(stmt));
@@ -485,21 +486,6 @@ bool gulc::CodeTransformer::processDoCatchStmt(gulc::DoCatchStmt* doCatchStmt) {
     return returnsOnAllCodePaths;
 }
 
-bool gulc::CodeTransformer::processDoWhileStmt(gulc::DoWhileStmt* doWhileStmt) {
-    Stmt* oldLoop = _currentLoop;
-    _currentLoop = doWhileStmt;
-
-    doWhileStmt->currentNumLocalVariables = _localVariables.size();
-    processCompoundStmtHandleTempValues(doWhileStmt->body());
-    processExpr(doWhileStmt->condition);
-
-    _currentLoop = oldLoop;
-
-    // TODO: Is this true? My logic is that the `condition` could be false therefore we don't know if it returns on all
-    //       code paths.
-    return false;
-}
-
 bool gulc::CodeTransformer::processForStmt(gulc::ForStmt* forStmt) {
     Stmt* oldLoop = _currentLoop;
     _currentLoop = forStmt;
@@ -637,6 +623,21 @@ bool gulc::CodeTransformer::processLabeledStmt(gulc::LabeledStmt* labeledStmt) {
     return processStmt(labeledStmt->labeledStmt);
 }
 
+bool gulc::CodeTransformer::processRepeatWhileStmt(gulc::RepeatWhileStmt* repeatWhileStmt) {
+    Stmt* oldLoop = _currentLoop;
+    _currentLoop = repeatWhileStmt;
+
+    repeatWhileStmt->currentNumLocalVariables = _localVariables.size();
+    processCompoundStmtHandleTempValues(repeatWhileStmt->body());
+    processExpr(repeatWhileStmt->condition);
+
+    _currentLoop = oldLoop;
+
+    // TODO: Is this true? My logic is that the `condition` could be false therefore we don't know if it returns on all
+    //       code paths.
+    return false;
+}
+
 bool gulc::CodeTransformer::processReturnStmt(gulc::ReturnStmt* returnStmt) {
     if (returnStmt->returnValue != nullptr) {
         processExpr(returnStmt->returnValue);
@@ -760,8 +761,8 @@ void gulc::CodeTransformer::destructLocalVariablesDeclaredAfterLoop(gulc::Stmt* 
 
     if (llvm::isa<ForStmt>(loop)) {
         numLocalVariables = llvm::dyn_cast<ForStmt>(loop)->currentNumLocalVariables;
-    } else if (llvm::isa<DoWhileStmt>(loop)) {
-        numLocalVariables = llvm::dyn_cast<DoWhileStmt>(loop)->currentNumLocalVariables;
+    } else if (llvm::isa<RepeatWhileStmt>(loop)) {
+        numLocalVariables = llvm::dyn_cast<RepeatWhileStmt>(loop)->currentNumLocalVariables;
     } else if (llvm::isa<WhileStmt>(loop)) {
         numLocalVariables = llvm::dyn_cast<WhileStmt>(loop)->currentNumLocalVariables;
     }
@@ -889,7 +890,7 @@ void gulc::CodeTransformer::processExpr(gulc::Expr*& expr) {
             // Function reference just holds a reference to a `FunctionDecl`, nothing to do
             break;
         case Expr::Kind::Has:
-            // Has takes a type on the left side and a signature on the right, nothing to do
+            processHasExpr(expr);
             break;
         case Expr::Kind::Identifier:
             printError("[INTERNAL] `IdentifierExpr` found in `CodeTransformer::processExpr`, "
@@ -1070,6 +1071,11 @@ void gulc::CodeTransformer::processFunctionCallExpr(gulc::Expr*& expr) {
         // Replace the function call with a wrapped save assignment for the function call
         expr = saveFunctionResult;
     }
+}
+
+void gulc::CodeTransformer::processHasExpr(gulc::Expr*& expr) {
+    // We replace the `expr` with the `const` solution. That way we're not constantly resolving it.
+    expr = ConstSolver::solveHasExpr(llvm::dyn_cast<HasExpr>(expr));
 }
 
 void gulc::CodeTransformer::processImplicitCastExpr(gulc::ImplicitCastExpr* implicitCastExpr) {

@@ -198,7 +198,7 @@ void gulc::TemplateInstHelper::instantiateAttr(gulc::Attr* attr) const {
     // TODO: There currently isn't anything to do here...
 }
 
-void gulc::TemplateInstHelper::instantiateCont(gulc::Cont* cont) const {
+void gulc::TemplateInstHelper::instantiateCont(gulc::Cont* cont) {
     if (llvm::isa<EnsuresCont>(cont)) {
         auto ensuresCont = llvm::dyn_cast<EnsuresCont>(cont);
 
@@ -216,7 +216,7 @@ void gulc::TemplateInstHelper::instantiateCont(gulc::Cont* cont) const {
     }
 }
 
-void gulc::TemplateInstHelper::instantiateType(gulc::Type*& type) const {
+void gulc::TemplateInstHelper::instantiateType(gulc::Type*& type) {
     if (llvm::isa<DependentType>(type)) {
         auto dependentType = llvm::dyn_cast<DependentType>(type);
 
@@ -373,7 +373,7 @@ void gulc::TemplateInstHelper::instantiateDecl(gulc::Decl* decl) {
     }
 }
 
-void gulc::TemplateInstHelper::instantiateStmt(gulc::Stmt* stmt) const {
+void gulc::TemplateInstHelper::instantiateStmt(gulc::Stmt* stmt) {
     switch (stmt->getStmtKind()) {
         case Stmt::Kind::Case:
             instantiateCaseStmt(llvm::dyn_cast<CaseStmt>(stmt));
@@ -387,9 +387,6 @@ void gulc::TemplateInstHelper::instantiateStmt(gulc::Stmt* stmt) const {
         case Stmt::Kind::DoCatch:
             instantiateDoCatchStmt(llvm::dyn_cast<DoCatchStmt>(stmt));
             break;
-        case Stmt::Kind::DoWhile:
-            instantiateDoWhileStmt(llvm::dyn_cast<DoWhileStmt>(stmt));
-            break;
         case Stmt::Kind::For:
             instantiateForStmt(llvm::dyn_cast<ForStmt>(stmt));
             break;
@@ -398,6 +395,9 @@ void gulc::TemplateInstHelper::instantiateStmt(gulc::Stmt* stmt) const {
             break;
         case Stmt::Kind::Labeled:
             instantiateLabeledStmt(llvm::dyn_cast<LabeledStmt>(stmt));
+            break;
+        case Stmt::Kind::RepeatWhile:
+            instantiateRepeatWhileStmt(llvm::dyn_cast<RepeatWhileStmt>(stmt));
             break;
         case Stmt::Kind::Return:
             instantiateReturnStmt(llvm::dyn_cast<ReturnStmt>(stmt));
@@ -417,7 +417,7 @@ void gulc::TemplateInstHelper::instantiateStmt(gulc::Stmt* stmt) const {
     }
 }
 
-void gulc::TemplateInstHelper::instantiateExpr(gulc::Expr* expr) const {
+void gulc::TemplateInstHelper::instantiateExpr(gulc::Expr* expr) {
     switch (expr->getExprKind()) {
         case Expr::Kind::ArrayLiteral:
             instantiateArrayLiteralExpr(llvm::dyn_cast<ArrayLiteralExpr>(expr));
@@ -492,7 +492,7 @@ void gulc::TemplateInstHelper::instantiateDestructorDecl(gulc::DestructorDecl* d
     instantiateFunctionDecl(destructorDecl);
 }
 
-void gulc::TemplateInstHelper::instantiateEnumDecl(gulc::EnumDecl* enumDecl) const {
+void gulc::TemplateInstHelper::instantiateEnumDecl(gulc::EnumDecl* enumDecl) {
     if (enumDecl->constType != nullptr) {
         instantiateType(enumDecl->constType);
     }
@@ -530,7 +530,7 @@ void gulc::TemplateInstHelper::instantiateOperatorDecl(gulc::OperatorDecl* opera
     instantiateFunctionDecl(operatorDecl);
 }
 
-void gulc::TemplateInstHelper::instantiateParameterDecl(gulc::ParameterDecl* parameterDecl) const {
+void gulc::TemplateInstHelper::instantiateParameterDecl(gulc::ParameterDecl* parameterDecl) {
     instantiateType(parameterDecl->type);
 
     if (parameterDecl->defaultValue != nullptr) {
@@ -624,17 +624,19 @@ void gulc::TemplateInstHelper::instantiateTemplateFunctionDecl(gulc::TemplateFun
     instantiateFunctionDecl(templateFunctionDecl);
 }
 
-void gulc::TemplateInstHelper::instantiateTemplateParameterDecl(gulc::TemplateParameterDecl* templateParameterDecl) const {
-    if (templateParameterDecl->templateParameterKind() == TemplateParameterDecl::TemplateParameterKind::Const) {
-        instantiateType(templateParameterDecl->constType);
+void gulc::TemplateInstHelper::instantiateTemplateParameterDecl(gulc::TemplateParameterDecl* templateParameterDecl) {
+    if (templateParameterDecl->type != nullptr) {
+        instantiateType(templateParameterDecl->type);
+    }
 
-        // TODO: Handle default value
-    } else {
+    if (templateParameterDecl->templateParameterKind() == TemplateParameterDecl::TemplateParameterKind::Typename) {
         for (Type*& inheritedType : templateParameterDecl->inheritedTypes) {
             instantiateType(inheritedType);
         }
+    }
 
-        // TODO: Can `typename`s have default values??
+    if (templateParameterDecl->defaultValue != nullptr) {
+        instantiateExpr(templateParameterDecl->defaultValue);
     }
 }
 
@@ -822,7 +824,7 @@ void gulc::TemplateInstHelper::instantiateTraitDecl(gulc::TraitDecl* traitDecl, 
     _currentContainerTemplateType = oldContainerTemplateType;
 }
 
-void gulc::TemplateInstHelper::instantiateTypeAliasDecl(gulc::TypeAliasDecl* typeAliasDecl) const {
+void gulc::TemplateInstHelper::instantiateTypeAliasDecl(gulc::TypeAliasDecl* typeAliasDecl) {
     typeAliasDecl->containerTemplateType = _currentContainerTemplateType != nullptr ?
                                            _currentContainerTemplateType->deepCopy() : nullptr;
 
@@ -833,7 +835,7 @@ void gulc::TemplateInstHelper::instantiateTypeAliasDecl(gulc::TypeAliasDecl* typ
     instantiateType(typeAliasDecl->typeValue);
 }
 
-void gulc::TemplateInstHelper::instantiateVariableDecl(gulc::VariableDecl* variableDecl) const {
+void gulc::TemplateInstHelper::instantiateVariableDecl(gulc::VariableDecl* variableDecl) {
     instantiateType(variableDecl->type);
 
     if (variableDecl->initialValue != nullptr) {
@@ -841,7 +843,7 @@ void gulc::TemplateInstHelper::instantiateVariableDecl(gulc::VariableDecl* varia
     }
 }
 
-void gulc::TemplateInstHelper::instantiateCaseStmt(gulc::CaseStmt* caseStmt) const {
+void gulc::TemplateInstHelper::instantiateCaseStmt(gulc::CaseStmt* caseStmt) {
     instantiateExpr(caseStmt->condition);
 
     for (Stmt* statement : caseStmt->body) {
@@ -849,7 +851,7 @@ void gulc::TemplateInstHelper::instantiateCaseStmt(gulc::CaseStmt* caseStmt) con
     }
 }
 
-void gulc::TemplateInstHelper::instantiateCatchStmt(gulc::CatchStmt* catchStmt) const {
+void gulc::TemplateInstHelper::instantiateCatchStmt(gulc::CatchStmt* catchStmt) {
     if (catchStmt->hasExceptionType()) {
         instantiateType(catchStmt->exceptionType);
     }
@@ -857,13 +859,13 @@ void gulc::TemplateInstHelper::instantiateCatchStmt(gulc::CatchStmt* catchStmt) 
     instantiateStmt(catchStmt->body());
 }
 
-void gulc::TemplateInstHelper::instantiateCompoundStmt(gulc::CompoundStmt* compoundStmt) const {
+void gulc::TemplateInstHelper::instantiateCompoundStmt(gulc::CompoundStmt* compoundStmt) {
     for (Stmt* statement : compoundStmt->statements) {
         instantiateStmt(statement);
     }
 }
 
-void gulc::TemplateInstHelper::instantiateDoCatchStmt(gulc::DoCatchStmt* doCatchStmt) const {
+void gulc::TemplateInstHelper::instantiateDoCatchStmt(gulc::DoCatchStmt* doCatchStmt) {
     instantiateStmt(doCatchStmt->body());
 
     for (CatchStmt* catchStmt : doCatchStmt->catchStatements()) {
@@ -875,12 +877,7 @@ void gulc::TemplateInstHelper::instantiateDoCatchStmt(gulc::DoCatchStmt* doCatch
     }
 }
 
-void gulc::TemplateInstHelper::instantiateDoWhileStmt(gulc::DoWhileStmt* doWhileStmt) const {
-    instantiateStmt(doWhileStmt->body());
-    instantiateExpr(doWhileStmt->condition);
-}
-
-void gulc::TemplateInstHelper::instantiateForStmt(gulc::ForStmt* forStmt) const {
+void gulc::TemplateInstHelper::instantiateForStmt(gulc::ForStmt* forStmt) {
     if (forStmt->init != nullptr) {
         instantiateExpr(forStmt->init);
     }
@@ -896,7 +893,7 @@ void gulc::TemplateInstHelper::instantiateForStmt(gulc::ForStmt* forStmt) const 
     instantiateStmt(forStmt->body());
 }
 
-void gulc::TemplateInstHelper::instantiateIfStmt(gulc::IfStmt* ifStmt) const {
+void gulc::TemplateInstHelper::instantiateIfStmt(gulc::IfStmt* ifStmt) {
     instantiateExpr(ifStmt->condition);
     instantiateStmt(ifStmt->trueBody());
 
@@ -905,17 +902,22 @@ void gulc::TemplateInstHelper::instantiateIfStmt(gulc::IfStmt* ifStmt) const {
     }
 }
 
-void gulc::TemplateInstHelper::instantiateLabeledStmt(gulc::LabeledStmt* labeledStmt) const {
+void gulc::TemplateInstHelper::instantiateLabeledStmt(gulc::LabeledStmt* labeledStmt) {
     instantiateStmt(labeledStmt->labeledStmt);
 }
 
-void gulc::TemplateInstHelper::instantiateReturnStmt(gulc::ReturnStmt* returnStmt) const {
+void gulc::TemplateInstHelper::instantiateRepeatWhileStmt(gulc::RepeatWhileStmt* repeatWhileStmt) {
+    instantiateStmt(repeatWhileStmt->body());
+    instantiateExpr(repeatWhileStmt->condition);
+}
+
+void gulc::TemplateInstHelper::instantiateReturnStmt(gulc::ReturnStmt* returnStmt) {
     if (returnStmt->returnValue != nullptr) {
         instantiateExpr(returnStmt->returnValue);
     }
 }
 
-void gulc::TemplateInstHelper::instantiateSwitchStmt(gulc::SwitchStmt* switchStmt) const {
+void gulc::TemplateInstHelper::instantiateSwitchStmt(gulc::SwitchStmt* switchStmt) {
     instantiateExpr(switchStmt->condition);
 
     for (CaseStmt* caseStmt : switchStmt->cases) {
@@ -923,33 +925,33 @@ void gulc::TemplateInstHelper::instantiateSwitchStmt(gulc::SwitchStmt* switchStm
     }
 }
 
-void gulc::TemplateInstHelper::instantiateWhileStmt(gulc::WhileStmt* whileStmt) const {
+void gulc::TemplateInstHelper::instantiateWhileStmt(gulc::WhileStmt* whileStmt) {
     instantiateExpr(whileStmt->condition);
     instantiateStmt(whileStmt->body());
 }
 
-void gulc::TemplateInstHelper::instantiateArrayLiteralExpr(gulc::ArrayLiteralExpr* arrayLiteralExpr) const {
+void gulc::TemplateInstHelper::instantiateArrayLiteralExpr(gulc::ArrayLiteralExpr* arrayLiteralExpr) {
     for (Expr* index : arrayLiteralExpr->indexes) {
         instantiateExpr(index);
     }
 }
 
-void gulc::TemplateInstHelper::instantiateAsExpr(gulc::AsExpr* asExpr) const {
+void gulc::TemplateInstHelper::instantiateAsExpr(gulc::AsExpr* asExpr) {
     instantiateExpr(asExpr->expr);
     instantiateType(asExpr->asType);
 }
 
-void gulc::TemplateInstHelper::instantiateAssignmentOperatorExpr(gulc::AssignmentOperatorExpr* assignmentOperatorExpr) const {
+void gulc::TemplateInstHelper::instantiateAssignmentOperatorExpr(gulc::AssignmentOperatorExpr* assignmentOperatorExpr) {
     instantiateExpr(assignmentOperatorExpr->leftValue);
     instantiateExpr(assignmentOperatorExpr->rightValue);
 }
 
-void gulc::TemplateInstHelper::instantiateCheckExtendsTypeExpr(gulc::CheckExtendsTypeExpr* checkExtendsTypeExpr) const {
+void gulc::TemplateInstHelper::instantiateCheckExtendsTypeExpr(gulc::CheckExtendsTypeExpr* checkExtendsTypeExpr) {
     instantiateType(checkExtendsTypeExpr->checkType);
     instantiateType(checkExtendsTypeExpr->extendsType);
 }
 
-void gulc::TemplateInstHelper::instantiateFunctionCallExpr(gulc::FunctionCallExpr* functionCallExpr) const {
+void gulc::TemplateInstHelper::instantiateFunctionCallExpr(gulc::FunctionCallExpr* functionCallExpr) {
     instantiateExpr(functionCallExpr->functionReference);
 
     for (Expr* argument : functionCallExpr->arguments) {
@@ -957,49 +959,49 @@ void gulc::TemplateInstHelper::instantiateFunctionCallExpr(gulc::FunctionCallExp
     }
 }
 
-void gulc::TemplateInstHelper::instantiateHasExpr(gulc::HasExpr* hasExpr) const {
+void gulc::TemplateInstHelper::instantiateHasExpr(gulc::HasExpr* hasExpr) {
     instantiateExpr(hasExpr->expr);
-    instantiateType(hasExpr->trait);
+    instantiateDecl(hasExpr->decl);
 }
 
-void gulc::TemplateInstHelper::instantiateIdentifierExpr(gulc::IdentifierExpr* identifierExpr) const {
+void gulc::TemplateInstHelper::instantiateIdentifierExpr(gulc::IdentifierExpr* identifierExpr) {
     for (Expr* templateArgument : identifierExpr->templateArguments()) {
         instantiateExpr(templateArgument);
     }
 }
 
-void gulc::TemplateInstHelper::instantiateInfixOperatorExpr(gulc::InfixOperatorExpr* infixOperatorExpr) const {
+void gulc::TemplateInstHelper::instantiateInfixOperatorExpr(gulc::InfixOperatorExpr* infixOperatorExpr) {
     instantiateExpr(infixOperatorExpr->leftValue);
     instantiateExpr(infixOperatorExpr->rightValue);
 }
 
-void gulc::TemplateInstHelper::instantiateIsExpr(gulc::IsExpr* isExpr) const {
+void gulc::TemplateInstHelper::instantiateIsExpr(gulc::IsExpr* isExpr) {
     instantiateExpr(isExpr->expr);
     instantiateType(isExpr->isType);
 }
 
-void gulc::TemplateInstHelper::instantiateLabeledArgumentExpr(gulc::LabeledArgumentExpr* labeledArgumentExpr) const {
+void gulc::TemplateInstHelper::instantiateLabeledArgumentExpr(gulc::LabeledArgumentExpr* labeledArgumentExpr) {
     instantiateExpr(labeledArgumentExpr->argument);
 }
 
-void gulc::TemplateInstHelper::instantiateMemberAccessCallExpr(gulc::MemberAccessCallExpr* memberAccessCallExpr) const {
+void gulc::TemplateInstHelper::instantiateMemberAccessCallExpr(gulc::MemberAccessCallExpr* memberAccessCallExpr) {
     instantiateExpr(memberAccessCallExpr->objectRef);
     instantiateExpr(memberAccessCallExpr->member);
 }
 
-void gulc::TemplateInstHelper::instantiateParenExpr(gulc::ParenExpr* parenExpr) const {
+void gulc::TemplateInstHelper::instantiateParenExpr(gulc::ParenExpr* parenExpr) {
     instantiateExpr(parenExpr->nestedExpr);
 }
 
-void gulc::TemplateInstHelper::instantiatePostfixOperatorExpr(gulc::PostfixOperatorExpr* postfixOperatorExpr) const {
+void gulc::TemplateInstHelper::instantiatePostfixOperatorExpr(gulc::PostfixOperatorExpr* postfixOperatorExpr) {
     instantiateExpr(postfixOperatorExpr->nestedExpr);
 }
 
-void gulc::TemplateInstHelper::instantiatePrefixOperatorExpr(gulc::PrefixOperatorExpr* prefixOperatorExpr) const {
+void gulc::TemplateInstHelper::instantiatePrefixOperatorExpr(gulc::PrefixOperatorExpr* prefixOperatorExpr) {
     instantiateExpr(prefixOperatorExpr->nestedExpr);
 }
 
-void gulc::TemplateInstHelper::instantiateSubscriptCallExpr(gulc::SubscriptCallExpr* subscriptCallExpr) const {
+void gulc::TemplateInstHelper::instantiateSubscriptCallExpr(gulc::SubscriptCallExpr* subscriptCallExpr) {
     instantiateExpr(subscriptCallExpr->subscriptReference);
 
     for (Expr* argument : subscriptCallExpr->arguments) {
@@ -1007,17 +1009,17 @@ void gulc::TemplateInstHelper::instantiateSubscriptCallExpr(gulc::SubscriptCallE
     }
 }
 
-void gulc::TemplateInstHelper::instantiateTernaryExpr(gulc::TernaryExpr* ternaryExpr) const {
+void gulc::TemplateInstHelper::instantiateTernaryExpr(gulc::TernaryExpr* ternaryExpr) {
     instantiateExpr(ternaryExpr->condition);
     instantiateExpr(ternaryExpr->trueExpr);
     instantiateExpr(ternaryExpr->falseExpr);
 }
 
-void gulc::TemplateInstHelper::instantiateTypeExpr(gulc::TypeExpr* typeExpr) const {
+void gulc::TemplateInstHelper::instantiateTypeExpr(gulc::TypeExpr* typeExpr) {
     instantiateType(typeExpr->type);
 }
 
-void gulc::TemplateInstHelper::instantiateVariableDeclExpr(gulc::VariableDeclExpr* variableDeclExpr) const {
+void gulc::TemplateInstHelper::instantiateVariableDeclExpr(gulc::VariableDeclExpr* variableDeclExpr) {
     if (variableDeclExpr->type != nullptr) {
         instantiateType(variableDeclExpr->type);
     }

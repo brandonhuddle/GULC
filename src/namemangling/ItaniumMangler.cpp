@@ -42,6 +42,14 @@ void gulc::ItaniumMangler::mangleDecl(gulc::NamespaceDecl* namespaceDecl) {
     mangleDeclNamespace(namespaceDecl, "");
 }
 
+void gulc::ItaniumMangler::mangleDecl(gulc::TemplateStructDecl* templateStructDecl) {
+    mangleDeclTemplateStruct(templateStructDecl, "", "");
+}
+
+void gulc::ItaniumMangler::mangleDecl(gulc::TemplateTraitDecl* templateTraitDecl) {
+    mangleDeclTemplateTrait(templateTraitDecl, "", "");
+}
+
 void gulc::ItaniumMangler::mangleDeclEnum(gulc::EnumDecl* enumDecl, std::string const& prefix,
                                           std::string const& nameSuffix) {
     std::string nPrefix = prefix + sourceName(enumDecl->identifier().name());
@@ -64,13 +72,13 @@ void gulc::ItaniumMangler::mangleDeclEnum(gulc::EnumDecl* enumDecl, std::string 
 
 void gulc::ItaniumMangler::mangleDeclStruct(gulc::StructDecl* structDecl, std::string const& prefix,
                                             std::string const& nameSuffix) {
-    std::string nPrefix = prefix + sourceName(structDecl->identifier().name());
+    std::string nPrefix = prefix + sourceName(structDecl);
     structDecl->setMangledName(nPrefix + nameSuffix);
 }
 
 void gulc::ItaniumMangler::mangleDeclTrait(gulc::TraitDecl* traitDecl, std::string const& prefix,
                                            std::string const& nameSuffix) {
-    std::string nPrefix = prefix + sourceName(traitDecl->identifier().name());
+    std::string nPrefix = prefix + sourceName(traitDecl);
     traitDecl->setMangledName(nPrefix + nameSuffix);
 }
 
@@ -86,8 +94,38 @@ void gulc::ItaniumMangler::mangleDeclNamespace(gulc::NamespaceDecl* namespaceDec
             mangleDeclStruct(llvm::dyn_cast<StructDecl>(decl), "N" + nPrefix, "E");
         } else if (llvm::isa<TraitDecl>(decl)) {
             mangleDeclTrait(llvm::dyn_cast<TraitDecl>(decl), "N" + nPrefix, "E");
+        } else if (llvm::isa<TemplateStructDecl>(decl)) {
+            mangleDeclTemplateStruct(llvm::dyn_cast<TemplateStructDecl>(decl), "N" + nPrefix, "E");
+        } else if (llvm::isa<TemplateTraitDecl>(decl)) {
+            mangleDeclTemplateTrait(llvm::dyn_cast<TemplateTraitDecl>(decl), "N" + nPrefix, "E");
         }
     }
+}
+
+void gulc::ItaniumMangler::mangleDeclTemplateStruct(gulc::TemplateStructDecl* templateStructDecl,
+                                                    std::string const& prefix, std::string const& nameSuffix) {
+    for (auto templateInst : templateStructDecl->templateInstantiations()) {
+        mangleDeclTemplateStructInst(templateInst, prefix, nameSuffix);
+    }
+}
+
+void gulc::ItaniumMangler::mangleDeclTemplateTrait(gulc::TemplateTraitDecl* templateTraitDecl,
+                                                   std::string const& prefix, std::string const& nameSuffix) {
+    for (auto templateInst : templateTraitDecl->templateInstantiations()) {
+        mangleDeclTemplateTraitInst(templateInst, prefix, nameSuffix);
+    }
+}
+
+void gulc::ItaniumMangler::mangleDeclTemplateStructInst(gulc::TemplateStructInstDecl* templateStructInstDecl,
+                                                        std::string const& prefix, std::string const& nameSuffix) {
+    // The `sourceName(StructDecl*)` function will handle setting the proper template struct instantiation name.
+    mangleDeclStruct(templateStructInstDecl, prefix, nameSuffix);
+}
+
+void gulc::ItaniumMangler::mangleDeclTemplateTraitInst(gulc::TemplateTraitInstDecl* templateTraitInstDecl,
+                                                       std::string const& prefix, std::string const& nameSuffix) {
+    // The `sourceName(TraitDecl*)` function will handle setting the proper template trait instantiation name.
+    mangleDeclTrait(templateTraitInstDecl, prefix, nameSuffix);
 }
 
 void gulc::ItaniumMangler::mangle(gulc::FunctionDecl* functionDecl) {
@@ -118,10 +156,29 @@ void gulc::ItaniumMangler::mangle(gulc::PropertyDecl* propertyDecl) {
     mangleProperty(propertyDecl, "", "");
 }
 
+void gulc::ItaniumMangler::mangle(gulc::TemplateStructDecl* templateStructDecl) {
+    mangleTemplateStruct(templateStructDecl, "");
+}
+
+void gulc::ItaniumMangler::mangle(gulc::TemplateTraitDecl* templateTraitDecl) {
+    mangleTemplateTrait(templateTraitDecl, "");
+}
+
+void gulc::ItaniumMangler::mangle(gulc::TemplateFunctionDecl* templateFunctionDecl) {
+    mangleTemplateFunction(templateFunctionDecl, "", "");
+}
+
 void gulc::ItaniumMangler::mangleFunction(gulc::FunctionDecl* functionDecl, std::string const& prefix,
                                           std::string const& nameSuffix) {
     // All mangled names start with "_Z"...
     std::string mangledName = "_Z" + prefix + unqualifiedName(functionDecl) + nameSuffix;
+
+    if (llvm::isa<TemplateFunctionInstDecl>(functionDecl)) {
+        auto templateInst = llvm::dyn_cast<TemplateFunctionInstDecl>(functionDecl);
+
+        mangledName += templateArgs(templateInst->parentTemplateStruct()->templateParameters(),
+                                    templateInst->templateArguments());
+    }
 
     mangledName += bareFunctionType(functionDecl->parameters());
 
@@ -131,6 +188,14 @@ void gulc::ItaniumMangler::mangleFunction(gulc::FunctionDecl* functionDecl, std:
     //       We need that because the compiler will optimize out some contracts, which will require us to move the
     //       contracts outside of the function. But the default function should handle the contracts to allow calling
     //       the function from C
+}
+
+void gulc::ItaniumMangler::mangleTemplateFunction(gulc::TemplateFunctionDecl* templateFunctionDecl,
+                                                  std::string const& prefix, std::string const& nameSuffix) {
+    for (auto templateInst : templateFunctionDecl->templateInstantiations()) {
+        // `mangleFunction` handles template arguments properly for us
+        mangleFunction(templateInst, prefix, nameSuffix);
+    }
 }
 
 void gulc::ItaniumMangler::mangleVariable(gulc::VariableDecl* variableDecl, std::string const& prefix,
@@ -155,15 +220,18 @@ void gulc::ItaniumMangler::mangleNamespace(gulc::NamespaceDecl* namespaceDecl, s
             mangleTrait(llvm::dyn_cast<TraitDecl>(decl), nPrefix);
         } else if (llvm::isa<PropertyDecl>(decl)) {
             mangleProperty(llvm::dyn_cast<PropertyDecl>(decl), "N" + nPrefix, "E");
+        } else if (llvm::isa<TemplateStructDecl>(decl)) {
+            mangleTemplateStruct(llvm::dyn_cast<TemplateStructDecl>(decl), nPrefix);
+        } else if (llvm::isa<TemplateTraitDecl>(decl)) {
+            mangleTemplateTrait(llvm::dyn_cast<TemplateTraitDecl>(decl), nPrefix);
+        } else if (llvm::isa<TemplateFunctionDecl>(decl)) {
+            mangleTemplateFunction(llvm::dyn_cast<TemplateFunctionDecl>(decl), "N" + nPrefix, "E");
         }
-//        else if (llvm::isa<TemplateFunctionDecl>(decl)) {
-//            mangleTemplateFunction(llvm::dyn_cast<TemplateFunctionDecl>(decl), "N" + nPrefix, "E");
-//        }
     }
 }
 
 void gulc::ItaniumMangler::mangleStruct(gulc::StructDecl* structDecl, std::string const& prefix) {
-    std::string nPrefix = prefix + sourceName(structDecl->identifier().name());
+    std::string nPrefix = prefix + sourceName(structDecl);
 
     for (ConstructorDecl* constructor : structDecl->constructors()) {
         mangleConstructor(constructor, "N" + nPrefix, "E");
@@ -186,6 +254,8 @@ void gulc::ItaniumMangler::mangleStruct(gulc::StructDecl* structDecl, std::strin
             mangleProperty(llvm::dyn_cast<PropertyDecl>(decl), "N" + nPrefix, "E");
         } else if (llvm::isa<SubscriptOperatorDecl>(decl)) {
             mangleSubscript(llvm::dyn_cast<SubscriptOperatorDecl>(decl), "N" + nPrefix, "E");
+        } else if (llvm::isa<TemplateFunctionDecl>(decl)) {
+            mangleTemplateFunction(llvm::dyn_cast<TemplateFunctionDecl>(decl), "N" + nPrefix, "E");
         }
     }
 
@@ -201,8 +271,16 @@ void gulc::ItaniumMangler::mangleStruct(gulc::StructDecl* structDecl, std::strin
     }
 }
 
+void gulc::ItaniumMangler::mangleTemplateStruct(gulc::TemplateStructDecl* templateStructDecl,
+                                                std::string const& prefix) {
+    for (auto templateInst : templateStructDecl->templateInstantiations()) {
+        // `mangleStruct` handles template arguments properly for us
+        mangleStruct(templateInst, prefix);
+    }
+}
+
 void gulc::ItaniumMangler::mangleTrait(gulc::TraitDecl* traitDecl, std::string const& prefix) {
-    std::string nPrefix = prefix + sourceName(traitDecl->identifier().name());
+    std::string nPrefix = prefix + sourceName(traitDecl);
 
     // TODO: Support nested `Struct` and `Trait`
     for (Decl* decl : traitDecl->ownedMembers()) {
@@ -221,7 +299,17 @@ void gulc::ItaniumMangler::mangleTrait(gulc::TraitDecl* traitDecl, std::string c
             mangleProperty(llvm::dyn_cast<PropertyDecl>(decl), "N" + nPrefix, "E");
         } else if (llvm::isa<SubscriptOperatorDecl>(decl)) {
             mangleSubscript(llvm::dyn_cast<SubscriptOperatorDecl>(decl), "N" + nPrefix, "E");
+        } else if (llvm::isa<TemplateFunctionDecl>(decl)) {
+            mangleTemplateFunction(llvm::dyn_cast<TemplateFunctionDecl>(decl), "N" + nPrefix, "E");
         }
+    }
+}
+
+void gulc::ItaniumMangler::mangleTemplateTrait(gulc::TemplateTraitDecl* templateTraitDecl,
+                                               std::string const& prefix) {
+    for (auto templateInst : templateTraitDecl->templateInstantiations()) {
+        // `mangleTrait` handles template arguments properly for us
+        mangleTrait(templateInst, prefix);
     }
 }
 
@@ -430,6 +518,34 @@ std::string gulc::ItaniumMangler::unqualifiedName(gulc::VariableDecl* variableDe
 
 std::string gulc::ItaniumMangler::sourceName(std::string const& s) {
     return std::to_string(s.length()) + s;
+}
+
+std::string gulc::ItaniumMangler::sourceName(gulc::StructDecl* structDecl) {
+    auto result = sourceName(structDecl->identifier().name());
+
+    // If the struct is a template instantiation we add the template arguments to the end of the source-name
+    if (llvm::isa<TemplateStructInstDecl>(structDecl)) {
+        auto templateStructInst = llvm::dyn_cast<TemplateStructInstDecl>(structDecl);
+
+        result += templateArgs(templateStructInst->parentTemplateStruct()->templateParameters(),
+                templateStructInst->templateArguments());
+    }
+
+    return result;
+}
+
+std::string gulc::ItaniumMangler::sourceName(gulc::TraitDecl* traitDecl) {
+    auto result = sourceName(traitDecl->identifier().name());
+
+    // If the trait is a template instantiation we add the template arguments to the end of the source-name
+    if (llvm::isa<TemplateTraitInstDecl>(traitDecl)) {
+        auto templateTraitInstDecl = llvm::dyn_cast<TemplateTraitInstDecl>(traitDecl);
+
+        result += templateArgs(templateTraitInstDecl->parentTemplateTrait()->templateParameters(),
+                               templateTraitInstDecl->templateArguments());
+    }
+
+    return result;
 }
 
 std::string gulc::ItaniumMangler::bareFunctionType(std::vector<ParameterDecl*>& params) {

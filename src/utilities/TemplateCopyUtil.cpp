@@ -298,9 +298,6 @@ void gulc::TemplateCopyUtil::instantiateStmt(gulc::Stmt* stmt) const {
         case Stmt::Kind::DoCatch:
             instantiateDoCatchStmt(llvm::dyn_cast<DoCatchStmt>(stmt));
             break;
-        case Stmt::Kind::DoWhile:
-            instantiateDoWhileStmt(llvm::dyn_cast<DoWhileStmt>(stmt));
-            break;
         case Stmt::Kind::For:
             instantiateForStmt(llvm::dyn_cast<ForStmt>(stmt));
             break;
@@ -309,6 +306,9 @@ void gulc::TemplateCopyUtil::instantiateStmt(gulc::Stmt* stmt) const {
             break;
         case Stmt::Kind::Labeled:
             instantiateLabeledStmt(llvm::dyn_cast<LabeledStmt>(stmt));
+            break;
+        case Stmt::Kind::RepeatWhile:
+            instantiateRepeatWhileStmt(llvm::dyn_cast<RepeatWhileStmt>(stmt));
             break;
         case Stmt::Kind::Return:
             instantiateReturnStmt(llvm::dyn_cast<ReturnStmt>(stmt));
@@ -513,16 +513,18 @@ void gulc::TemplateCopyUtil::instantiateTemplateFunctionDecl(gulc::TemplateFunct
 }
 
 void gulc::TemplateCopyUtil::instantiateTemplateParameterDecl(gulc::TemplateParameterDecl* templateParameterDecl) const {
-    if (templateParameterDecl->templateParameterKind() == TemplateParameterDecl::TemplateParameterKind::Const) {
-        instantiateType(templateParameterDecl->constType);
+    if (templateParameterDecl->type != nullptr) {
+        instantiateType(templateParameterDecl->type);
+    }
 
-        // TODO: Handle default value
-    } else {
+    if (templateParameterDecl->templateParameterKind() == TemplateParameterDecl::TemplateParameterKind::Typename) {
         for (Type*& inheritedType : templateParameterDecl->inheritedTypes) {
             instantiateType(inheritedType);
         }
+    }
 
-        // TODO: Can `typename`s have default values??
+    if (templateParameterDecl->defaultValue != nullptr) {
+        instantiateExpr(templateParameterDecl->defaultValue);
     }
 }
 
@@ -622,11 +624,6 @@ void gulc::TemplateCopyUtil::instantiateDoCatchStmt(gulc::DoCatchStmt* doCatchSt
     }
 }
 
-void gulc::TemplateCopyUtil::instantiateDoWhileStmt(gulc::DoWhileStmt* doWhileStmt) const {
-    instantiateStmt(doWhileStmt->body());
-    instantiateExpr(doWhileStmt->condition);
-}
-
 void gulc::TemplateCopyUtil::instantiateForStmt(gulc::ForStmt* forStmt) const {
     if (forStmt->init != nullptr) {
         instantiateExpr(forStmt->init);
@@ -654,6 +651,11 @@ void gulc::TemplateCopyUtil::instantiateIfStmt(gulc::IfStmt* ifStmt) const {
 
 void gulc::TemplateCopyUtil::instantiateLabeledStmt(gulc::LabeledStmt* labeledStmt) const {
     instantiateStmt(labeledStmt->labeledStmt);
+}
+
+void gulc::TemplateCopyUtil::instantiateRepeatWhileStmt(gulc::RepeatWhileStmt* repeatWhileStmt) const {
+    instantiateStmt(repeatWhileStmt->body());
+    instantiateExpr(repeatWhileStmt->condition);
 }
 
 void gulc::TemplateCopyUtil::instantiateReturnStmt(gulc::ReturnStmt* returnStmt) const {
@@ -702,7 +704,7 @@ void gulc::TemplateCopyUtil::instantiateFunctionCallExpr(gulc::FunctionCallExpr*
 
 void gulc::TemplateCopyUtil::instantiateHasExpr(gulc::HasExpr* hasExpr) const {
     instantiateExpr(hasExpr->expr);
-    instantiateType(hasExpr->trait);
+    instantiateDecl(hasExpr->decl);
 }
 
 void gulc::TemplateCopyUtil::instantiateIdentifierExpr(gulc::IdentifierExpr* identifierExpr) const {

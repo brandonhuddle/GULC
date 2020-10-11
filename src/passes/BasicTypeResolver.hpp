@@ -29,7 +29,7 @@
 #include <ast/decls/VariableDecl.hpp>
 #include <ast/stmts/CaseStmt.hpp>
 #include <ast/stmts/CatchStmt.hpp>
-#include <ast/stmts/DoWhileStmt.hpp>
+#include <ast/stmts/RepeatWhileStmt.hpp>
 #include <ast/stmts/ForStmt.hpp>
 #include <ast/stmts/IfStmt.hpp>
 #include <ast/stmts/LabeledStmt.hpp>
@@ -65,6 +65,7 @@
 #include <ast/exprs/TryExpr.hpp>
 #include <ast/exprs/BoolLiteralExpr.hpp>
 #include <ast/exprs/RefExpr.hpp>
+#include <ast/decls/TraitPrototypeDecl.hpp>
 
 namespace gulc {
     /**
@@ -124,6 +125,7 @@ namespace gulc {
         void processContracts(std::vector<Cont*>& contracts);
 
         void processDecl(Decl* decl, bool isGlobal = true);
+        void processPrototypeDecl(Decl* decl, bool isGlobal = true);
         void processEnumDecl(EnumDecl* enumDecl);
         void processExtensionDecl(ExtensionDecl* extensionDecl);
         void processFunctionDecl(FunctionDecl* functionDecl);
@@ -141,6 +143,7 @@ namespace gulc {
         void processTemplateStructDecl(TemplateStructDecl* templateStructDecl);
         void processTemplateTraitDecl(TemplateTraitDecl* templateTraitDecl);
         void processTraitDecl(TraitDecl* traitDecl);
+        void processTraitPrototypeDecl(TraitPrototypeDecl* traitPrototypeDecl);
         void processTypeAliasDecl(TypeAliasDecl* typeAliasDecl);
         void processVariableDecl(VariableDecl* variableDecl, bool isGlobal);
 
@@ -151,11 +154,11 @@ namespace gulc {
         void processCompoundStmt(CompoundStmt* compoundStmt);
         void processContinueStmt(ContinueStmt* continueStmt);
         void processDoCatchStmt(DoCatchStmt* doCatchStmt);
-        void processDoWhileStmt(DoWhileStmt* doWhileStmt);
         void processForStmt(ForStmt* forStmt);
         void processGotoStmt(GotoStmt* gotoStmt);
         void processIfStmt(IfStmt* ifStmt);
         void processLabeledStmt(LabeledStmt* labeledStmt);
+        void processRepeatWhileStmt(RepeatWhileStmt* repeatWhileStmt);
         void processReturnStmt(ReturnStmt* returnStmt);
         void processSwitchStmt(SwitchStmt* switchStmt);
         void processWhileStmt(WhileStmt* whileStmt);

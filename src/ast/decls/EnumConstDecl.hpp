@@ -60,6 +60,20 @@ namespace gulc {
             return result;
         }
 
+        std::string getPrototypeString() const override {
+            std::string result = getDeclModifiersString(_declModifiers);
+
+            if (!result.empty()) result += " ";
+
+            result += "case ";
+
+            if (constValue != nullptr) {
+                result += constValue->toString();
+            }
+
+            return result;
+        }
+
         ~EnumConstDecl() override {
             delete constValue;
         }

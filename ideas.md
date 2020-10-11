@@ -228,6 +228,31 @@ be interpreted as `DimensionType(TupleType(...))` rather than `FuncPointerType`
    1. This is declaring an operator `[]`, like the Swift syntax
    2. This is an array of `func` pointers, like the legacy C-style syntax
 
+### Condensed Lambdas
+I'm not sure what they are called in Swift but one thing I've seen that I like are something I'm calling 
+"condensed lambdas".
+
+Examples:
+    
+    func call(lambda: func(_: i32, _: i32)) { ... }
+    
+    call(lambda: { std.io.Console.print("Param1: {0}, Param2: {1}", $0, $1) })
+    
+It would be easy to parse this as we would see the `{ ... }` and immediately know it is a function body (since `[]` is 
+now used for arrays instead of `{}` like in most C-style languages).
+
+I'm iffy on the use of `$x`, `$` isn't as common on non-US keyboards. I think `#` could be used.
+
+How this would work is we would create an `AutoLamdaFunctionExpr` that would tell the compiler that it can convert to 
+any `FunctionPointerType`. Then, anything that takes a `FunctionPointerType` would handle the auto-lambda as a special 
+case and handle converting `$0` to `Param[0]` and would also handle detecting if the lambda returns on all code paths.
+
+##### Questions
+ * How would we handle the capture list? In my opinion, if you're using the condensed form then you don't care how we 
+   capture. It might be good to capture everything as a reference, since some of the types might not have an `init copy`
+ * Should we decide on `#` instead of `$`? My only reason for this is so non-US keyboard layouts can be used easier.
+ * Actually, after researching it a bit it looks as if all keyboards now have `$` specifically because of programming
+
 ### `pure` Functors
 `pure` functions are something that could be quite useful to compiler optimizations. They're similar to the already 
 existing `immut` by default idea that Ghoul inherits but extends that more into the global environment rather than just 

@@ -40,6 +40,8 @@ namespace gulc {
             Fail,
             /// The parameters are castable, they match enough that they didn't fail.
             Castable,
+            /// One of more of the parameters use default values
+            DefaultValues,
             /// The parameters are a perfect match for the parameters
             Match
         };
@@ -72,7 +74,8 @@ namespace gulc {
                                                            std::vector<LabeledArgumentExpr*> const& arguments);
         static ArgMatchResult compareTemplateArgumentsToParameters(
                 std::vector<TemplateParameterDecl*> const& templateParameters,
-                std::vector<Expr*> const& templateArguments);
+                std::vector<Expr*> const& templateArguments,
+                std::vector<std::size_t>& outArgMatchStrengths);
 
     };
 }

@@ -275,10 +275,9 @@ llvm::StructType* gulc::CodeGen::generateLlvmStructType(gulc::StructDecl const* 
                                                           alignPadding));
         }
 
-        auto result = llvm::StructType::create(*_llvmContext, elements,
-                                               structDecl->identifier().name() + ".unpadded", true);
-        auto resultPadded = llvm::StructType::create(*_llvmContext, elementsPadded, structDecl->identifier().name(),
-                                                     true);
+        std::string structName = "_Zs" + structDecl->mangledName();
+        auto result = llvm::StructType::create(*_llvmContext, elements, structName + ".unpadded", true);
+        auto resultPadded = llvm::StructType::create(*_llvmContext, elementsPadded, structName, true);
         _cachedLlvmStructTypes.insert({structDecl->mangledName() + ".unpadded", result});
         _cachedLlvmStructTypes.insert({structDecl->mangledName(), resultPadded});
 
@@ -917,9 +916,6 @@ void gulc::CodeGen::generateStmt(gulc::Stmt const* stmt, std::string const& stmt
         case Stmt::Kind::DoCatch:
             generateDoCatchStmt(llvm::dyn_cast<DoCatchStmt>(stmt));
             break;
-        case Stmt::Kind::DoWhile:
-            generateDoWhileStmt(llvm::dyn_cast<DoWhileStmt>(stmt), stmtName);
-            break;
         case Stmt::Kind::For:
             generateForStmt(llvm::dyn_cast<ForStmt>(stmt), stmtName);
             break;
@@ -931,6 +927,9 @@ void gulc::CodeGen::generateStmt(gulc::Stmt const* stmt, std::string const& stmt
             break;
         case Stmt::Kind::Labeled:
             generateLabeledStmt(llvm::dyn_cast<LabeledStmt>(stmt));
+            break;
+        case Stmt::Kind::RepeatWhile:
+            generateRepeatWhileStmt(llvm::dyn_cast<RepeatWhileStmt>(stmt), stmtName);
             break;
         case Stmt::Kind::Return:
             generateReturnStmt(llvm::dyn_cast<ReturnStmt>(stmt));
@@ -1022,55 +1021,6 @@ void gulc::CodeGen::generateContinueStmt(gulc::ContinueStmt const* continueStmt)
 void gulc::CodeGen::generateDoCatchStmt(gulc::DoCatchStmt const* doCatchStmt) {
     printError("`do {} catch {}` statement not yet supported!",
                doCatchStmt->startPosition(), doCatchStmt->endPosition());
-}
-
-void gulc::CodeGen::generateDoWhileStmt(gulc::DoWhileStmt const* doWhileStmt, std::string const& loopName) {
-    std::string doName;
-
-    if (loopName.empty()) {
-        doName = "loop" + std::to_string(_anonLoopNameNumber);
-        ++_anonLoopNameNumber;
-    } else {
-        doName = loopName;
-    }
-
-    llvm::BasicBlock* loop = llvm::BasicBlock::Create(*_llvmContext, doName + "_loop", _currentLlvmFunction);
-    llvm::BasicBlock* loopContinue = llvm::BasicBlock::Create(*_llvmContext, doName + "_continue");
-    llvm::BasicBlock* loopBreak = llvm::BasicBlock::Create(*_llvmContext, doName + "_break");
-
-    // For some reason we can't just fall through to the continue loop? We have to explicitly branch to it?
-    _irBuilder->CreateBr(loop);
-    // Set the insert point to the loop block and start adding the loop data...
-    _irBuilder->SetInsertPoint(loop);
-
-    // We make sure to back up and restore the old loop's break and continue blocks for our `break` and `continue` keywords
-    auto oldLoopContinue = _currentLoopBlockContinue;
-    auto oldLoopBreak = _currentLoopBlockBreak;
-
-    _currentLoopBlockContinue = loopContinue;
-    _currentLoopBlockBreak = loopBreak;
-
-    // Generate the statement we loop on...
-    std::size_t oldNestedLoopCount = 0;
-    enterNestedLoop(loopContinue, loopBreak, &oldNestedLoopCount);
-    generateStmt(doWhileStmt->body());
-    leaveNestedLoop(oldNestedLoopCount);
-    _irBuilder->CreateBr(loopContinue);
-
-    _currentLoopBlockContinue = oldLoopContinue;
-    _currentLoopBlockBreak = oldLoopBreak;
-
-    // Add the loop continue block to the function and set it as the insert point...
-    _currentLlvmFunction->getBasicBlockList().push_back(loopContinue);
-    _irBuilder->SetInsertPoint(loopContinue);
-
-    // Generate the condition and create the conditional branch
-    llvm::Value* cond = generateExpr(doWhileStmt->condition);
-    _irBuilder->CreateCondBr(cond, loop, loopBreak);
-
-    // Add the loop break block to the function and set it as the insert point...
-    _currentLlvmFunction->getBasicBlockList().push_back(loopBreak);
-    _irBuilder->SetInsertPoint(loopBreak);
 }
 
 void gulc::CodeGen::generateForStmt(gulc::ForStmt const* forStmt, std::string const& loopName) {
@@ -1259,6 +1209,55 @@ void gulc::CodeGen::generateLabeledStmt(gulc::LabeledStmt const* labeledStmt) {
     addBlockAndSetInsertionPoint(labelBody);
 
     generateStmt(labeledStmt->labeledStmt, labeledStmt->label().name());
+}
+
+void gulc::CodeGen::generateRepeatWhileStmt(gulc::RepeatWhileStmt const* repeatWhileStmt, std::string const& loopName) {
+    std::string doName;
+
+    if (loopName.empty()) {
+        doName = "loop" + std::to_string(_anonLoopNameNumber);
+        ++_anonLoopNameNumber;
+    } else {
+        doName = loopName;
+    }
+
+    llvm::BasicBlock* loop = llvm::BasicBlock::Create(*_llvmContext, doName + "_loop", _currentLlvmFunction);
+    llvm::BasicBlock* loopContinue = llvm::BasicBlock::Create(*_llvmContext, doName + "_continue");
+    llvm::BasicBlock* loopBreak = llvm::BasicBlock::Create(*_llvmContext, doName + "_break");
+
+    // For some reason we can't just fall through to the continue loop? We have to explicitly branch to it?
+    _irBuilder->CreateBr(loop);
+    // Set the insert point to the loop block and start adding the loop data...
+    _irBuilder->SetInsertPoint(loop);
+
+    // We make sure to back up and restore the old loop's break and continue blocks for our `break` and `continue` keywords
+    auto oldLoopContinue = _currentLoopBlockContinue;
+    auto oldLoopBreak = _currentLoopBlockBreak;
+
+    _currentLoopBlockContinue = loopContinue;
+    _currentLoopBlockBreak = loopBreak;
+
+    // Generate the statement we loop on...
+    std::size_t oldNestedLoopCount = 0;
+    enterNestedLoop(loopContinue, loopBreak, &oldNestedLoopCount);
+    generateStmt(repeatWhileStmt->body());
+    leaveNestedLoop(oldNestedLoopCount);
+    _irBuilder->CreateBr(loopContinue);
+
+    _currentLoopBlockContinue = oldLoopContinue;
+    _currentLoopBlockBreak = oldLoopBreak;
+
+    // Add the loop continue block to the function and set it as the insert point...
+    _currentLlvmFunction->getBasicBlockList().push_back(loopContinue);
+    _irBuilder->SetInsertPoint(loopContinue);
+
+    // Generate the condition and create the conditional branch
+    llvm::Value* cond = generateExpr(repeatWhileStmt->condition);
+    _irBuilder->CreateCondBr(cond, loop, loopBreak);
+
+    // Add the loop break block to the function and set it as the insert point...
+    _currentLlvmFunction->getBasicBlockList().push_back(loopBreak);
+    _irBuilder->SetInsertPoint(loopBreak);
 }
 
 void gulc::CodeGen::generateReturnStmt(gulc::ReturnStmt const* returnStmt) {
@@ -1564,6 +1563,8 @@ llvm::Value* gulc::CodeGen::generateExpr(gulc::Expr const* expr) {
             return generateRefExpr(llvm::dyn_cast<RefExpr>(expr));
         case Expr::Kind::RValueToInRef:
             return generateRValueToInRefExpr(llvm::dyn_cast<RValueToInRefExpr>(expr));
+        case Expr::Kind::SolvedConst:
+            return generateSolvedConstExpr(llvm::dyn_cast<SolvedConstExpr>(expr));
         case Expr::Kind::StoreTemporaryValue:
             return generateStoreTemporaryValueExpr(llvm::dyn_cast<StoreTemporaryValueExpr>(expr));
         case Expr::Kind::SubscriptOperatorGetCall:
@@ -2364,6 +2365,10 @@ llvm::Value* gulc::CodeGen::generateRValueToInRefExpr(gulc::RValueToInRefExpr co
     auto result = _irBuilder->CreateAlloca(generateLlvmType(rvalueToInRefExpr->valueType));
     _irBuilder->CreateStore(generatedValue, result);
     return result;
+}
+
+llvm::Value* gulc::CodeGen::generateSolvedConstExpr(gulc::SolvedConstExpr const* solvedConstExpr) {
+    return generateExpr(solvedConstExpr->solution);
 }
 
 llvm::Value* gulc::CodeGen::generateStoreTemporaryValueExpr(

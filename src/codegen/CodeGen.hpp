@@ -39,7 +39,7 @@
 #include <ast/decls/EnumDecl.hpp>
 #include <ast/stmts/BreakStmt.hpp>
 #include <ast/stmts/ContinueStmt.hpp>
-#include <ast/stmts/DoWhileStmt.hpp>
+#include <ast/stmts/RepeatWhileStmt.hpp>
 #include <ast/stmts/ForStmt.hpp>
 #include <ast/stmts/GotoStmt.hpp>
 #include <ast/stmts/IfStmt.hpp>
@@ -81,6 +81,7 @@
 #include <ast/exprs/RValueToInRefExpr.hpp>
 #include <ast/exprs/StoreTemporaryValueExpr.hpp>
 #include <ast/exprs/MemberInfixOperatorCallExpr.hpp>
+#include <ast/exprs/SolvedConstExpr.hpp>
 
 namespace gulc {
     class CodeGen {
@@ -166,11 +167,11 @@ namespace gulc {
         void generateCompoundStmt(CompoundStmt const* compoundStmt);
         void generateContinueStmt(ContinueStmt const* continueStmt);
         void generateDoCatchStmt(DoCatchStmt const* doCatchStmt);
-        void generateDoWhileStmt(DoWhileStmt const* doWhileStmt, std::string const& stmtName);
         void generateForStmt(ForStmt const* forStmt, std::string const& stmtName);
         void generateGotoStmt(GotoStmt const* gotoStmt);
         void generateIfStmt(IfStmt const* ifStmt);
         void generateLabeledStmt(LabeledStmt const* labeledStmt);
+        void generateRepeatWhileStmt(RepeatWhileStmt const* repeatWhileStmt, std::string const& stmtName);
         void generateReturnStmt(ReturnStmt const* returnStmt);
         void generateSwitchStmt(SwitchStmt const* switchStmt);
         void generateWhileStmt(WhileStmt const* whileStmt, std::string const& stmtName);
@@ -224,6 +225,7 @@ namespace gulc {
         llvm::Value* generatePropertySetCallExpr(PropertySetCallExpr const* propertySetCallExpr);
         llvm::Value* generateRefExpr(RefExpr const* refExpr);
         llvm::Value* generateRValueToInRefExpr(RValueToInRefExpr const* rvalueToInRefExpr);
+        llvm::Value* generateSolvedConstExpr(SolvedConstExpr const* solvedConstExpr);
         llvm::Value* generateStoreTemporaryValueExpr(StoreTemporaryValueExpr const* storeTemporaryValueExpr);
         llvm::Value* generateSubscriptOperatorGetCallExpr(
                 SubscriptOperatorGetCallExpr const* subscriptOperatorGetCallExpr, llvm::Value* sret = nullptr);

@@ -40,7 +40,7 @@
 #include <ast/stmts/CaseStmt.hpp>
 #include <ast/stmts/CatchStmt.hpp>
 #include <ast/stmts/ContinueStmt.hpp>
-#include <ast/stmts/DoWhileStmt.hpp>
+#include <ast/stmts/RepeatWhileStmt.hpp>
 #include <ast/stmts/ForStmt.hpp>
 #include <ast/stmts/GotoStmt.hpp>
 #include <ast/stmts/IfStmt.hpp>
@@ -81,6 +81,8 @@
 #include <ast/exprs/RefExpr.hpp>
 #include <ast/exprs/SubscriptOperatorRefExpr.hpp>
 #include <ast/exprs/MemberSubscriptOperatorRefExpr.hpp>
+#include <utilities/SignatureComparer.hpp>
+#include <ast/decls/TraitPrototypeDecl.hpp>
 
 namespace gulc {
     /**
@@ -111,6 +113,8 @@ namespace gulc {
                 Unknown,
                 // It is a match without needing any casts
                 Match,
+                // It is a match but requires default values
+                DefaultValues,
                 // It is a match but requires some casts
                 Castable
             };
@@ -123,6 +127,37 @@ namespace gulc {
 
             MatchingDecl(Kind kind, Decl* matchingDecl)
                     : kind(kind), matchingDecl(matchingDecl) {}
+
+        };
+
+        struct MatchingTemplateDecl {
+            MatchingDecl::Kind kind;
+            Decl* matchingDecl;
+            std::vector<std::size_t> argMatchStrengths;
+
+            MatchingTemplateDecl()
+                    : kind(MatchingDecl::Kind::Unknown), matchingDecl(nullptr), argMatchStrengths() {}
+
+            MatchingTemplateDecl(MatchingDecl::Kind kind, Decl* matchingDecl, std::vector<size_t> argMatchStrengths)
+                    : kind(kind), matchingDecl(matchingDecl), argMatchStrengths(std::move(argMatchStrengths)) {}
+
+
+        };
+
+        struct MatchingFunctorDecl {
+            MatchingDecl::Kind kind;
+            Decl* functorDecl;
+            // Depending on `functorDecl` this could be filled or could not be. It all depends.
+            // E.g. `VariableDecl` with a `CallOperatorDecl`. The `functor` would be the call operator and the `context`
+            //      would be the `VariableDecl`.
+            // NOTE: `VariableDecl` can also be the `functor` when `VariableDecl::type == FunctionPointerType`
+            Decl* contextDecl;
+
+            MatchingFunctorDecl()
+                    : kind(MatchingDecl::Kind::Unknown), functorDecl(nullptr), contextDecl(nullptr) {}
+
+            MatchingFunctorDecl(MatchingDecl::Kind kind, Decl* functorDecl, Decl* contextDecl)
+                    : kind(kind), functorDecl(functorDecl), contextDecl(contextDecl) {}
 
         };
 
@@ -149,6 +184,7 @@ namespace gulc {
         CurrentSelfExpr* getCurrentSelfRef(TextPosition startPosition, TextPosition endPosition) const;
 
         void processDecl(Decl* decl);
+        void processPrototypeDecl(Decl* decl);
         void processConstructorDecl(ConstructorDecl* constructorDecl, CompoundStmt* temporaryInitializersCompoundStmt);
         void processEnumDecl(EnumDecl* enumDecl);
         void processExtensionDecl(ExtensionDecl* extensionDecl);
@@ -166,6 +202,7 @@ namespace gulc {
         void processTemplateStructDecl(TemplateStructDecl* templateStructDecl);
         void processTemplateTraitDecl(TemplateTraitDecl* templateTraitDecl);
         void processTraitDecl(TraitDecl* traitDecl);
+        void processTraitPrototypeDecl(TraitPrototypeDecl* traitPrototypeDecl);
         void processVariableDecl(VariableDecl* variableDecl);
 
         void processBaseConstructorCall(StructDecl* structDecl, FunctionCallExpr*& functionCallExpr);
@@ -187,11 +224,11 @@ namespace gulc {
         void processCompoundStmt(CompoundStmt* compoundStmt);
         void processContinueStmt(ContinueStmt* continueStmt);
         void processDoCatchStmt(DoCatchStmt* doCatchStmt);
-        void processDoWhileStmt(DoWhileStmt* doWhileStmt);
         void processForStmt(ForStmt* forStmt);
         void processGotoStmt(GotoStmt* gotoStmt);
         void processIfStmt(IfStmt* ifStmt);
         void processLabeledStmt(LabeledStmt* labeledStmt);
+        void processRepeatWhileStmt(RepeatWhileStmt* repeatWhileStmt);
         void processReturnStmt(ReturnStmt* returnStmt);
         void processSwitchStmt(SwitchStmt* switchStmt);
         void processWhileStmt(WhileStmt* whileStmt);
@@ -210,46 +247,61 @@ namespace gulc {
         void processConstructorReferenceExpr(ConstructorReferenceExpr* constructorReferenceExpr);
         void processEnumConstRefExpr(EnumConstRefExpr* enumConstRefExpr);
         void processFunctionCallExpr(FunctionCallExpr*& functionCallExpr);
-        Decl* findMatchingFunctorDecl(std::vector<Decl*>& searchDecls, IdentifierExpr* identifierExpr,
-                                      std::vector<LabeledArgumentExpr*> const& arguments,
-                                      bool findStatic, bool* outIsAmbiguous);
+        void fillListOfMatchingTemplatesInContainer(Decl* container, std::string const& findName,
+                                                    bool findStaticOnly, std::vector<Expr*> const& templateArguments,
+                                                    std::vector<MatchingTemplateDecl>& matchingTemplateDecls);
+        void fillListOfMatchingTemplates(std::vector<Decl*>& searchDecls, std::string const& findName,
+                                         bool findStaticOnly, std::vector<Expr*> const& templateArguments,
+                                         std::vector<MatchingTemplateDecl>& matchingTemplateDecls);
         void fillListOfMatchingConstructors(StructDecl* structDecl, std::vector<LabeledArgumentExpr*> const& arguments,
-                                            std::vector<MatchingDecl>& matchingDecls);
-        // NOTE: Returns true if a single match was found
-        bool fillListOfMatchingCallOperators(Type* fromType, std::vector<LabeledArgumentExpr*> const& arguments,
-                                             std::vector<MatchingDecl>& matchingDecls);
-        bool fillListOfMatchingFunctors(Decl* fromContainer, IdentifierExpr* identifierExpr,
-                                        std::vector<LabeledArgumentExpr*> const& arguments,
-                                        std::vector<MatchingDecl>& matchingDecls);
-        bool fillListOfMatchingFunctors(ASTFile* file, IdentifierExpr* identifierExpr,
-                                        std::vector<LabeledArgumentExpr*> const& arguments,
-                                        std::vector<MatchingDecl>& matchingDecls);
-        bool addToListIfMatchingFunction(Decl* checkFunction, IdentifierExpr* identifierExpr,
+                                            std::vector<MatchingFunctorDecl>& matchingDecls);
+        bool findBestTemplateConstructor(TemplateStructDecl* templateStructDecl,
+                                         std::vector<Expr*> const& templateArguments,
                                          std::vector<LabeledArgumentExpr*> const& arguments,
-                                         std::vector<MatchingDecl>& matchingDecls,
-                                         /*out*/bool& isExact);
-        bool addToListIfMatchingStructInit(Decl* structDecl, IdentifierExpr* identifierExpr,
-                                           std::vector<LabeledArgumentExpr*> const& arguments,
-                                           std::vector<MatchingDecl>& matchingDecls,
-                                           bool ignoreTemplateArguments = false);
-        Decl* validateAndReturnMatchingFunction(FunctionCallExpr* functionCallExpr,
-                                                std::vector<MatchingDecl>& matchingDecls);
+                                         ConstructorDecl** outMatchingConstructor,
+                                         SignatureComparer::ArgMatchResult* outArgMatchResult, bool* outIsAmbiguous);
+        void fillListOfMatchingFunctorsInContainer(Decl* container, std::string const& findName, bool findStaticOnly,
+                                                   std::vector<LabeledArgumentExpr*> const& arguments,
+                                                   std::vector<MatchingFunctorDecl>& outMatchingDecls);
+        void fillListOfMatchingFunctors(std::vector<Decl*>& searchDecls, std::string const& findName,
+                                        bool findStaticOnly, std::vector<LabeledArgumentExpr*> const& arguments,
+                                        std::vector<MatchingFunctorDecl>& outMatchingDecls);
+        // Supports `FunctionPointerType` and `CallOperatorDecl`
+        void fillListOfMatchingFunctorsInType(Type* checkType, Decl* contextDecl,
+                                              std::vector<LabeledArgumentExpr*> const& arguments,
+                                              std::vector<MatchingFunctorDecl>& outMatchingDecls);
+        void fillListOfMatchingCallOperators(std::vector<Decl*>& searchDecls, bool findMut, Decl* contextDecl,
+                                             std::vector<LabeledArgumentExpr*> const& arguments,
+                                             std::vector<MatchingFunctorDecl>& outMatchingDecls);
+        MatchingTemplateDecl* findMatchingTemplateDecl(
+                std::vector<std::vector<MatchingTemplateDecl>>& allMatchingTemplateDecls,
+                std::vector<Expr*> const& templateArguments, std::vector<LabeledArgumentExpr*> const& arguments,
+                TextPosition errorStartPosition, TextPosition errorEndPosition, bool* outIsAmbiguous);
+        MatchingFunctorDecl* findMatchingFunctorDecl(std::vector<MatchingFunctorDecl>& allMatchingFunctorDecls,
+                                                     bool findExactOnly, bool* outIsAmbiguous);
+        MatchingFunctorDecl getTemplateFunctorInstantiation(MatchingTemplateDecl* matchingTemplateDecl,
+                                                            std::vector<Expr*>& templateArguments,
+                                                            std::vector<LabeledArgumentExpr*> const& arguments,
+                                                            std::string const& errorString,
+                                                            TextPosition errorStartPosition,
+                                                            TextPosition errorEndPosition);
         /// Create a static reference to the specified function. Function could be a template or normal.
         Expr* createStaticFunctionReference(Expr* forExpr, Decl* function) const;
         void processFunctionReferenceExpr(FunctionReferenceExpr* functionReferenceExpr);
         void processHasExpr(HasExpr* hasExpr);
         void processIdentifierExpr(Expr*& expr);
-        bool findMatchingDeclInContainer(Decl* container, IdentifierExpr* identifierExpr, Decl** outFoundDecl);
+        bool findMatchingDeclInContainer(Decl* container, std::string const& findName, Decl** outFoundDecl,
+                                         bool* outIsAmbiguous);
         // TODO: This can probably be merged with `findMatchingMemberDecl`
-        bool findMatchingDecl(std::vector<Decl*> const& searchDecls, IdentifierExpr* identifierExpr,
-                              Decl** outFoundDecl);
+        bool findMatchingDecl(std::vector<Decl*> const& searchDecls, std::string const& findName,
+                              Decl** outFoundDecl, bool* outIsAmbiguous);
         void processInfixOperatorExpr(InfixOperatorExpr*& infixOperatorExpr);
         bool fillListOfMatchingInfixOperators(std::vector<Decl*>& decls, InfixOperators findOperator, Type* argType,
                                               std::vector<MatchingDecl>& matchingDecls);
         void processIsExpr(IsExpr* isExpr);
         void processLabeledArgumentExpr(LabeledArgumentExpr* labeledArgumentExpr);
         void processMemberAccessCallExpr(Expr*& expr);
-        Decl* findMatchingMemberDecl(std::vector<Decl*> const& searchDecls, IdentifierExpr* memberIdentifier,
+        Decl* findMatchingMemberDecl(std::vector<Decl*> const& searchDecls, std::string const& findName,
                                      bool searchForStatic, bool* outIsAmbiguous);
         void processMemberPostfixOperatorCallExpr(MemberPostfixOperatorCallExpr* memberPostfixOperatorCallExpr);
         void processMemberPrefixOperatorCallExpr(MemberPrefixOperatorCallExpr* memberPrefixOperatorCallExpr);

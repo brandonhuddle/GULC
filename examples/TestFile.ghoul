@@ -1,70 +1,56 @@
-@copy
-struct vec3 {
+// TODO: We need to validate the below works correctly
+//struct Example<T: vec3> {}
+//
+//const var test: Example<vec3i>
+//
+//struct vec3 {}
+//struct vec3i: vec3 {}
+
+trait Addable {
+
+}
+
+struct vec3i: Addable {
     var x: i32
     var y: i32
     var z: i32
+}
+
+struct TemplateTest<T>: Addable {
+    var member: T
 
     init() {
-        self.x = 0
-        self.y = 0
-        self.z = 0
-    }
 
-    init copy(_ other: ref Self) {
-        self.x = other.x
-        self.y = other.y
-        self.z = other.z
-    }
-
-    init move(_ other: ref mut Self) {
-        self.x = other.x
-        self.y = other.y
-        self.z = other.z
-
-        // These are unneeded but I'm including them just for filler
-        other.x = 0
-        other.y = 0
-        other.z = 0
-    }
-
-    init(x: i32, y: i32, z: i32) {
-        self.x = x
-        self.y = y
-        self.z = z
-    }
-
-    operator infix +(right: in vec3) -> vec3 {
-        return vec3(
-            x: self.x + right.x,
-            y: self.y + right.y,
-            z: self.z + right.z
-        )
-    }
-
-    // Yes I know this is wrong.
-    operator prefix ++() -> vec3 {
-        return vec3(
-            x: self.x + 1,
-            y: self.y + 1,
-            z: self.z + 1
-        )
-    }
-
-    func memberFuncTest() -> i32 {
-        return 128
     }
 }
 
-//struct TemplateTest<T> {
-//    init() {
-//
-//    }
-//}
+// Template specialization
+struct TemplateTest<T: vec3i>: Addable {
+    var member: T
+
+    init() {
+
+    }
+}
+
+struct TemplateTest<T: i32>: Addable {
+    var member: T
+
+    init() {
+
+    }
+}
 
 func main() -> i32 {
-    let left = vec3(x: 4, y: 8, z: 16)
-    let right = vec3(x: 16, y: 8, z: 4)
-    let result = ++left
+    let templateTest = TemplateTest<i32>()
+    let templateTestFloat = TemplateTest<f32>()
 
-    return result.x
+    templateTest.member = 2
+
+    if vec3i has trait Addable {
+        templateTestFloat.member = 12.0
+        templateTest.member = 32
+    }
+
+    return templateTest.member
 }

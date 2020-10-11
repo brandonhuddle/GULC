@@ -20,6 +20,7 @@
 
 #include <ast/Decl.hpp>
 #include <ast/Type.hpp>
+#include <ast/Expr.hpp>
 
 namespace gulc {
     class TemplateParameterDecl : public Decl {
@@ -33,25 +34,21 @@ namespace gulc {
             Const
         };
 
-        // This is null if the kind is `typename`
-        Type* constType;
+        // When the parameter kind is `const` this is the type of the const value
+        // When the parameter kind is `typename` this is the specialized type (i.e. `struct Example<T: View>`)
+        Type* type;
+        // When the parameter kind is `const` this should be const-solvable expression (i.e. `12`, `"constString", etc.)
+        // When the parameter kind is `typename` this should be a `TypeExpr`
+        Expr* defaultValue;
         TemplateParameterKind templateParameterKind() const { return _templateParameterKind; }
 
-        // Constructor for `typename`
-        TemplateParameterDecl(unsigned int sourceFileID, std::vector<Attr*> attributes, Identifier identifier,
-                              TextPosition startPosition, TextPosition endPosition)
+        TemplateParameterDecl(unsigned int sourceFileID, std::vector<Attr*> attributes,
+                              TemplateParameterKind templateParameterKind, Identifier identifier, Type* type,
+                              Expr* defaultValue, TextPosition startPosition, TextPosition endPosition)
                 : Decl(Decl::Kind::TemplateParameter, sourceFileID, std::move(attributes),
                        Decl::Visibility::Unassigned, true, std::move(identifier),
                        DeclModifiers::None),
-                  constType(nullptr), _templateParameterKind(TemplateParameterKind::Typename),
-                  _startPosition(startPosition), _endPosition(endPosition) {}
-        // Constructor for `const`
-        TemplateParameterDecl(unsigned int sourceFileID, std::vector<Attr*> attributes, Identifier identifier,
-                              Type* type, TextPosition startPosition, TextPosition endPosition)
-                : Decl(Decl::Kind::TemplateParameter, sourceFileID, std::move(attributes),
-                       Decl::Visibility::Unassigned, true, std::move(identifier),
-                       DeclModifiers::None),
-                  constType(type), _templateParameterKind(TemplateParameterKind::Const),
+                  type(type), defaultValue(defaultValue), _templateParameterKind(templateParameterKind),
                   _startPosition(startPosition), _endPosition(endPosition) {}
 
         TextPosition startPosition() const override { return _startPosition; }
@@ -62,6 +59,8 @@ namespace gulc {
             copiedAttributes.reserve(_attributes.size());
             std::vector<Type*> copiedInheritedTypes;
             copiedInheritedTypes.reserve(inheritedTypes.size());
+            Type* copiedType = nullptr;
+            Expr* copiedDefaultValue = nullptr;
 
             for (Attr* attribute : _attributes) {
                 copiedAttributes.push_back(attribute->deepCopy());
@@ -71,16 +70,18 @@ namespace gulc {
                 copiedInheritedTypes.push_back(inheritedType->deepCopy());
             }
 
-            TemplateParameterDecl* result = nullptr;
-
-            if (_templateParameterKind == TemplateParameterKind::Const) {
-                result = new TemplateParameterDecl(_sourceFileID, copiedAttributes, _identifier,
-                                                   constType->deepCopy(), _startPosition, _endPosition);
-            } else {
-                result = new TemplateParameterDecl(_sourceFileID, copiedAttributes, _identifier,
-                                                   _startPosition, _endPosition);
+            if (type != nullptr) {
+                copiedType = type->deepCopy();
             }
 
+            if (defaultValue != nullptr) {
+                copiedDefaultValue = defaultValue->deepCopy();
+            }
+
+            auto result = new TemplateParameterDecl(_sourceFileID, copiedAttributes,
+                                                    _templateParameterKind, _identifier, copiedType,
+                                                    copiedDefaultValue,
+                                                    _startPosition, _endPosition);
             result->container = container;
             result->containedInTemplate = containedInTemplate;
             result->inheritedTypes = copiedInheritedTypes;
@@ -88,8 +89,27 @@ namespace gulc {
             return result;
         }
 
+        std::string getPrototypeString() const override {
+            std::string result = getDeclModifiersString(_declModifiers);
+
+            if (!result.empty()) result += " ";
+
+            if (_templateParameterKind == TemplateParameterKind::Const) {
+                result += "const ";
+            }
+
+            result += _identifier.name();
+
+            if (type != nullptr) {
+                result += ": " + type->toString();
+            }
+
+            return result;
+        }
+
         ~TemplateParameterDecl() override {
-            delete constType;
+            delete type;
+            delete defaultValue;
 
             for (Type* inheritedType : inheritedTypes) {
                 delete inheritedType;
@@ -98,6 +118,8 @@ namespace gulc {
 
         // These will be defined by `where` contracts
         // NOTE: This will not apply to `const` template parameters
+        // TODO: We should delete this. Instead of doing this here we should create a new `ImaginaryType` or something
+        //       that will be used to emulate the template type for validation.
         std::vector<Type*> inheritedTypes;
         // TODO: We'll also have to define `members` and probably `constructors`
         //       We shouldn't define a destructor as that should be implied (ALL types have destructors,

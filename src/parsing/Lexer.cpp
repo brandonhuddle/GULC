@@ -820,6 +820,10 @@ Token Lexer::parseToken(std::string& tokenText, TextPosition startPosition, bool
         result.metaType = TokenMetaType::KEYWORD;
         result.tokenType = TokenType::DO;
         result.currentSymbol = "do";
+    } else if (tokenText == "repeat") {
+        result.metaType = TokenMetaType::KEYWORD;
+        result.tokenType = TokenType::REPEAT;
+        result.currentSymbol = "repeat";
     } else if (tokenText == "while") {
         result.metaType = TokenMetaType::KEYWORD;
         result.tokenType = TokenType::WHILE;

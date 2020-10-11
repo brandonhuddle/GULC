@@ -87,6 +87,28 @@ namespace gulc {
             return result;
         }
 
+        std::string getPrototypeString() const override {
+            std::string result = getDeclModifiersString(_declModifiers);
+
+            if (!result.empty()) result += " ";
+
+            result += "prop " + _identifier.name() + " { ";
+
+            for (std::size_t i = 0; i < _getters.size(); ++i) {
+                if (i != 0) result += "; ";
+
+                result += _getters[i]->getPrototypeString();
+            }
+
+            if (_setter != nullptr) {
+                if (!_getters.empty()) result += "; ";
+
+                result += _setter->getPrototypeString();
+            }
+
+            return result + " }";
+        }
+
         ~PropertyDecl() override {
             delete type;
             delete _setter;

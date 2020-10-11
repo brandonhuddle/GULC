@@ -44,51 +44,52 @@ void gulc::NameMangler::processTypeDecl(gulc::Decl* decl) {
         case Decl::Kind::Struct:
             _manglerBase->mangleDecl(llvm::dyn_cast<StructDecl>(decl));
             break;
+        case Decl::Kind::TemplateStruct:
+            _manglerBase->mangleDecl(llvm::dyn_cast<TemplateStructDecl>(decl));
+            break;
         case Decl::Kind::TemplateTraitInst:
         case Decl::Kind::Trait:
             _manglerBase->mangleDecl(llvm::dyn_cast<TraitDecl>(decl));
+            break;
+        case Decl::Kind::TemplateTrait:
+            _manglerBase->mangleDecl(llvm::dyn_cast<TemplateTraitDecl>(decl));
             break;
     }
 }
 
 void gulc::NameMangler::processDecl(gulc::Decl* decl) {
     switch (decl->getDeclKind()) {
-        case Decl::Kind::Function: {
-            auto function = llvm::dyn_cast<FunctionDecl>(decl);
-            _manglerBase->mangle(function);
+        case Decl::Kind::Function:
+            _manglerBase->mangle(llvm::dyn_cast<FunctionDecl>(decl));
             break;
-        }
-        case Decl::Kind::Operator: {
-            auto oper = llvm::dyn_cast<OperatorDecl>(decl);
-            _manglerBase->mangle(oper);
+        case Decl::Kind::TemplateFunction:
+            _manglerBase->mangle(llvm::dyn_cast<TemplateFunctionDecl>(decl));
             break;
-        }
-        case Decl::Kind::CallOperator: {
-            auto callOper = llvm::dyn_cast<CallOperatorDecl>(decl);
-            _manglerBase->mangle(callOper);
+        case Decl::Kind::Operator:
+            _manglerBase->mangle(llvm::dyn_cast<OperatorDecl>(decl));
             break;
-        }
-        case Decl::Kind::Variable: {
-            auto variable = llvm::dyn_cast<VariableDecl>(decl);
-            _manglerBase->mangle(variable);
+        case Decl::Kind::CallOperator:
+            _manglerBase->mangle(llvm::dyn_cast<CallOperatorDecl>(decl));
             break;
-        }
-        case Decl::Kind::Namespace: {
-            auto namespaceDecl = llvm::dyn_cast<NamespaceDecl>(decl);
-            _manglerBase->mangle(namespaceDecl);
+        case Decl::Kind::Variable:
+            _manglerBase->mangle(llvm::dyn_cast<VariableDecl>(decl));
             break;
-        }
+        case Decl::Kind::Namespace:
+            _manglerBase->mangle(llvm::dyn_cast<NamespaceDecl>(decl));
+            break;
         case Decl::Kind::TemplateStructInst:
-        case Decl::Kind::Struct: {
-            auto structDecl = llvm::dyn_cast<StructDecl>(decl);
-            _manglerBase->mangle(structDecl);
+        case Decl::Kind::Struct:
+            _manglerBase->mangle(llvm::dyn_cast<StructDecl>(decl));
             break;
-        }
+        case Decl::Kind::TemplateStruct:
+            _manglerBase->mangle(llvm::dyn_cast<TemplateStructDecl>(decl));
+            break;
         case Decl::Kind::TemplateTraitInst:
-        case Decl::Kind::Trait: {
-            auto traitDecl = llvm::dyn_cast<TraitDecl>(decl);
-            _manglerBase->mangle(traitDecl);
+        case Decl::Kind::Trait:
+            _manglerBase->mangle(llvm::dyn_cast<TraitDecl>(decl));
             break;
-        }
+        case Decl::Kind::TemplateTrait:
+            _manglerBase->mangle(llvm::dyn_cast<TemplateTraitDecl>(decl));
+            break;
     }
 }

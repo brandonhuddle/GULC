@@ -39,7 +39,7 @@
 #include <ast/stmts/CaseStmt.hpp>
 #include <ast/stmts/CatchStmt.hpp>
 #include <ast/stmts/DoCatchStmt.hpp>
-#include <ast/stmts/DoWhileStmt.hpp>
+#include <ast/stmts/RepeatWhileStmt.hpp>
 #include <ast/stmts/ForStmt.hpp>
 #include <ast/stmts/IfStmt.hpp>
 #include <ast/stmts/LabeledStmt.hpp>
@@ -76,6 +76,7 @@
 #include <ast/exprs/SubscriptOperatorGetCallExpr.hpp>
 #include <ast/exprs/SubscriptOperatorSetCallExpr.hpp>
 #include <ast/exprs/RValueToInRefExpr.hpp>
+#include <ast/exprs/HasExpr.hpp>
 
 namespace gulc {
     /**
@@ -167,7 +168,6 @@ namespace gulc {
         bool processCompoundStmtHandleTempValues(CompoundStmt* compoundStmt);
         bool processContinueStmt(ContinueStmt* continueStmt);
         bool processDoCatchStmt(DoCatchStmt* doCatchStmt);
-        bool processDoWhileStmt(DoWhileStmt* doWhileStmt);
         bool processForStmt(ForStmt* forStmt);
         bool processGotoStmt(GotoStmt* gotoStmt);
         bool processIfStmt(IfStmt* ifStmt);
@@ -175,6 +175,7 @@ namespace gulc {
         //       allowing the if statement to be replaced (like `processStmt` allows)
         bool processIfStmtHandleTempValues(IfStmt* ifStmt);
         bool processLabeledStmt(LabeledStmt* labeledStmt);
+        bool processRepeatWhileStmt(RepeatWhileStmt* repeatWhileStmt);
         bool processReturnStmt(ReturnStmt* returnStmt);
         bool processSwitchStmt(SwitchStmt* switchStmt);
         bool processWhileStmt(WhileStmt* whileStmt);
@@ -190,6 +191,7 @@ namespace gulc {
         void processConstructorCallExpr(ConstructorCallExpr* constructorCallExpr);
         void processFunctionCallExpr(Expr*& expr);
         void processImplicitCastExpr(ImplicitCastExpr* implicitCastExpr);
+        void processHasExpr(Expr*& expr);
         void processImplicitDerefExpr(ImplicitDerefExpr* implicitDerefExpr);
         void processInfixOperatorExpr(InfixOperatorExpr* infixOperatorExpr);
         void processIsExpr(IsExpr* isExpr);

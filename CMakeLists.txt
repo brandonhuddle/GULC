@@ -62,6 +62,8 @@ add_executable(gulc
         src/ast/decls/ExtensionDecl.hpp
         src/ast/decls/FunctionDecl.cpp
         src/ast/decls/FunctionDecl.hpp
+        src/ast/decls/ImaginaryTypeDecl.cpp
+        src/ast/decls/ImaginaryTypeDecl.hpp
         src/ast/decls/ImportDecl.cpp
         src/ast/decls/ImportDecl.hpp
         src/ast/decls/NamespaceDecl.cpp
@@ -100,6 +102,8 @@ add_executable(gulc
         src/ast/decls/TemplateTraitInstDecl.hpp
         src/ast/decls/TraitDecl.cpp
         src/ast/decls/TraitDecl.hpp
+        src/ast/decls/TraitPrototypeDecl.cpp
+        src/ast/decls/TraitPrototypeDecl.hpp
         src/ast/decls/TypeAliasDecl.cpp
         src/ast/decls/TypeAliasDecl.hpp
         src/ast/decls/TypeSuffixDecl.cpp
@@ -125,6 +129,8 @@ add_executable(gulc
         src/ast/types/FlatArrayType.hpp
         src/ast/types/FunctionPointerType.cpp
         src/ast/types/FunctionPointerType.hpp
+        src/ast/types/ImaginaryType.cpp
+        src/ast/types/ImaginaryType.hpp
         src/ast/types/LabeledType.cpp
         src/ast/types/LabeledType.hpp
         src/ast/types/PointerType.cpp
@@ -234,6 +240,8 @@ add_executable(gulc
         src/ast/exprs/RefExpr.hpp
         src/ast/exprs/RValueToInRefExpr.cpp
         src/ast/exprs/RValueToInRefExpr.hpp
+        src/ast/exprs/SolvedConstExpr.cpp
+        src/ast/exprs/SolvedConstExpr.hpp
         src/ast/exprs/StoreTemporaryValueExpr.cpp
         src/ast/exprs/StoreTemporaryValueExpr.hpp
         src/ast/exprs/StructAssignmentOperatorExpr.cpp
@@ -277,8 +285,10 @@ add_executable(gulc
         src/ast/stmts/CompoundStmt.hpp
         src/ast/stmts/ContinueStmt.cpp
         src/ast/stmts/ContinueStmt.hpp
-        src/ast/stmts/DoWhileStmt.cpp
-        src/ast/stmts/DoWhileStmt.hpp
+        src/ast/stmts/DoCatchStmt.cpp
+        src/ast/stmts/DoCatchStmt.hpp
+        src/ast/stmts/DoStmt.cpp
+        src/ast/stmts/DoStmt.hpp
         src/ast/stmts/FallthroughStmt.cpp
         src/ast/stmts/FallthroughStmt.hpp
         src/ast/stmts/ForStmt.cpp
@@ -289,12 +299,12 @@ add_executable(gulc
         src/ast/stmts/IfStmt.hpp
         src/ast/stmts/LabeledStmt.cpp
         src/ast/stmts/LabeledStmt.hpp
+        src/ast/stmts/RepeatWhileStmt.cpp
+        src/ast/stmts/RepeatWhileStmt.hpp
         src/ast/stmts/ReturnStmt.cpp
         src/ast/stmts/ReturnStmt.hpp
         src/ast/stmts/SwitchStmt.cpp
         src/ast/stmts/SwitchStmt.hpp
-        src/ast/stmts/DoCatchStmt.cpp
-        src/ast/stmts/DoCatchStmt.hpp
         src/ast/stmts/WhileStmt.cpp
         src/ast/stmts/WhileStmt.hpp
 
@@ -337,6 +347,8 @@ add_executable(gulc
 
         src/utilities/ConstExprHelper.cpp
         src/utilities/ConstExprHelper.hpp
+        src/utilities/ConstSolver.cpp
+        src/utilities/ConstSolver.hpp
         src/utilities/ContractUtil.cpp
         src/utilities/ContractUtil.hpp
         src/utilities/FunctorUtil.cpp
@@ -372,7 +384,7 @@ add_executable(gulc
         src/objgen/ObjGen.cpp
         src/objgen/ObjGen.hpp
         src/objgen/ObjFile.cpp
-        src/objgen/ObjFile.hpp)
+        src/objgen/ObjFile.hpp src/ast/exprs/ImaginaryRefExpr.cpp src/ast/exprs/ImaginaryRefExpr.hpp)
 
 # MSVC doesn't require the stdc++fs.
 if (NOT MSVC AND NOT APPLE)

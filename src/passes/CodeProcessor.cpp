@@ -222,6 +222,17 @@ void gulc::CodeProcessor::processDecl(gulc::Decl* decl) {
     }
 }
 
+void gulc::CodeProcessor::processPrototypeDecl(gulc::Decl* decl) {
+    switch (decl->getDeclKind()) {
+        case Decl::Kind::TraitPrototype:
+            processTraitPrototypeDecl(llvm::dyn_cast<TraitPrototypeDecl>(decl));
+            break;
+        default:
+            processDecl(decl);
+            break;
+    }
+}
+
 void gulc::CodeProcessor::processConstructorDecl(gulc::ConstructorDecl* constructorDecl,
                                                  CompoundStmt* temporaryInitializersCompoundStmt) {
     FunctionDecl* oldFunction = _currentFunction;
@@ -527,6 +538,10 @@ void gulc::CodeProcessor::processTraitDecl(gulc::TraitDecl* traitDecl) {
     _currentContainer = oldContainer;
 }
 
+void gulc::CodeProcessor::processTraitPrototypeDecl(gulc::TraitPrototypeDecl* traitPrototypeDecl) {
+    // TODO: Is there anything to do here?
+}
+
 void gulc::CodeProcessor::processVariableDecl(gulc::VariableDecl* variableDecl) {
     // NOTE: For member variables we still need to process the initial value...
     if (variableDecl->hasInitialValue()) {
@@ -544,7 +559,7 @@ void gulc::CodeProcessor::processBaseConstructorCall(gulc::StructDecl* structDec
         auto checkIdentifierExpr = llvm::dyn_cast<IdentifierExpr>(functionCallExpr->functionReference);
 
         ConstructorDecl* foundConstructor = nullptr;
-        std::vector<MatchingDecl> foundMatches;
+        std::vector<MatchingFunctorDecl> foundMatches;
 
         if (checkIdentifierExpr->identifier().name() == "self") {
             // If there aren't any arguments we'll save ourselves the search and just use the default constructor
@@ -578,10 +593,10 @@ void gulc::CodeProcessor::processBaseConstructorCall(gulc::StructDecl* structDec
 
         if (foundConstructor == nullptr) {
             if (foundMatches.size() > 1) {
-                for (MatchingDecl& checkMatch : foundMatches) {
+                for (MatchingFunctorDecl& checkMatch : foundMatches) {
                     if (checkMatch.kind == MatchingDecl::Kind::Match) {
                         if (foundConstructor == nullptr) {
-                            foundConstructor = llvm::dyn_cast<ConstructorDecl>(checkMatch.matchingDecl);
+                            foundConstructor = llvm::dyn_cast<ConstructorDecl>(checkMatch.functorDecl);
                         } else {
                             printError("base constructor call is ambiguous!",
                                        functionCallExpr->startPosition(), functionCallExpr->endPosition());
@@ -590,7 +605,7 @@ void gulc::CodeProcessor::processBaseConstructorCall(gulc::StructDecl* structDec
                     }
                 }
             } else if (!foundMatches.empty()) {
-                foundConstructor = llvm::dyn_cast<ConstructorDecl>(foundMatches[0].matchingDecl);
+                foundConstructor = llvm::dyn_cast<ConstructorDecl>(foundMatches[0].functorDecl);
             }
         }
 
@@ -778,9 +793,6 @@ void gulc::CodeProcessor::processStmt(gulc::Stmt*& stmt) {
         case Stmt::Kind::DoCatch:
             processDoCatchStmt(llvm::dyn_cast<DoCatchStmt>(stmt));
             break;
-        case Stmt::Kind::DoWhile:
-            processDoWhileStmt(llvm::dyn_cast<DoWhileStmt>(stmt));
-            break;
         case Stmt::Kind::For:
             processForStmt(llvm::dyn_cast<ForStmt>(stmt));
             break;
@@ -792,6 +804,9 @@ void gulc::CodeProcessor::processStmt(gulc::Stmt*& stmt) {
             break;
         case Stmt::Kind::Labeled:
             processLabeledStmt(llvm::dyn_cast<LabeledStmt>(stmt));
+            break;
+        case Stmt::Kind::RepeatWhile:
+            processRepeatWhileStmt(llvm::dyn_cast<RepeatWhileStmt>(stmt));
             break;
         case Stmt::Kind::Return:
             processReturnStmt(llvm::dyn_cast<ReturnStmt>(stmt));
@@ -869,15 +884,6 @@ void gulc::CodeProcessor::processDoCatchStmt(gulc::DoCatchStmt* doCatchStmt) {
     }
 }
 
-void gulc::CodeProcessor::processDoWhileStmt(gulc::DoWhileStmt* doWhileStmt) {
-    processCompoundStmt(doWhileStmt->body());
-    processExpr(doWhileStmt->condition);
-
-    doWhileStmt->condition = handleGetter(doWhileStmt->condition);
-    doWhileStmt->condition = convertLValueToRValue(doWhileStmt->condition);
-    doWhileStmt->condition = dereferenceReference(doWhileStmt->condition);
-}
-
 void gulc::CodeProcessor::processForStmt(gulc::ForStmt* forStmt) {
     std::size_t oldLocalVariableCount = _localVariables.size();
 
@@ -932,6 +938,15 @@ void gulc::CodeProcessor::processLabeledStmt(gulc::LabeledStmt* labeledStmt) {
     labelResolved(labeledStmt->label().name());
 
     processStmt(labeledStmt->labeledStmt);
+}
+
+void gulc::CodeProcessor::processRepeatWhileStmt(gulc::RepeatWhileStmt* repeatWhileStmt) {
+    processCompoundStmt(repeatWhileStmt->body());
+    processExpr(repeatWhileStmt->condition);
+
+    repeatWhileStmt->condition = handleGetter(repeatWhileStmt->condition);
+    repeatWhileStmt->condition = convertLValueToRValue(repeatWhileStmt->condition);
+    repeatWhileStmt->condition = dereferenceReference(repeatWhileStmt->condition);
 }
 
 void gulc::CodeProcessor::processReturnStmt(gulc::ReturnStmt* returnStmt) {
@@ -1377,578 +1392,925 @@ void gulc::CodeProcessor::processFunctionCallExpr(gulc::FunctionCallExpr*& funct
         processLabeledArgumentExpr(argument);
     }
 
+    MatchingFunctorDecl foundDecl(MatchingDecl::Kind::Unknown, nullptr, nullptr);
+
+    // NOTES: When we search for a template function call there is a lot that needs to be accounted for such as:
+    //         1. Template matching
+    //         2. Template specialization strength
+    //         3. Normal argument and parameter matching
+    //        That is the order for what is accounted for. I.e.
+    //            Template Parameters > Template Specialization > Normal Parameters
+    //        So for the function call `Example<i32>(12)`
+    //            `func Example<T: i32>(_ param1: i32, _ param2: i32 = 4)`
+    //        The above will be chosen before the below:
+    //            `func Example<T: i32, const v: usize = 0>(_ param: i32)`
+    //        Because the _template parameters_ are an exact match.
+    //        The specialization and handling of templates can become very confusing the deeper and more advanced you
+    //        go, be careful.
     if (llvm::isa<IdentifierExpr>(functionCallExpr->functionReference)) {
         auto identifierExpr = llvm::dyn_cast<IdentifierExpr>(functionCallExpr->functionReference);
         std::string const& findName = identifierExpr->identifier().name();
 
+        // If the function being called is a template then we first gather a list of templates that match the template
+        // arguments. Then we search that list for matching functors (e.g. constructors, functions, etc.)
         if (identifierExpr->hasTemplateArguments()) {
-            // If there are template parameters we have to process them first.
             for (Expr*& templateArgument : identifierExpr->templateArguments()) {
                 processExpr(templateArgument);
             }
+
+            // We use a "2d" vector as a way of prioritizing results. A lower index is higher priority but if we only
+            // find `Castable` at index `0` but find `Exact` at index `12` then we choose the `Exact`.
+            std::vector<std::vector<MatchingTemplateDecl>> templateMatches;
+
+            // Check `currentContainer` for templates ONLY
+            if (_currentContainer != nullptr) {
+                templateMatches.push_back({});
+
+                bool findStaticOnly =
+                        llvm::isa<EnumDecl>(_currentContainer) || llvm::isa<StructDecl>(_currentContainer) ||
+                                llvm::isa<TraitDecl>(_currentContainer);
+
+                fillListOfMatchingTemplatesInContainer(_currentContainer, findName, findStaticOnly,
+                                                       identifierExpr->templateArguments(),
+                                                       templateMatches[templateMatches.size() - 1]);
+            }
+
+            // TODO: If the `_currentContainer` isn't a namespace should we also check the current namespace?
+
+            // Check `currentFile` for templates ONLY
+            if (_currentFile != nullptr) {
+                templateMatches.push_back({});
+
+                fillListOfMatchingTemplates(_currentFile->declarations, findName, false,
+                                            identifierExpr->templateArguments(),
+                                            templateMatches[templateMatches.size() - 1]);
+            }
+
+            // Search imports. All imports have the same depth.
+            if (!_currentFile->imports.empty()) {
+                templateMatches.push_back({});
+
+                for (ImportDecl* checkImport : _currentFile->imports) {
+                    fillListOfMatchingTemplates(checkImport->pointToNamespace->nestedDecls(), findName,
+                                                false, identifierExpr->templateArguments(),
+                                                templateMatches[templateMatches.size() - 1]);
+                }
+            }
+
+            bool isAmbiguous = false;
+            MatchingTemplateDecl* foundTemplate = findMatchingTemplateDecl(templateMatches,
+                                                                           identifierExpr->templateArguments(),
+                                                                           functionCallExpr->arguments,
+                                                                           functionCallExpr->startPosition(),
+                                                                           functionCallExpr->endPosition(),
+                                                                           &isAmbiguous);
+
+            if (foundTemplate == nullptr) {
+                printError("template `" + identifierExpr->toString() + "` was not found!",
+                           identifierExpr->startPosition(), identifierExpr->endPosition());
+            }
+
+            if (isAmbiguous) {
+                printError("template `" + identifierExpr->toString() + "` is ambiguous!",
+                           identifierExpr->startPosition(), identifierExpr->endPosition());
+            }
+
+            foundDecl = getTemplateFunctorInstantiation(foundTemplate, identifierExpr->templateArguments(),
+                                                        functionCallExpr->arguments, identifierExpr->toString(),
+                                                        identifierExpr->startPosition(), identifierExpr->endPosition());
         } else {
-            // First we process the template parameters and reduce them into their `const` form so they're usable...
-            for (Expr*& templateArgument : identifierExpr->templateArguments()) {
-                processExpr(templateArgument);
-            }
+            // If we find a matching local variable we immediately end the search. You can't do overloading with local
+            // variables.
+            {
+                std::vector<MatchingFunctorDecl> matchingFunctors;
+                VariableDeclExpr* foundLocalVariable = nullptr;
 
-            // TODO: Search local variables and parameters
-            for (VariableDeclExpr* checkLocalVariable : _localVariables) {
-                if (findName == checkLocalVariable->identifier().name()) {
-                    // TODO: Create a `RefLocalVariableExpr` and exit all loops, delete the old `functionReference`
-                    printError("using the `()` operator on local variables not yet supported!",
-                               functionCallExpr->startPosition(), functionCallExpr->endPosition());
-                    break;
-                }
-            }
+                for (VariableDeclExpr* checkLocalVariable : _localVariables) {
+                    if (findName == checkLocalVariable->identifier().name()) {
+                        Type* checkType = checkLocalVariable->type;
 
-            if (_currentParameters != nullptr) {
-                for (ParameterDecl* checkParameter : *_currentParameters) {
-                    if (findName == checkParameter->identifier().name()) {
-                        // TODO: Create a `RefParameterExpr` and exit all loops, delete the old `functionReference`
-                        printError("using the `()` operator on parameters not yet supported!",
-                                   functionCallExpr->startPosition(), functionCallExpr->endPosition());
-                        break;
-                    }
-                }
-            }
-
-            for (std::vector<TemplateParameterDecl*>* checkTemplateParameterList : _allTemplateParameters) {
-                for (TemplateParameterDecl* checkTemplateParameter : *checkTemplateParameterList) {
-                    if (findName == checkTemplateParameter->identifier().name()) {
-                        // TODO: Create a `RefTemplateParameterConstExpr` or `TypeExpr` and exit all loops, delete the
-                        //       old `functionReference`
-                        if (checkTemplateParameter->templateParameterKind() == TemplateParameterDecl::TemplateParameterKind::Typename) {
-                            // TODO: Check to make sure the `typename` has an `init` with the provided parameters
-                            // NOTE: We CANNOT check for any `extensions` on the inherited types, we need to use the
-                            //       actual type being supplied to the template for the constructor. The extension
-                            //       constructor might not exist for the provided type.
-                            // NOTE: We also cannot support checking any `inheritedTypes` for constructors, the
-                            //       supplied type isn't guaranteed to implement the same constructors...
-                            // TODO: We need to support `where T has init(...)` for this to work properly...
-                            printError("template type `" + checkTemplateParameter->identifier().name() + "` does not have a constructor matching the provided parameters!",
-                                       functionCallExpr->functionReference->startPosition(),
-                                       functionCallExpr->functionReference->endPosition());
-                        } else {
-                            // TODO: Check to make sure the `const` is a function pointer OR a type that implements the
-                            //       `call` operator
-                            //if (llvm::isa<FunctionPointerType>(checkTemplateParameter->constType)) {
-                            //    TODO: Support `FunctionPointerType`
-                            //} else {
-                            std::vector<MatchingDecl> matches;
-
-                            // Check for matching `call` operators
-                            if (fillListOfMatchingCallOperators(checkTemplateParameter->constType,
-                                                                functionCallExpr->arguments, matches)) {
-                                // TODO: Check the list of call matches
-                                printError("using the `()` operator on template const parameters not yet supported!",
-                                           functionCallExpr->startPosition(), functionCallExpr->endPosition());
-                            }
+                        // TODO: Account for smart references
+                        if (llvm::isa<ReferenceType>(checkType)) {
+                            checkType = llvm::dyn_cast<ReferenceType>(checkType)->nestedType;
                         }
+
+                        fillListOfMatchingFunctorsInType(checkLocalVariable->type, nullptr,
+                                                         functionCallExpr->arguments, matchingFunctors);
+                        foundLocalVariable = checkLocalVariable;
                         break;
                     }
                 }
-            }
-        }
 
-        // Search members of our current containers
-        if (_currentContainer != nullptr) {
-            // Search the members of our current container
-            std::vector<MatchingDecl> matches;
+                if (foundLocalVariable != nullptr) {
+                    if (matchingFunctors.empty()) {
+                        printError("local variable `" + foundLocalVariable->identifier().name() + "` is not callable "
+                                   "with the provided arguments!",
+                                   functionCallExpr->startPosition(), functionCallExpr->endPosition());
+                    }
 
-            if (fillListOfMatchingFunctors(_currentContainer, identifierExpr, functionCallExpr->arguments,
-                    matches)) {
-                Decl* foundDecl = validateAndReturnMatchingFunction(functionCallExpr, matches);
+                    Decl* varFoundDecl = nullptr;
 
-                if (foundDecl != nullptr) {
-                    Expr* newFunctionReference = nullptr;
-                    Type* functionReturnType = nullptr;
+                    if (matchingFunctors.size() == 1) {
+                        varFoundDecl = matchingFunctors[0].functorDecl;
+                    } else {
+                        MatchingDecl::Kind foundKind = MatchingDecl::Kind::Unknown;
+                        bool isAmbiguous = false;
 
-                    if (llvm::isa<FunctionDecl>(foundDecl)) {
-                        auto foundFunction = llvm::dyn_cast<FunctionDecl>(foundDecl);
-
-                        functionReturnType = foundFunction->returnType->deepCopy();
-
-                        // We handle argument casting and conversion no matter what. The below function will handle
-                        // converting from lvalue to rvalue, casting, and other rules for us.
-                        handleArgumentCasting(foundFunction->parameters(), functionCallExpr->arguments);
-
-                        if (foundFunction->isAnyVirtual()) {
-                            // TODO: Find the vtable index and create a `VTableFunctionReferenceExpr`
-                            if (!llvm::isa<StructDecl>(foundFunction->container)) {
-                                printError("[INTERNAL] virtual function found within a non-struct in `processFunctionCallExpr`!",
-                                           functionCallExpr->startPosition(), functionCallExpr->endPosition());
-                            }
-
-                            auto searchStructVTable = llvm::dyn_cast<StructDecl>(foundFunction->container);
-                            std::size_t vtableIndex = 0;
-                            bool foundVTableIndex = false;
-
-                            for (std::size_t i = 0; i < searchStructVTable->vtable.size(); ++i) {
-                                if (searchStructVTable->vtable[i] == foundFunction) {
-                                    vtableIndex = i;
-                                    foundVTableIndex = true;
-                                    break;
+                        for (MatchingFunctorDecl& checkFunctor : matchingFunctors) {
+                            if (varFoundDecl == nullptr) {
+                                varFoundDecl = checkFunctor.functorDecl;
+                                foundKind = checkFunctor.kind;
+                                isAmbiguous = false;
+                            } else {
+                                if (foundKind == checkFunctor.kind) {
+                                    isAmbiguous = true;
+                                } else if (foundKind == MatchingDecl::Kind::Match) {
+                                    // Nothing to do. if `check` is also `Match` we will handle it above. Else ignore.
+                                } else if (foundKind == MatchingDecl::Kind::DefaultValues) {
+                                    // `Match` is better than `DefaultValues`
+                                    if (checkFunctor.kind == MatchingDecl::Kind::Match) {
+                                        varFoundDecl = checkFunctor.functorDecl;
+                                        foundKind = checkFunctor.kind;
+                                        isAmbiguous = false;
+                                    }
+                                } else {
+                                    // At this point `check` is either `Match` or `DefaultValues` while `found` is
+                                    // `Castable`, so we replace the castable.
+                                    varFoundDecl = checkFunctor.functorDecl;
+                                    foundKind = checkFunctor.kind;
+                                    isAmbiguous = false;
                                 }
                             }
+                        }
+                    }
 
-                            if (!foundVTableIndex) {
-                                printError("[INTERNAL] virtual function not found within the container struct's vtable!",
-                                           functionCallExpr->startPosition(), functionCallExpr->endPosition());
+                    if (varFoundDecl == nullptr) {
+                        auto checkType = foundLocalVariable->type;
+
+                        // TODO: Account for smart references
+                        if (llvm::isa<ReferenceType>(foundLocalVariable->type)) {
+                            checkType = llvm::dyn_cast<ReferenceType>(foundLocalVariable->type)->nestedType;
+                        }
+
+                        if (!llvm::isa<FunctionPointerType>(checkType)) {
+                            printError("local variable `" + identifierExpr->toString() + "` is not callable!",
+                                       functionCallExpr->startPosition(), functionCallExpr->endPosition());
+                        }
+
+                        auto funcPointerType = llvm::dyn_cast<FunctionPointerType>(checkType);
+
+                        // TODO: Create a `FunctionPointerCallExpr` or something.
+                        printError("calling function pointers not yet supported!",
+                                   functionCallExpr->startPosition(), functionCallExpr->endPosition());
+                    } else if (llvm::isa<CallOperatorDecl>(varFoundDecl)) {
+                        // TODO: Create a new `MemberFunctionCallExpr` with `CallOperatorReferenceExpr` as the function
+                        //       reference and `RefLocalVariableExpr` as the `self`
+                        printError("using `call` operators not yet supported!",
+                                   functionCallExpr->startPosition(), functionCallExpr->endPosition());
+                    } else {
+                        printError("[INTERNAL] unknown functor type for local variable!",
+                                   functionCallExpr->startPosition(), functionCallExpr->endPosition());
+                    }
+                }
+            }
+
+            // If we find a matching parameter we do the same as we do with local variables, end as soon as we find it.
+            if (_currentParameters != nullptr) {
+                std::vector<MatchingFunctorDecl> matchingFunctors;
+                ParameterDecl* foundParameter = nullptr;
+
+                for (ParameterDecl* checkParameter : *_currentParameters) {
+                    if (findName == checkParameter->identifier().name()) {
+                        Type* checkType = checkParameter->type;
+
+                        // TODO: Account for smart references
+                        if (llvm::isa<ReferenceType>(checkType)) {
+                            checkType = llvm::dyn_cast<ReferenceType>(checkType)->nestedType;
+                        }
+
+                        fillListOfMatchingFunctorsInType(checkParameter->type, nullptr,
+                                                         functionCallExpr->arguments, matchingFunctors);
+                        foundParameter = checkParameter;
+                        break;
+                    }
+                }
+
+                if (foundParameter != nullptr) {
+                    if (matchingFunctors.empty()) {
+                        printError("parameter `" + foundParameter->identifier().name() + "` is not callable "
+                                   "with the provided arguments!",
+                                   functionCallExpr->startPosition(), functionCallExpr->endPosition());
+                    }
+
+                    Decl* paramFoundDecl = nullptr;
+
+                    if (matchingFunctors.size() == 1) {
+                        paramFoundDecl = matchingFunctors[0].functorDecl;
+                    } else {
+                        MatchingDecl::Kind foundKind = MatchingDecl::Kind::Unknown;
+                        bool isAmbiguous = false;
+
+                        for (MatchingFunctorDecl& checkFunctor : matchingFunctors) {
+                            if (paramFoundDecl == nullptr) {
+                                paramFoundDecl = checkFunctor.functorDecl;
+                                foundKind = checkFunctor.kind;
+                                isAmbiguous = false;
+                            } else {
+                                if (foundKind == checkFunctor.kind) {
+                                    isAmbiguous = true;
+                                } else if (foundKind == MatchingDecl::Kind::Match) {
+                                    // Nothing to do. if `check` is also `Match` we will handle it above. Else ignore.
+                                } else if (foundKind == MatchingDecl::Kind::DefaultValues) {
+                                    // `Match` is better than `DefaultValues`
+                                    if (checkFunctor.kind == MatchingDecl::Kind::Match) {
+                                        paramFoundDecl = checkFunctor.functorDecl;
+                                        foundKind = checkFunctor.kind;
+                                        isAmbiguous = false;
+                                    }
+                                } else {
+                                    // At this point `check` is either `Match` or `DefaultValues` while `found` is
+                                    // `Castable`, so we replace the castable.
+                                    paramFoundDecl = checkFunctor.functorDecl;
+                                    foundKind = checkFunctor.kind;
+                                    isAmbiguous = false;
+                                }
                             }
+                        }
+                    }
 
-                            // We found the vtable index so we create a `VTableFunctionReferenceExpr` for the new
-                            // `MemberFunctionCallExpr` that will be created...
-                            newFunctionReference =
-                                    new VTableFunctionReferenceExpr(
-                                            functionCallExpr->functionReference->startPosition(),
-                                            functionCallExpr->functionReference->endPosition(),
-                                            searchStructVTable, vtableIndex, foundFunction);
+                    if (paramFoundDecl == nullptr) {
+                        auto checkType = foundParameter->type;
+
+                        // TODO: Account for smart references
+                        if (llvm::isa<ReferenceType>(foundParameter->type)) {
+                            checkType = llvm::dyn_cast<ReferenceType>(foundParameter->type)->nestedType;
+                        }
+
+                        if (!llvm::isa<FunctionPointerType>(checkType)) {
+                            printError("parameter `" + identifierExpr->toString() + "` is not callable!",
+                                       functionCallExpr->startPosition(), functionCallExpr->endPosition());
+                        }
+
+                        auto funcPointerType = llvm::dyn_cast<FunctionPointerType>(checkType);
+
+                        // TODO: Create a `FunctionPointerCallExpr` or something.
+                        printError("calling function pointers not yet supported!",
+                                   functionCallExpr->startPosition(), functionCallExpr->endPosition());
+                    } else if (llvm::isa<CallOperatorDecl>(paramFoundDecl)) {
+                        // TODO: Create a new `MemberFunctionCallExpr` with `CallOperatorReferenceExpr` as the function
+                        //       reference and `RefLocalVariableExpr` as the `self`
+                        printError("using `call` operators not yet supported!",
+                                   functionCallExpr->startPosition(), functionCallExpr->endPosition());
+                    } else {
+                        printError("[INTERNAL] unknown functor type for local variable!",
+                                   functionCallExpr->startPosition(), functionCallExpr->endPosition());
+                    }
+                }
+            }
+
+            // NOTE: We only fill this if `foundDecl` is null, if `foundDecl` isn't null then we don't continue
+            //       searching.
+            std::vector<std::vector<MatchingFunctorDecl>> layeredMatchingFunctors;
+
+            // When searching containers, the file, and imports we end as soon as we find an exact match. If not we
+            // keep searching while keeping a `depth` stored.
+            if (foundDecl.functorDecl == nullptr && _currentContainer != nullptr) {
+                layeredMatchingFunctors.push_back({});
+
+                fillListOfMatchingFunctorsInContainer(_currentContainer, findName, false, functionCallExpr->arguments,
+                                                      layeredMatchingFunctors[layeredMatchingFunctors.size() - 1]);
+
+                // Check for an exact match and error on unrecoverable ambiguities (i.e. two exact matches is
+                // unrecoverable at the same depths)
+                bool checkIsAmbiguous = false;
+                MatchingFunctorDecl* checkExactMatch = findMatchingFunctorDecl(
+                        layeredMatchingFunctors[layeredMatchingFunctors.size() - 1], true, &checkIsAmbiguous);
+
+                if (checkExactMatch != nullptr) {
+                    if (checkIsAmbiguous) {
+                        printError("function call `" + functionCallExpr->toString() + "` is ambiguous!",
+                                   functionCallExpr->startPosition(), functionCallExpr->endPosition());
+                    }
+
+                    foundDecl = *checkExactMatch;
+                }
+            }
+
+            // TODO: Search the `_currentNamespace` if it exists.
+
+            if (foundDecl.functorDecl == nullptr && _currentFile != nullptr) {
+                layeredMatchingFunctors.push_back({});
+
+                fillListOfMatchingFunctors(_currentFile->declarations, findName, false, functionCallExpr->arguments,
+                                           layeredMatchingFunctors[layeredMatchingFunctors.size() - 1]);
+
+                // Check for an exact match and error on unrecoverable ambiguities (i.e. two exact matches is
+                // unrecoverable at the same depths)
+                bool checkIsAmbiguous = false;
+                MatchingFunctorDecl* checkExactMatch = findMatchingFunctorDecl(
+                        layeredMatchingFunctors[layeredMatchingFunctors.size() - 1], true, &checkIsAmbiguous);
+
+                if (checkExactMatch != nullptr) {
+                    if (checkIsAmbiguous) {
+                        printError("function call `" + functionCallExpr->toString() + "` is ambiguous!",
+                                   functionCallExpr->startPosition(), functionCallExpr->endPosition());
+                    }
+
+                    foundDecl = *checkExactMatch;
+                }
+            }
+
+            // Handle imported namespaces if needed
+            if (foundDecl.functorDecl == nullptr && _currentFile != nullptr && !_currentFile->imports.empty()) {
+                layeredMatchingFunctors.push_back({});
+
+                for (ImportDecl* checkImport : _currentFile->imports) {
+                    fillListOfMatchingFunctors(checkImport->pointToNamespace->nestedDecls(), findName,
+                                               false, functionCallExpr->arguments,
+                                               layeredMatchingFunctors[layeredMatchingFunctors.size() - 1]);
+                }
+            }
+
+            if (foundDecl.functorDecl == nullptr) {
+                std::size_t foundDepth = std::numeric_limits<std::size_t>::max();
+                bool isAmbiguous = false;
+
+                for (std::size_t checkDepth = 0; checkDepth < layeredMatchingFunctors.size(); ++checkDepth) {
+                    for (MatchingFunctorDecl& checkMatch : layeredMatchingFunctors[checkDepth]) {
+                        if (foundDecl.functorDecl == nullptr) {
+                            foundDecl = checkMatch;
+                            foundDepth = checkDepth;
                         } else {
-                            newFunctionReference = new FunctionReferenceExpr(
-                                    functionCallExpr->functionReference->startPosition(),
-                                    functionCallExpr->functionReference->endPosition(),
-                                    foundFunction);
+                            if (foundDecl.kind == checkMatch.kind) {
+                                // NOTE: `isAmbiguous` can only be true if the depths are also the same
+                                if (foundDepth == checkDepth) {
+                                    isAmbiguous = true;
+                                }
+                            } else if (foundDecl.kind == MatchingDecl::Kind::Match) {
+                                // Do nothing. Our only case that needs handled is above.
+                            } else if (foundDecl.kind == MatchingDecl::Kind::DefaultValues) {
+                                if (checkMatch.kind == MatchingDecl::Kind::Match) {
+                                    // Regardless of depth `Match` is better than `DefaultValues`
+                                    foundDecl = checkMatch;
+                                    foundDepth = checkDepth;
+                                    isAmbiguous = false;
+                                }
+                            } else {
+                                // In this scenario `found` is `Castable` and `check` is either `Match` or
+                                // `DefaultValues`, both of which are better than `Castable` regardless of depth
+                                foundDecl = checkMatch;
+                                foundDepth = checkDepth;
+                                isAmbiguous = false;
+                            }
                         }
-                    } else if (llvm::isa<TemplateFunctionDecl>(foundDecl)) {
-                        auto foundTemplateFunction = llvm::dyn_cast<TemplateFunctionDecl>(foundDecl);
-
-                        // TODO: For this to work we will need to instantiate the template function. If there isn't
-                        //       already an instantiation with the specified template parameters we will have to
-                        //       backtrack back to an earlier process stage for that instantiation.
-                        //       We should create a special utility to handle that for us
-                        printError("calling template functions not yet supported!",
-                                   functionCallExpr->startPosition(), functionCallExpr->endPosition());
-                    } else {
-                        printError("[INTERNAL ERROR] unknown found decl in `processFunctionCallExpr`!",
-                                   functionCallExpr->startPosition(), functionCallExpr->endPosition());
                     }
 
-                    // If the current container is a `StructDecl`, `EnumDecl`, or `TraitDecl` we replace the function
-                    // call with a member function call
-                    if (llvm::isa<StructDecl>(_currentContainer) || llvm::isa<TraitDecl>(_currentContainer) ||
-                            llvm::isa<EnumDecl>(_currentContainer)) {
-                        // Replace the `FunctionCallExpr` with a new `MemberFunctionCallExpr`
-                        Expr* selfRef = getCurrentSelfRef(functionCallExpr->startPosition(),
-                                                          functionCallExpr->endPosition());
-                        auto newFunctionCallExpr = new MemberFunctionCallExpr(newFunctionReference, selfRef,
-                                                                              functionCallExpr->arguments,
-                                                                              functionCallExpr->startPosition(),
-                                                                              functionCallExpr->endPosition());
-
-                        // We steal the parameters
-                        functionCallExpr->arguments.clear();
-                        // Delete the old expression
-                        delete functionCallExpr;
-                        // Replace it with the new found `MemberFunctionCallExpr`...
-                        functionCallExpr = newFunctionCallExpr;
-
-                        functionCallExpr->valueType = functionReturnType;
-                        functionCallExpr->valueType->setIsLValue(true);
-
-                        return;
-                    } else if (llvm::isa<NamespaceDecl>(_currentContainer)) {
-                        // TODO: Constructor
-                        // We keep the `functionCallExpr` and only replace its `functionReference`
-                        delete functionCallExpr->functionReference;
-                        functionCallExpr->functionReference = newFunctionReference;
-
-                        functionCallExpr->valueType = functionReturnType;
-                        functionCallExpr->valueType->setIsLValue(true);
-
-                        return;
-                    } else {
-                        printError("[INTERNAL] unsupported container decl found within `CodeProcessor::processFunctionCallExpr`!",
-                                   functionCallExpr->startPosition(), functionCallExpr->endPosition());
+                    // If we found an exact match at the end of a depth search then we immediately break, duplicate
+                    // exact matches at different depths are not ambiguous
+                    if (foundDecl.kind == MatchingDecl::Kind::Match) {
+                        break;
                     }
+                }
+
+                if (foundDecl.functorDecl == nullptr) {
+                    printError("function `" + identifierExpr->toString() + "` was not found!",
+                               functionCallExpr->startPosition(), functionCallExpr->endPosition());
+                }
+
+                if (isAmbiguous) {
+                    printError("function call `" + functionCallExpr->toString() + "` is ambiguous!",
+                               functionCallExpr->startPosition(), functionCallExpr->endPosition());
                 }
             }
         }
 
-        // Search the current file if we make it this far
-        {
-            std::vector<MatchingDecl> matches;
-
-            if (fillListOfMatchingFunctors(_currentFile, identifierExpr, functionCallExpr->arguments,
-                                           matches)) {
-                Decl* foundDecl = validateAndReturnMatchingFunction(functionCallExpr, matches);
-
-                if (foundDecl != nullptr) {
-                    if (llvm::isa<ConstructorDecl>(foundDecl)) {
-                        auto foundConstructor = llvm::dyn_cast<ConstructorDecl>(foundDecl);
-                        auto constructorReferenceExpr = new ConstructorReferenceExpr(
-                                identifierExpr->startPosition(),
-                                identifierExpr->endPosition(),
-                                foundConstructor
-                            );
-                        auto constructorCallExpr = new ConstructorCallExpr(
-                                constructorReferenceExpr,
-                                nullptr,
-                                functionCallExpr->arguments,
-                                functionCallExpr->startPosition(),
-                                functionCallExpr->endPosition()
-                            );
-
-                        // We handle argument casting and conversion no matter what. The below function will handle
-                        // converting from lvalue to rvalue, casting, and other rules for us.
-                        handleArgumentCasting(foundConstructor->parameters(), functionCallExpr->arguments);
-
-                        // We steal the parameters...
-                        functionCallExpr->arguments.clear();
-
-                        // Delete the old function call and replace it with our constructor call
-                        delete functionCallExpr;
-                        functionCallExpr = constructorCallExpr;
-
-                        switch (foundDecl->container->getDeclKind()) {
-                            case Decl::Kind::TemplateStructInst:
-                            case Decl::Kind::Struct:
-                                functionCallExpr->valueType = new StructType(Type::Qualifier::Unassigned,
-                                        llvm::dyn_cast<StructDecl>(foundDecl->container), {}, {});
-                                functionCallExpr->valueType->setIsLValue(true);
-                                break;
-                            case Decl::Kind::TemplateTraitInst:
-                            case Decl::Kind::Trait:
-                                functionCallExpr->valueType = new TraitType(Type::Qualifier::Unassigned,
-                                        llvm::dyn_cast<TraitDecl>(foundDecl->container), {}, {});
-                                functionCallExpr->valueType->setIsLValue(true);
-                                break;
-                            default:
-                                printError("unknown constructor type found in `CodeProcessor::processFunctionCallExpr`!",
-                                           functionCallExpr->startPosition(), functionCallExpr->endPosition());
-                        }
-
-                        return;
-                    } else if (llvm::isa<FunctionDecl>(foundDecl)) {
-                        auto foundFunction = llvm::dyn_cast<FunctionDecl>(foundDecl);
-
-                        // We handle argument casting and conversion no matter what. The below function will handle
-                        // converting from lvalue to rvalue, casting, and other rules for us.
-                        handleArgumentCasting(foundFunction->parameters(), functionCallExpr->arguments);
-
-                        // Delete the old function reference and replace it with the new one.
-                        delete functionCallExpr->functionReference;
-                        functionCallExpr->functionReference = createStaticFunctionReference(functionCallExpr, foundDecl);
-
-                        functionCallExpr->valueType = llvm::dyn_cast<FunctionDecl>(foundDecl)->returnType->deepCopy();
-                        functionCallExpr->valueType->setIsLValue(true);
-
-                        return;
-                    } else {
-                        printError("unknown decl found in `CodeProcessor::processFunctionCallExpr`!",
-                                   functionCallExpr->startPosition(), functionCallExpr->endPosition());
-                    }
-                }
-            }
+        if (foundDecl.functorDecl == nullptr) {
+            printError("function `" + identifierExpr->toString() + "` was not found!",
+                       functionCallExpr->startPosition(), functionCallExpr->endPosition());
         }
 
-        // Search the imports if we haven't found anything yet
-        {
-            std::vector<MatchingDecl> matches;
+        switch (foundDecl.functorDecl->getDeclKind()) {
+            case Decl::Kind::CallOperator: {
+                auto callOperatorDecl = llvm::dyn_cast<CallOperatorDecl>(foundDecl.functorDecl);
 
-            // Search ALL imported namespaces (if you import two namespaces that have functions with the same signature
-            // you need to specify the absolute path for the function you want)
-            for (ImportDecl* checkImport : _currentFile->imports) {
-                fillListOfMatchingFunctors(checkImport->pointToNamespace, identifierExpr,
-                        functionCallExpr->arguments, matches);
-            }
+                // We handle argument casting and conversion no matter what. The below function will handle
+                // converting from lvalue to rvalue, casting, and other rules for us.
+                handleArgumentCasting(callOperatorDecl->parameters(), functionCallExpr->arguments);
 
-            // If there are any matches, validate the matches and set the new function reference...
-            if (!matches.empty()) {
-                Decl* foundDecl = validateAndReturnMatchingFunction(functionCallExpr, matches);
+                Expr* selfRef = nullptr;
 
-                if (foundDecl != nullptr) {
-                    if (llvm::isa<ConstructorDecl>(foundDecl)) {
-                        auto foundConstructor = llvm::dyn_cast<ConstructorDecl>(foundDecl);
-                        auto constructorReferenceExpr = new ConstructorReferenceExpr(
-                                identifierExpr->startPosition(),
-                                identifierExpr->endPosition(),
-                                llvm::dyn_cast<ConstructorDecl>(foundDecl)
-                            );
-                        auto constructorCallExpr = new ConstructorCallExpr(
-                                constructorReferenceExpr,
-                                nullptr,
-                                functionCallExpr->arguments,
-                                functionCallExpr->startPosition(),
-                                functionCallExpr->endPosition()
-                            );
+                // Context is either a `VariableDecl` or a `PropertyDecl` here. It cannot be anything else.
+                if (llvm::isa<VariableDecl>(foundDecl.contextDecl)) {
+                    auto contextVariableDecl = llvm::dyn_cast<VariableDecl>(foundDecl.contextDecl);
+                    Expr* refVariableDecl = new VariableRefExpr(
+                            identifierExpr->startPosition(),
+                            identifierExpr->endPosition(),
+                            contextVariableDecl
+                    );
+                    refVariableDecl->valueType = contextVariableDecl->type->deepCopy();
+                    refVariableDecl->valueType->setIsLValue(true);
 
-                        // We handle argument casting and conversion no matter what. The below function will handle
-                        // converting from lvalue to rvalue, casting, and other rules for us.
-                        handleArgumentCasting(foundConstructor->parameters(), functionCallExpr->arguments);
+                    // If it is a reference we must dereference it for the call.
+                    // TODO: Support smart references
+                    refVariableDecl = dereferenceReference(refVariableDecl);
 
-                        // We steal the parameters...
-                        functionCallExpr->arguments.clear();
+                    // The `self` for the call is the `VariableDecl`
+                    selfRef = refVariableDecl;
+                } else if (llvm::isa<PropertyDecl>(foundDecl.contextDecl)) {
+                    auto contextPropertyDecl = llvm::dyn_cast<PropertyDecl>(foundDecl.contextDecl);
+                    Expr* refPropertyDecl = new PropertyRefExpr(
+                            identifierExpr->startPosition(),
+                            identifierExpr->endPosition(),
+                            contextPropertyDecl
+                    );
 
-                        // Delete the old function call and replace it with our constructor call
-                        delete functionCallExpr;
-                        functionCallExpr = constructorCallExpr;
+                    // We can't use a `PropertyRefExpr` by itself. It needs to be converted into the `get` call
+                    refPropertyDecl = handleGetter(refPropertyDecl);
+                    // If it is a reference we must dereference it for the call.
+                    // TODO: Support smart references
+                    refPropertyDecl = dereferenceReference(refPropertyDecl);
 
-                        switch (foundDecl->container->getDeclKind()) {
-                            case Decl::Kind::TemplateStructInst:
-                            case Decl::Kind::Struct:
-                                functionCallExpr->valueType = new StructType(Type::Qualifier::Unassigned,
-                                        llvm::dyn_cast<StructDecl>(foundDecl->container), {}, {});
-                                functionCallExpr->valueType->setIsLValue(true);
-                                break;
-                            case Decl::Kind::TemplateTraitInst:
-                            case Decl::Kind::Trait:
-                                functionCallExpr->valueType = new TraitType(Type::Qualifier::Unassigned,
-                                        llvm::dyn_cast<TraitDecl>(foundDecl->container), {}, {});
-                                functionCallExpr->valueType->setIsLValue(true);
-                                break;
-                            default:
-                                printError("unknown constructor type found in `CodeProcessor::processFunctionCallExpr`!",
-                                           functionCallExpr->startPosition(), functionCallExpr->endPosition());
-                        }
-
-                        return;
-                    } else if (llvm::isa<FunctionDecl>(foundDecl)) {
-                        auto foundFunction = llvm::dyn_cast<FunctionDecl>(foundDecl);
-
-                        // We handle argument casting and conversion no matter what. The below function will handle
-                        // converting from lvalue to rvalue, casting, and other rules for us.
-                        handleArgumentCasting(foundFunction->parameters(), functionCallExpr->arguments);
-
-                        // Delete the old function reference and replace it with the new one.
-                        delete functionCallExpr->functionReference;
-                        functionCallExpr->functionReference = createStaticFunctionReference(functionCallExpr, foundDecl);
-
-                        functionCallExpr->valueType = llvm::dyn_cast<FunctionDecl>(foundDecl)->returnType->deepCopy();
-                        functionCallExpr->valueType->setIsLValue(true);
-
-                        return;
-                    } else {
-                        printError("unknown decl found in `CodeProcessor::processFunctionCallExpr`!",
-                                   functionCallExpr->startPosition(), functionCallExpr->endPosition());
-                    }
+                    // The `self` for the call is the `PropertyDecl`
+                    selfRef = refPropertyDecl;
+                } else {
+                    printError("[INTERNAL] unknown context declaration use for `CallOperatorDecl`!",
+                               functionCallExpr->startPosition(), functionCallExpr->endPosition());
                 }
-            }
-        }
 
-        // If we've reached this point then the function wasn't found. Error out saying such.
-        printError("function `" + identifierExpr->toString() + "` was not found!",
-                   functionCallExpr->startPosition(), functionCallExpr->endPosition());
+                auto callOperatorReference = new CallOperatorReferenceExpr(
+                        functionCallExpr->startPosition(),
+                        functionCallExpr->endPosition(),
+                        callOperatorDecl
+                );
+                processCallOperatorReferenceExpr(callOperatorReference);
+
+                auto newExpr = new MemberFunctionCallExpr(
+                        callOperatorReference,
+                        selfRef,
+                        functionCallExpr->arguments,
+                        functionCallExpr->startPosition(),
+                        functionCallExpr->endPosition()
+                );
+
+                // And we steal the arguments
+                functionCallExpr->arguments.clear();
+                // Delete the old function call and replace it with the new one
+                delete functionCallExpr;
+                functionCallExpr = newExpr;
+                functionCallExpr->valueType = callOperatorDecl->returnType->deepCopy();
+                functionCallExpr->valueType->setIsLValue(true);
+                break;
+            }
+            case Decl::Kind::Constructor: {
+                auto foundConstructor = llvm::dyn_cast<ConstructorDecl>(foundDecl.functorDecl);
+
+                auto constructorReferenceExpr = new ConstructorReferenceExpr(
+                        identifierExpr->startPosition(),
+                        identifierExpr->endPosition(),
+                        foundConstructor
+                );
+                auto constructorCallExpr = new ConstructorCallExpr(
+                        constructorReferenceExpr,
+                        nullptr,
+                        functionCallExpr->arguments,
+                        functionCallExpr->startPosition(),
+                        functionCallExpr->endPosition()
+                );
+
+                // We handle argument casting and conversion no matter what. The below function will handle
+                // converting from lvalue to rvalue, casting, and other rules for us.
+                handleArgumentCasting(foundConstructor->parameters(), functionCallExpr->arguments);
+
+                // We steal the parameters...
+                functionCallExpr->arguments.clear();
+
+                // Delete the old function call and replace it with our constructor call
+                delete functionCallExpr;
+                functionCallExpr = constructorCallExpr;
+
+                switch (foundDecl.functorDecl->container->getDeclKind()) {
+                    case Decl::Kind::TemplateStructInst:
+                    case Decl::Kind::Struct:
+                        functionCallExpr->valueType = new StructType(Type::Qualifier::Mut,
+                                                                     llvm::dyn_cast<StructDecl>(foundDecl.functorDecl->container),
+                                                                     {}, {});
+                        functionCallExpr->valueType->setIsLValue(true);
+                        break;
+                    default:
+                        printError("unknown constructor type found in `CodeProcessor::processFunctionCallExpr`!",
+                                   functionCallExpr->startPosition(), functionCallExpr->endPosition());
+                }
+
+                return;
+            }
+            case Decl::Kind::TemplateFunctionInst:
+            case Decl::Kind::Function: {
+                auto functionDecl = llvm::dyn_cast<FunctionDecl>(foundDecl.functorDecl);
+
+                // We handle argument casting and conversion no matter what. The below function will handle
+                // converting from lvalue to rvalue, casting, and other rules for us.
+                handleArgumentCasting(functionDecl->parameters(), functionCallExpr->arguments);
+
+                if (functionDecl->isMemberFunction()) {
+                    // TODO: Support `vtable` calls?
+                    auto selfRef = getCurrentSelfRef(identifierExpr->startPosition(), identifierExpr->endPosition());
+                    auto functionReference = new FunctionReferenceExpr(
+                            identifierExpr->startPosition(),
+                            identifierExpr->endPosition(),
+                            functionDecl
+                    );
+                    processFunctionReferenceExpr(functionReference);
+                    auto newExpr = new MemberFunctionCallExpr(
+                            functionReference,
+                            selfRef,
+                            functionCallExpr->arguments,
+                            functionCallExpr->startPosition(),
+                            functionCallExpr->endPosition()
+                    );
+
+                    // And we steal the arguments
+                    functionCallExpr->arguments.clear();
+                    // Delete the old function call and replace it with the new one
+                    delete functionCallExpr;
+                    functionCallExpr = newExpr;
+                } else {
+                    // Delete the old function reference and replace it with the new one.
+                    delete functionCallExpr->functionReference;
+                    functionCallExpr->functionReference = createStaticFunctionReference(functionCallExpr, functionDecl);
+                }
+
+                functionCallExpr->valueType = functionDecl->returnType->deepCopy();
+                functionCallExpr->valueType->setIsLValue(true);
+
+                break;
+            }
+            case Decl::Kind::Property:
+            case Decl::Kind::Variable:
+                // TODO: Type must be `FunctionPointerType`
+                printError("function pointer calls not yet supported!",
+                           functionCallExpr->startPosition(), functionCallExpr->endPosition());
+                break;
+            default:
+                printError("[INTERNAL] unknown functor type found in `CodeProcessor::processFunctionCallExpr`!",
+                           functionCallExpr->startPosition(), functionCallExpr->endPosition());
+                break;
+        }
     } else if (llvm::isa<MemberAccessCallExpr>(functionCallExpr->functionReference)) {
         // TODO: Process the object reference normally, search the object for the function
         auto memberAccessCallExpr = llvm::dyn_cast<MemberAccessCallExpr>(functionCallExpr->functionReference);
 
         processExpr(memberAccessCallExpr->objectRef);
 
-        // TODO: Support `NamespaceRefExpr`
-        if (llvm::isa<TypeExpr>(memberAccessCallExpr->objectRef)) {
-            if (memberAccessCallExpr->isArrowCall()) {
-                printError("operator `->` cannot be applied to types!",
-                           memberAccessCallExpr->startPosition(), memberAccessCallExpr->endPosition());
+        // We must immediately handle any getters for the `objectRef`. A `PropertyRefExpr` or `SubscriptOperatorRefExpr`
+        // cannot be used on its own. It must be converted to their respective `get` call expressions.
+        // TODO: Should this be `handleRefGetter`? See `processMemberAccessCallExpr` for more info
+        memberAccessCallExpr->objectRef = handleGetter(memberAccessCallExpr->objectRef);
+
+        // NOTE: If `matchingTemplates` isn't empty it will have to be dealt with first as it may fill `matchingDecls`
+        // NOTE: We make this a `vector<vector<>>` because of how we search for a matching template. We use the same
+        //       code that searches for a matching template on `IdentifierExpr` which requires "depth"
+        std::vector<std::vector<MatchingTemplateDecl>> templateMatches;
+        templateMatches.push_back({});
+        std::vector<MatchingFunctorDecl> matchingDecls;
+        std::string const& findName = memberAccessCallExpr->member->identifier().name();
+
+        if (memberAccessCallExpr->member->hasTemplateArguments()) {
+            for (Expr*& templateArgument : memberAccessCallExpr->member->templateArguments()) {
+                processExpr(templateArgument);
             }
+        }
 
-            // NOTE: static `call` is not allowed as it would be confusing determining if the call is `init` or `call`
-            auto checkType = llvm::dyn_cast<TypeExpr>(memberAccessCallExpr->objectRef)->type;
+        // TODO: Support `NamespaceRefExpr` first. If it is not `NamespaceRefExpr` then check the others.
+        if (llvm::isa<TypeExpr>(memberAccessCallExpr->objectRef)) {
+            auto searchTypeExpr = llvm::dyn_cast<TypeExpr>(memberAccessCallExpr->objectRef);
 
-            bool isAmbiguous = false;
-            Decl* foundMemberDecl = nullptr;
-
-            switch (checkType->getTypeKind()) {
+            // TODO: Support extensions
+            switch (searchTypeExpr->type->getTypeKind()) {
                 case Type::Kind::Enum: {
-                    printError("accessing enum static members not yet supported!",
-                               functionCallExpr->startPosition(), functionCallExpr->endPosition());
+                    auto enumType = llvm::dyn_cast<EnumType>(memberAccessCallExpr->objectRef->valueType);
+
+                    if (memberAccessCallExpr->member->hasTemplateArguments()) {
+                        // Check `memberAccessCallExpr->objectRef` for templates ONLY
+                        fillListOfMatchingTemplates(enumType->decl()->ownedMembers(), findName, true,
+                                                    memberAccessCallExpr->member->templateArguments(),
+                                                    templateMatches[0]);
+                    } else {
+                        // Check `memberAccessCallExpr->objectRef`
+                        fillListOfMatchingFunctors(enumType->decl()->ownedMembers(), findName, true,
+                                                   functionCallExpr->arguments,
+                                                   matchingDecls);
+                    }
+
                     break;
                 }
                 case Type::Kind::Struct: {
-                    auto structDecl = llvm::dyn_cast<StructType>(checkType)->decl();
-                    // TODO: Check if `memberAccessCallExpr->member` is `init` or `deinit` to handle constructor and
-                    //       destructor explicit calls.
-                    foundMemberDecl = findMatchingFunctorDecl(structDecl->allMembers, memberAccessCallExpr->member,
-                                                              functionCallExpr->arguments, true, &isAmbiguous);
+                    auto structType = llvm::dyn_cast<StructType>(memberAccessCallExpr->objectRef->valueType);
+
+                    if (memberAccessCallExpr->member->hasTemplateArguments()) {
+                        // Check `memberAccessCallExpr->objectRef` for templates ONLY
+                        fillListOfMatchingTemplates(structType->decl()->allMembers, findName, true,
+                                                    memberAccessCallExpr->member->templateArguments(),
+                                                    templateMatches[0]);
+                    } else {
+                        // Check `memberAccessCallExpr->objectRef`
+                        fillListOfMatchingFunctors(structType->decl()->allMembers, findName, true,
+                                                   functionCallExpr->arguments,
+                                                   matchingDecls);
+                    }
+
                     break;
                 }
                 case Type::Kind::Trait: {
-                    auto traitDecl = llvm::dyn_cast<TraitType>(checkType)->decl();
-                    foundMemberDecl = findMatchingFunctorDecl(traitDecl->allMembers, memberAccessCallExpr->member,
-                                                              functionCallExpr->arguments, true, &isAmbiguous);
+                    auto traitType = llvm::dyn_cast<TraitType>(memberAccessCallExpr->objectRef->valueType);
+
+                    if (memberAccessCallExpr->member->hasTemplateArguments()) {
+                        // Check `memberAccessCallExpr->objectRef` for templates ONLY
+                        fillListOfMatchingTemplates(traitType->decl()->allMembers, findName, true,
+                                                    memberAccessCallExpr->member->templateArguments(),
+                                                    templateMatches[0]);
+                    } else {
+                        // Check `memberAccessCallExpr->objectRef`
+                        fillListOfMatchingFunctors(traitType->decl()->allMembers, findName, true,
+                                                   functionCallExpr->arguments,
+                                                   matchingDecls);
+                    }
+
                     break;
                 }
                 default:
-                    break;
-            }
-
-            if (isAmbiguous) {
-                printError("expression `" + functionCallExpr->toString() + "` is ambiguous!",
-                           functionCallExpr->startPosition(), functionCallExpr->endPosition());
-            }
-
-            if (foundMemberDecl == nullptr) {
-                printError("member `" + memberAccessCallExpr->member->toString() + "` was not found in `" +
-                           memberAccessCallExpr->objectRef->toString() + "` with the supplied arguments!",
-                           functionCallExpr->startPosition(), functionCallExpr->endPosition());
-            }
-
-            switch (foundMemberDecl->getDeclKind()) {
-                case Decl::Kind::Constructor: {
-                    auto constructorDecl = llvm::dyn_cast<ConstructorDecl>(foundMemberDecl);
-
-                    auto constructorReference = new ConstructorReferenceExpr(
-                            memberAccessCallExpr->startPosition(),
-                            memberAccessCallExpr->endPosition(),
-                            constructorDecl
-                        );
-                    auto newExpr = new ConstructorCallExpr(
-                            constructorReference,
-                            nullptr,
-                            functionCallExpr->arguments,
-                            functionCallExpr->startPosition(),
-                            functionCallExpr->endPosition()
-                        );
-                    processConstructorCallExpr(newExpr);
-
-                    // We handle argument casting and conversion no matter what. The below function will handle
-                    // converting from lvalue to rvalue, casting, and other rules for us.
-                    handleArgumentCasting(constructorDecl->parameters(), functionCallExpr->arguments);
-
-                    // NOTE: We steal the `arguments`
-                    functionCallExpr->arguments.clear();
-                    // Delete the old function call and replace it with the constructor call.
-                    delete functionCallExpr;
-                    functionCallExpr = newExpr;
-                    break;
-                }
-                case Decl::Kind::Destructor: {
-                    auto destructorDecl = llvm::dyn_cast<DestructorDecl>(foundMemberDecl);
-                    printError("explicit `deinit` call not yet supported!",
-                               functionCallExpr->startPosition(), functionCallExpr->endPosition());
-                    break;
-                }
-                case Decl::Kind::TemplateFunctionInst:
-                case Decl::Kind::Function: {
-                    auto functionDecl = llvm::dyn_cast<FunctionDecl>(foundMemberDecl);
-
-                    auto functionReference = new FunctionReferenceExpr(
-                            memberAccessCallExpr->startPosition(),
-                            memberAccessCallExpr->endPosition(),
-                            functionDecl
-                        );
-                    processFunctionReferenceExpr(functionReference);
-
-                    // We handle argument casting and conversion no matter what. The below function will handle
-                    // converting from lvalue to rvalue, casting, and other rules for us.
-                    handleArgumentCasting(functionDecl->parameters(), functionCallExpr->arguments);
-
-                    // Delete the old reference and replace it with the new one.
-                    delete functionCallExpr->functionReference;
-                    functionCallExpr->functionReference = functionReference;
-                    break;
-                }
-                case Decl::Kind::Property: {
-                    auto propertyDecl = llvm::dyn_cast<PropertyDecl>(foundMemberDecl);
-
-                    // TODO: How should we do this? Like so?
-                    //        1. Create a `CallOperatorReferenceExpr` for holding the `CallOperatorDecl`
-                    //        2. Create a `MemberFunctionCallExpr` that will take `memberAccessCallExpr->objectRef`
-                    //           as the `self`
-                    //        3. For `objectRef` since it is a `property` we will need to create a `PropertyRefExpr`
-                    //        4. Create a `get` call to the `PropertyRefExpr`
-                    //        5. Delete the old `functionCallExpr` and replace it with the member version?
-                    // TODO: It isn't always a `call` operator, it could also be a `func` pointer
-                    printError("using `call` operator on a `prop` `get` value not yet supported!",
-                               functionCallExpr->startPosition(), functionCallExpr->endPosition());
-                    break;
-                }
-                case Decl::Kind::Variable: {
-                    auto variableDecl = llvm::dyn_cast<VariableDecl>(foundMemberDecl);
-
-                    // TODO: Same as `prop`
-                    printError("using `call` operator on a `var` not yet supported!",
-                               functionCallExpr->startPosition(), functionCallExpr->endPosition());
-                    break;
-                }
-                default:
-                    printError("member `" + memberAccessCallExpr->toString() + "` call not supported!",
+                    printError("type `" + memberAccessCallExpr->objectRef->valueType->toString() + "` does not contain "
+                               "a function matching the call `" + functionCallExpr->toString() + "`!",
                                functionCallExpr->startPosition(), functionCallExpr->endPosition());
                     break;
             }
         } else {
-            // TODO: Search for non-static functions (call operator, normal functions, properties returning function
-            //       pointers, variables of function pointer type,
-            auto checkType = memberAccessCallExpr->objectRef->valueType;
+            // TODO: Handle any smart references.
+            Type* checkType = memberAccessCallExpr->objectRef->valueType;
 
-            bool isAmbiguous = false;
-            Decl* foundDecl = nullptr;
+            if (llvm::isa<ReferenceType>(checkType)) {
+                checkType = llvm::dyn_cast<ReferenceType>(checkType)->nestedType;
+            }
 
-            // TODO: Extensions.
-            switch (checkType->getTypeKind()) {
+            // TODO: Support extensions...
+            switch (memberAccessCallExpr->objectRef->valueType->getTypeKind()) {
                 case Type::Kind::Enum: {
-                    printError("accessing enum members from an instance not yet supported!",
-                               functionCallExpr->startPosition(), functionCallExpr->endPosition());
+                    auto enumType = llvm::dyn_cast<EnumType>(memberAccessCallExpr->objectRef->valueType);
+
+                    if (memberAccessCallExpr->member->hasTemplateArguments()) {
+                        // Check `memberAccessCallExpr->objectRef` for templates ONLY
+                        fillListOfMatchingTemplates(enumType->decl()->ownedMembers(), findName, false,
+                                                    memberAccessCallExpr->member->templateArguments(),
+                                                    templateMatches[0]);
+                    } else {
+                        // Check `memberAccessCallExpr->objectRef`
+                        fillListOfMatchingFunctors(enumType->decl()->ownedMembers(), findName, false,
+                                                   functionCallExpr->arguments,
+                                                   matchingDecls);
+                    }
+
                     break;
                 }
                 case Type::Kind::Struct: {
-                    auto structDecl = llvm::dyn_cast<StructType>(checkType)->decl();
-                    foundDecl = findMatchingFunctorDecl(
-                            structDecl->allMembers,
-                            memberAccessCallExpr->member,
-                            functionCallExpr->arguments,
-                            false,
-                            &isAmbiguous
-                        );
+                    auto structType = llvm::dyn_cast<StructType>(memberAccessCallExpr->objectRef->valueType);
+
+                    if (memberAccessCallExpr->member->hasTemplateArguments()) {
+                        // Check `memberAccessCallExpr->objectRef` for templates ONLY
+                        fillListOfMatchingTemplates(structType->decl()->allMembers, findName, false,
+                                                    memberAccessCallExpr->member->templateArguments(),
+                                                    templateMatches[0]);
+                    } else {
+                        // Check `memberAccessCallExpr->objectRef`
+                        fillListOfMatchingFunctors(structType->decl()->allMembers, findName, false,
+                                                   functionCallExpr->arguments,
+                                                   matchingDecls);
+                    }
+
                     break;
                 }
                 case Type::Kind::Trait: {
-                    auto traitDecl = llvm::dyn_cast<TraitType>(checkType)->decl();
-                    foundDecl = findMatchingFunctorDecl(
-                            traitDecl->allMembers,
-                            memberAccessCallExpr->member,
-                            functionCallExpr->arguments,
-                            false,
-                            &isAmbiguous
-                        );
+                    auto traitType = llvm::dyn_cast<TraitType>(memberAccessCallExpr->objectRef->valueType);
+
+                    if (memberAccessCallExpr->member->hasTemplateArguments()) {
+                        // Check `memberAccessCallExpr->objectRef` for templates ONLY
+                        fillListOfMatchingTemplates(traitType->decl()->allMembers, findName, false,
+                                                    memberAccessCallExpr->member->templateArguments(),
+                                                    templateMatches[0]);
+                    } else {
+                        // Check `memberAccessCallExpr->objectRef`
+                        fillListOfMatchingFunctors(traitType->decl()->allMembers, findName, false,
+                                                   functionCallExpr->arguments,
+                                                   matchingDecls);
+                    }
+
                     break;
                 }
                 default:
+                    printError("type `" + memberAccessCallExpr->objectRef->valueType->toString() + "` does not contain "
+                               "a function matching the call `" + functionCallExpr->toString() + "`!",
+                               functionCallExpr->startPosition(), functionCallExpr->endPosition());
                     break;
             }
+        }
 
-            switch (foundDecl->getDeclKind()) {
-                case Decl::Kind::CallOperator: {
-                    auto callOperatorDecl = llvm::dyn_cast<CallOperatorDecl>(foundDecl);
+        // If the `member` is a template call we search `templateMatches` else we search `matchingDecls`
+        if (memberAccessCallExpr->member->hasTemplateArguments()) {
+            bool isAmbiguous = false;
+            MatchingTemplateDecl* foundTemplate = findMatchingTemplateDecl(templateMatches,
+                                                                           memberAccessCallExpr->member->templateArguments(),
+                                                                           functionCallExpr->arguments,
+                                                                           functionCallExpr->startPosition(),
+                                                                           functionCallExpr->endPosition(),
+                                                                           &isAmbiguous);
 
-                    auto callOperatorReference = new CallOperatorReferenceExpr(
+            if (foundTemplate == nullptr) {
+                printError("template `" + memberAccessCallExpr->toString() + "` was not found!",
+                           memberAccessCallExpr->startPosition(), memberAccessCallExpr->endPosition());
+            }
+
+            if (isAmbiguous) {
+                printError("template `" + memberAccessCallExpr->toString() + "` is ambiguous!",
+                           memberAccessCallExpr->startPosition(), memberAccessCallExpr->endPosition());
+            }
+
+            foundDecl = getTemplateFunctorInstantiation(foundTemplate,
+                                                        memberAccessCallExpr->member->templateArguments(),
+                                                        functionCallExpr->arguments, memberAccessCallExpr->toString(),
+                                                        memberAccessCallExpr->startPosition(),
+                                                        memberAccessCallExpr->endPosition());
+        } else {
+            if (matchingDecls.empty()) {
+                printError("function `" + functionCallExpr->toString() + "` was not found!",
+                           functionCallExpr->startPosition(), functionCallExpr->endPosition());
+            }
+
+            // TODO: Search for the best matching declaration
+            if (matchingDecls.size() == 1) {
+                foundDecl = matchingDecls[0];
+            } else {
+                bool isAmbiguous = false;
+
+                for (MatchingFunctorDecl& checkMatch : matchingDecls) {
+                    if (foundDecl.functorDecl == nullptr) {
+                        foundDecl = checkMatch;
+                        isAmbiguous = false;
+                    } else {
+                        if (foundDecl.kind == checkMatch.kind) {
+                            isAmbiguous = true;
+                        } else if (foundDecl.kind == MatchingDecl::Kind::Match) {
+                            // Do nothing, we only handle ambiguity for this above if `check` is also `Match`
+                        } else if (foundDecl.kind == MatchingDecl::Kind::DefaultValues) {
+                            if (checkMatch.kind == MatchingDecl::Kind::Match) {
+                                // Match is always better than `DefaultValues`
+                                foundDecl = checkMatch;
+                                isAmbiguous = false;
+                            }
+                        } else {
+                            // In this scenario `found` is `Castable` and `check` is either `Match` or `DefaultValues`
+                            foundDecl = checkMatch;
+                            isAmbiguous = false;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (foundDecl.functorDecl == nullptr) {
+            printError("function `" + functionCallExpr->toString() + "` was not found!",
+                       functionCallExpr->startPosition(), functionCallExpr->endPosition());
+        }
+
+        // TODO: Could we combine this ending with `IdentifierExpr`?
+        switch (foundDecl.functorDecl->getDeclKind()) {
+            case Decl::Kind::CallOperator: {
+                auto callOperatorDecl = llvm::dyn_cast<CallOperatorDecl>(foundDecl.functorDecl);
+
+                // We handle argument casting and conversion no matter what. The below function will handle
+                // converting from lvalue to rvalue, casting, and other rules for us.
+                handleArgumentCasting(callOperatorDecl->parameters(), functionCallExpr->arguments);
+
+                auto callOperatorReference = new CallOperatorReferenceExpr(
+                        memberAccessCallExpr->startPosition(),
+                        memberAccessCallExpr->endPosition(),
+                        callOperatorDecl
+                );
+                processCallOperatorReferenceExpr(callOperatorReference);
+
+                Expr* selfRef = nullptr;
+
+                // The `contextDecl` is either a `VariableDecl` or `PropertyDecl` contained in the `objectRef`
+                if (llvm::isa<PropertyDecl>(foundDecl.contextDecl)) {
+                    auto contextProperty = llvm::dyn_cast<PropertyDecl>(foundDecl.contextDecl);
+
+                    auto memberRef = new MemberPropertyRefExpr(
                             memberAccessCallExpr->startPosition(),
                             memberAccessCallExpr->endPosition(),
-                            callOperatorDecl
-                        );
-                    processCallOperatorReferenceExpr(callOperatorReference);
-                    auto newExpr = new MemberFunctionCallExpr(
-                            callOperatorReference,
                             memberAccessCallExpr->objectRef,
-                            functionCallExpr->arguments,
-                            functionCallExpr->startPosition(),
-                            functionCallExpr->endPosition()
-                        );
+                            contextProperty
+                    );
 
-                    // We handle argument casting and conversion no matter what. The below function will handle
-                    // converting from lvalue to rvalue, casting, and other rules for us.
-                    handleArgumentCasting(callOperatorDecl->parameters(), functionCallExpr->arguments);
+                    selfRef = handleGetter(memberRef);
+                } else if (llvm::isa<VariableDecl>(foundDecl.contextDecl)) {
+                    auto contextVariable = llvm::dyn_cast<VariableDecl>(foundDecl.contextDecl);
 
-                    // We steal the object reference
-                    memberAccessCallExpr->objectRef = nullptr;
-                    // And we steal the arguments
-                    functionCallExpr->arguments.clear();
-                    // Delete the old function call and replace it with the new one
-                    delete functionCallExpr;
-                    functionCallExpr = newExpr;
-                    functionCallExpr->valueType = callOperatorDecl->returnType->deepCopy();
-                    functionCallExpr->valueType->setIsLValue(true);
-                    break;
+                    auto objectStructTypeQualifier =
+                            callOperatorDecl->isMutable() ? Type::Qualifier::Mut : Type::Qualifier::Immut;
+                    auto objectStructType = new StructType(
+                            objectStructTypeQualifier,
+                            // `VariableDecl` can only be contained in a `StructDecl` as a member so this is safe.
+                            llvm::dyn_cast<StructDecl>(foundDecl.functorDecl->container),
+                            {}, {}
+                    );
+                    auto memberRef = new MemberVariableRefExpr(
+                            memberAccessCallExpr->startPosition(),
+                            memberAccessCallExpr->endPosition(),
+                            memberAccessCallExpr->objectRef,
+                            objectStructType,
+                            contextVariable
+                    );
+
+                    selfRef = memberRef;
+                } else {
+                    printError("unknown `context` declaration found for call operator!",
+                               functionCallExpr->startPosition(), functionCallExpr->endPosition());
                 }
-                case Decl::Kind::TemplateFunctionInst:
-                case Decl::Kind::Function: {
-                    auto functionDecl = llvm::dyn_cast<FunctionDecl>(foundDecl);
 
+                auto newExpr = new MemberFunctionCallExpr(
+                        callOperatorReference,
+                        selfRef,
+                        functionCallExpr->arguments,
+                        functionCallExpr->startPosition(),
+                        functionCallExpr->endPosition()
+                );
+
+                // We steal these
+                functionCallExpr->arguments.clear();
+                memberAccessCallExpr->objectRef = nullptr;
+                // Replace the old function with the new member function call
+                delete functionCallExpr;
+                functionCallExpr = newExpr;
+
+                functionCallExpr->valueType = callOperatorDecl->returnType->deepCopy();
+                functionCallExpr->valueType->setIsLValue(true);
+
+                return;
+            }
+            case Decl::Kind::Constructor: {
+                auto foundConstructor = llvm::dyn_cast<ConstructorDecl>(foundDecl.functorDecl);
+
+                auto constructorReferenceExpr = new ConstructorReferenceExpr(
+                        memberAccessCallExpr->startPosition(),
+                        memberAccessCallExpr->member->endPosition(),
+                        foundConstructor
+                );
+                auto constructorCallExpr = new ConstructorCallExpr(
+                        constructorReferenceExpr,
+                        nullptr,
+                        functionCallExpr->arguments,
+                        functionCallExpr->startPosition(),
+                        functionCallExpr->endPosition()
+                );
+
+                // We handle argument casting and conversion no matter what. The below function will handle
+                // converting from lvalue to rvalue, casting, and other rules for us.
+                handleArgumentCasting(foundConstructor->parameters(), functionCallExpr->arguments);
+
+                // We steal the parameters...
+                functionCallExpr->arguments.clear();
+
+                // Delete the old function call and replace it with our constructor call
+                delete functionCallExpr;
+                functionCallExpr = constructorCallExpr;
+
+                switch (foundDecl.functorDecl->container->getDeclKind()) {
+                    case Decl::Kind::TemplateStructInst:
+                    case Decl::Kind::Struct:
+                        functionCallExpr->valueType = new StructType(Type::Qualifier::Mut,
+                                                                     llvm::dyn_cast<StructDecl>(foundDecl.functorDecl->container),
+                                                                     {}, {});
+                        functionCallExpr->valueType->setIsLValue(true);
+                        break;
+                    default:
+                        printError("unknown constructor type found in `CodeProcessor::processFunctionCallExpr`!",
+                                   functionCallExpr->startPosition(), functionCallExpr->endPosition());
+                }
+
+                return;
+            }
+            case Decl::Kind::TemplateFunctionInst:
+            case Decl::Kind::Function: {
+                auto functionDecl = llvm::dyn_cast<FunctionDecl>(foundDecl.functorDecl);
+
+                // We handle argument casting and conversion no matter what. The below function will handle
+                // converting from lvalue to rvalue, casting, and other rules for us.
+                handleArgumentCasting(functionDecl->parameters(), functionCallExpr->arguments);
+
+                if (functionDecl->isMemberFunction()) {
+                    // TODO: Support `vtable` calls?
                     auto functionReference = new FunctionReferenceExpr(
                             memberAccessCallExpr->startPosition(),
-                            memberAccessCallExpr->endPosition(),
+                            memberAccessCallExpr->member->endPosition(),
                             functionDecl
-                        );
+                    );
                     processFunctionReferenceExpr(functionReference);
                     auto newExpr = new MemberFunctionCallExpr(
                             functionReference,
@@ -1956,11 +2318,7 @@ void gulc::CodeProcessor::processFunctionCallExpr(gulc::FunctionCallExpr*& funct
                             functionCallExpr->arguments,
                             functionCallExpr->startPosition(),
                             functionCallExpr->endPosition()
-                        );
-
-                    // We handle argument casting and conversion no matter what. The below function will handle
-                    // converting from lvalue to rvalue, casting, and other rules for us.
-                    handleArgumentCasting(functionDecl->parameters(), functionCallExpr->arguments);
+                    );
 
                     // We steal the object reference
                     memberAccessCallExpr->objectRef = nullptr;
@@ -1969,38 +2327,27 @@ void gulc::CodeProcessor::processFunctionCallExpr(gulc::FunctionCallExpr*& funct
                     // Delete the old function call and replace it with the new one
                     delete functionCallExpr;
                     functionCallExpr = newExpr;
-                    functionCallExpr->valueType = functionDecl->returnType->deepCopy();
-                    functionCallExpr->valueType->setIsLValue(true);
-                    break;
+                } else {
+                    // Delete the old function reference and replace it with the new one.
+                    delete functionCallExpr->functionReference;
+                    functionCallExpr->functionReference = createStaticFunctionReference(functionCallExpr, functionDecl);
                 }
-                case Decl::Kind::Property: {
-                    auto propertyDecl = llvm::dyn_cast<PropertyDecl>(foundDecl);
 
-                    // TODO: How should we do this? Like so?
-                    //        1. Create a `CallOperatorReferenceExpr` for holding the `CallOperatorDecl`
-                    //        2. Create a `MemberFunctionCallExpr` that will take `memberAccessCallExpr->objectRef`
-                    //           as the `self`
-                    //        3. For `objectRef` since it is a `property` we will need to create a `PropertyRefExpr`
-                    //        4. Create a `get` call to the `PropertyRefExpr`
-                    //        5. Delete the old `functionCallExpr` and replace it with the member version?
-                    // TODO: It isn't always a `call` operator, it could also be a `func` pointer
-                    printError("using `call` operator on a `prop` `get` value not yet supported!",
-                               functionCallExpr->startPosition(), functionCallExpr->endPosition());
-                    break;
-                }
-                case Decl::Kind::Variable: {
-                    auto variableDecl = llvm::dyn_cast<VariableDecl>(foundDecl);
+                functionCallExpr->valueType = functionDecl->returnType->deepCopy();
+                functionCallExpr->valueType->setIsLValue(true);
 
-                    // TODO: Same as `prop`
-                    printError("using `call` operator on a `var` not yet supported!",
-                               functionCallExpr->startPosition(), functionCallExpr->endPosition());
-                    break;
-                }
-                default:
-                    printError("unsupported function call `" + functionCallExpr->toString() + "`!",
-                               functionCallExpr->startPosition(), functionCallExpr->endPosition());
-                    break;
+                break;
             }
+            case Decl::Kind::Property:
+            case Decl::Kind::Variable:
+                // TODO: Type must be `FunctionPointerType`
+                printError("function pointer calls not yet supported!",
+                           functionCallExpr->startPosition(), functionCallExpr->endPosition());
+                break;
+            default:
+                printError("unknown functor type!",
+                           functionCallExpr->startPosition(), functionCallExpr->endPosition());
+                break;
         }
     } else {
         // TODO: Make sure the value type is a function pointer or a type containing `call`
@@ -2008,198 +2355,102 @@ void gulc::CodeProcessor::processFunctionCallExpr(gulc::FunctionCallExpr*& funct
     }
 }
 
-gulc::Decl* gulc::CodeProcessor::findMatchingFunctorDecl(std::vector<Decl*>& searchDecls,
-                                                         gulc::IdentifierExpr* identifierExpr,
-                                                         std::vector<LabeledArgumentExpr*> const& arguments,
-                                                         bool findStatic, bool* outIsAmbiguous) {
-    std::vector<MatchingDecl> foundMatches;
+void gulc::CodeProcessor::fillListOfMatchingTemplatesInContainer(gulc::Decl* container, std::string const& findName,
+                                                                 bool findStaticOnly,
+                                                                 std::vector<Expr*> const& templateArguments,
+                                                                 std::vector<MatchingTemplateDecl>& matchingTemplateDecls) {
+    switch (container->getDeclKind()) {
+        case Decl::Kind::Enum:
+            fillListOfMatchingTemplates(llvm::dyn_cast<EnumDecl>(container)->ownedMembers(), findName,
+                                        findStaticOnly, templateArguments, matchingTemplateDecls);
+            break;
+        case Decl::Kind::Extension:
+            fillListOfMatchingTemplates(llvm::dyn_cast<ExtensionDecl>(container)->ownedMembers(), findName,
+                                        findStaticOnly, templateArguments, matchingTemplateDecls);
+            break;
+        case Decl::Kind::Namespace:
+            fillListOfMatchingTemplates(llvm::dyn_cast<NamespaceDecl>(container)->nestedDecls(), findName,
+                                        findStaticOnly, templateArguments, matchingTemplateDecls);
+            break;
+        case Decl::Kind::Struct:
+        case Decl::Kind::TemplateStructInst:
+            fillListOfMatchingTemplates(llvm::dyn_cast<StructDecl>(container)->allMembers, findName,
+                                        findStaticOnly, templateArguments, matchingTemplateDecls);
+            break;
+        case Decl::Kind::Trait:
+        case Decl::Kind::TemplateTraitInst:
+            fillListOfMatchingTemplates(llvm::dyn_cast<TraitDecl>(container)->allMembers, findName,
+                                        findStaticOnly, templateArguments, matchingTemplateDecls);
+            break;
+        default:
+            printError("unknown container type found in `CodeProcessor::fillListOfMatchingTemplatesInContainer`!",
+                       container->startPosition(), container->endPosition());
+            return;
+    }
+}
 
+void gulc::CodeProcessor::fillListOfMatchingTemplates(std::vector<Decl*>& searchDecls, std::string const& findName,
+                                                      bool findStaticOnly, std::vector<Expr*> const& templateArguments,
+                                                      std::vector<MatchingTemplateDecl>& matchingTemplateDecls) {
     for (Decl* checkDecl : searchDecls) {
-        // Skip if identifiers don't match.
-        if (checkDecl->identifier().name() != identifierExpr->identifier().name()) continue;
+        std::vector<TemplateParameterDecl*>* checkTemplateParameters;
 
-        // NOTE: Even if `findStatic` is true we have to check `StructDecl`, `EnumDecl`, `TraitDecl`, etc.
-        //       Anything that can be used as a type with a constructor MUST be checked even when `findStatic` is true.
-        if (llvm::isa<EnumDecl>(checkDecl)) {
-            if (identifierExpr->hasTemplateArguments()) continue;
+        if (llvm::isa<TemplateFunctionDecl>(checkDecl)) {
+            if (findStaticOnly && !checkDecl->isStatic()) {
+                // Template functions can be members and so we must skip non-static functions when `findStaticOnly` is
+                // true
+                continue;
+            }
 
-            // TODO: Compare
-        } else if (llvm::isa<StructDecl>(checkDecl)) {
-            if (identifierExpr->hasTemplateArguments()) continue;
+            auto checkFunction = llvm::dyn_cast<TemplateFunctionDecl>(checkDecl);
 
-            auto structDecl = llvm::dyn_cast<StructDecl>(checkDecl);
-
-            fillListOfMatchingConstructors(structDecl, arguments, foundMatches);
+            checkTemplateParameters = &checkFunction->templateParameters();
         } else if (llvm::isa<TemplateStructDecl>(checkDecl)) {
-            // TODO: If the template has all default values we don't need to check if there are template parameters
-            if (!identifierExpr->hasTemplateArguments()) continue;
+            auto checkStruct = llvm::dyn_cast<TemplateStructDecl>(checkDecl);
 
-            auto templateStructDecl = llvm::dyn_cast<TemplateStructDecl>(checkDecl);
-
-            SignatureComparer::ArgMatchResult templateArgMatchResult =
-                    SignatureComparer::compareTemplateArgumentsToParameters(templateStructDecl->templateParameters(),
-                                                                            identifierExpr->templateArguments());
-
-            if (templateArgMatchResult != SignatureComparer::ArgMatchResult::Fail) {
-                // TODO: How should we handle `Castable` on the template arguments??
-                // TODO: Should we attempt to delay template instantiation? I think it's fine since we've found a match...
-                DeclInstantiator declInstantiator(_target, _filePaths);
-                TemplateStructInstDecl* checkTemplateStructInst =
-                        declInstantiator.instantiateTemplateStruct(_currentFile, templateStructDecl,
-                                                                   identifierExpr->templateArguments(),
-                                                                   identifierExpr->toString(),
-                                                                   identifierExpr->startPosition(),
-                                                                   identifierExpr->endPosition());
-
-                // TODO: We need to account for if `checkTemplateStructInst` has already been code processed and make
-                //       sure it gets processed (since its parent template might have already been processed before it)
-
-                fillListOfMatchingConstructors(checkTemplateStructInst, arguments, foundMatches);
-            }
-        } else if (llvm::isa<TraitDecl>(checkDecl)) {
-            if (identifierExpr->hasTemplateArguments()) continue;
-
-            // TODO: Identifiers match and template parameters match. Traits only have a couple built in constructors
-            //       so validate the parameters.
-            //       I think the below will be the only supported constructors:
-            //           `init<T>(_ obj: &T) where T : Self`
-            //           `init copy(_ other: &Self)`
-            //           `init move(_ other: &Self)`
+            checkTemplateParameters = &checkStruct->templateParameters();
         } else if (llvm::isa<TemplateTraitDecl>(checkDecl)) {
-            // TODO: If the template has all default values we don't need to check if there are template parameters
-            if (!identifierExpr->hasTemplateArguments()) continue;
+            auto checkTrait = llvm::dyn_cast<TemplateTraitDecl>(checkDecl);
 
-            // TODO: Identifiers match. Compare the template parameters and create an instantiation.
-        } else if (checkDecl->isStatic() == findStatic) {
-            if (identifierExpr->hasTemplateArguments()) {
-                if (llvm::isa<TemplateFunctionDecl>(checkDecl)) {
-                    auto checkTemplateFunction = llvm::dyn_cast<TemplateFunctionDecl>(checkDecl);
+            checkTemplateParameters = &checkTrait->templateParameters();
+        } else {
+            // Skip non-templates
+            checkTemplateParameters = nullptr;
+            continue;
+        }
 
-                    SignatureComparer::ArgMatchResult templateArgMatchResult =
-                            SignatureComparer::compareTemplateArgumentsToParameters(
-                                    checkTemplateFunction->templateParameters(),
-                                    identifierExpr->templateArguments()
-                                );
+        std::vector<std::size_t> argMatchStrengths;
+        argMatchStrengths.resize(templateArguments.size());
 
-                    if (templateArgMatchResult != SignatureComparer::ArgMatchResult::Fail) {
-                        // NOTE: With template functions we can safely delay template instantiation until after we've
-                        //       verified a match (since our `SignatureComparer` is made to account for template
-                        //       arguments)
-                        SignatureComparer::ArgMatchResult argMatchResult =
-                                SignatureComparer::compareArgumentsToParameters(
-                                        checkTemplateFunction->parameters(),
-                                        arguments,
-                                        checkTemplateFunction->templateParameters(),
-                                        identifierExpr->templateArguments()
-                                    );
+        SignatureComparer::ArgMatchResult argMatchResult =
+                SignatureComparer::compareTemplateArgumentsToParameters(
+                        *checkTemplateParameters, templateArguments, argMatchStrengths);
 
-                        if (argMatchResult != SignatureComparer::ArgMatchResult::Fail) {
-                            DeclInstantiator declInstantiator(_target, _filePaths);
-                            TemplateFunctionInstDecl* templateFunctionInst =
-                                    declInstantiator.instantiateTemplateFunction(_currentFile, checkTemplateFunction,
-                                                                                 identifierExpr->templateArguments(),
-                                                                                 identifierExpr->toString(),
-                                                                                 identifierExpr->startPosition(),
-                                                                                 identifierExpr->endPosition());
+        if (argMatchResult != SignatureComparer::ArgMatchResult::Fail) {
+            MatchingDecl::Kind templateMatchKind = MatchingDecl::Kind::Unknown;
 
-                            // TODO: We need to account for if `checkTemplateStructInst` has already been code processed and make
-                            //       sure it gets processed (since its parent template might have already been processed before it)
-
-                            // TODO: How should we handle `Castable` on the template arguments??
-                            MatchingDecl::Kind matchKind = argMatchResult == SignatureComparer::ArgMatchResult::Match
-                                    ? MatchingDecl::Kind::Match
-                                    : MatchingDecl::Kind::Castable;
-
-                            foundMatches.emplace_back(MatchingDecl(matchKind, templateFunctionInst));
-                        }
-                    }
-                }
-            } else {
-                if (llvm::isa<OperatorDecl>(checkDecl) || llvm::isa<TypeSuffixDecl>(checkDecl)) {
-                    // NOTE: `Operator` and `TypeSuffix` are both considered `Function`s so we nee to manually skip them
-                    //       It should be impossible to get here due to the identifier match but I'm paranoid.
-                    continue;
-                } else if (llvm::isa<FunctionDecl>(checkDecl)) {
-                    // NOTE: `variable.call(...)` is legal and is the same as `variable(...)`
-                    auto checkFunction = llvm::dyn_cast<FunctionDecl>(checkDecl);
-
-                    SignatureComparer::ArgMatchResult argMatchResult =
-                            SignatureComparer::compareArgumentsToParameters(checkFunction->parameters(), arguments);
-
-                    if (argMatchResult != SignatureComparer::ArgMatchResult::Fail) {
-                        MatchingDecl::Kind matchKind =
-                                argMatchResult == SignatureComparer::ArgMatchResult::Match
-                                ? MatchingDecl::Kind::Match
-                                : MatchingDecl::Kind::Castable;
-
-                        foundMatches.emplace_back(MatchingDecl(matchKind, checkDecl));
-                    }
-
-                    continue;
-                } else if (llvm::isa<PropertyDecl>(checkDecl)) {
-                    auto checkProperty = llvm::dyn_cast<PropertyDecl>(checkDecl);
-
-                    Decl* outFoundDecl = nullptr;
-
-                    SignatureComparer::ArgMatchResult argMatchResult =
-                            FunctorUtil::checkValidFunctorCall(checkProperty->type, arguments, &outFoundDecl);
-
-                    if (argMatchResult != SignatureComparer::ArgMatchResult::Fail) {
-                        MatchingDecl::Kind matchKind =
-                                argMatchResult == SignatureComparer::ArgMatchResult::Match
-                                ? MatchingDecl::Kind::Match
-                                : MatchingDecl::Kind::Castable;
-
-                        foundMatches.emplace_back(MatchingDecl(matchKind, checkDecl));
-                    }
-
-                    continue;
-                } else if (llvm::isa<VariableDecl>(checkDecl)) {
-                    auto checkVariable = llvm::dyn_cast<VariableDecl>(checkDecl);
-
-                    Decl* outFoundDecl = nullptr;
-
-                    SignatureComparer::ArgMatchResult argMatchResult =
-                            FunctorUtil::checkValidFunctorCall(checkVariable->type, arguments, &outFoundDecl);
-
-                    if (argMatchResult != SignatureComparer::ArgMatchResult::Fail) {
-                        MatchingDecl::Kind matchKind =
-                                argMatchResult == SignatureComparer::ArgMatchResult::Match
-                                ? MatchingDecl::Kind::Match
-                                : MatchingDecl::Kind::Castable;
-
-                        foundMatches.emplace_back(MatchingDecl(matchKind, checkDecl));
-                    }
-
-                    continue;
-                }
+            switch (argMatchResult) {
+                case SignatureComparer::ArgMatchResult::Match:
+                    templateMatchKind = MatchingDecl::Kind::Match;
+                    break;
+                case SignatureComparer::ArgMatchResult::DefaultValues:
+                    templateMatchKind = MatchingDecl::Kind::DefaultValues;
+                    break;
+                case SignatureComparer::ArgMatchResult::Castable:
+                    templateMatchKind = MatchingDecl::Kind::Castable;
+                    break;
             }
+
+            MatchingTemplateDecl templateDeclMatch(templateMatchKind, checkDecl, argMatchStrengths);
+
+            matchingTemplateDecls.push_back(templateDeclMatch);
         }
     }
-
-    Decl* foundDecl = nullptr;
-
-    if (foundMatches.size() > 1) {
-        for (MatchingDecl& checkMatch : foundMatches) {
-            if (checkMatch.kind == MatchingDecl::Kind::Match) {
-                if (foundDecl == nullptr) {
-                    foundDecl = checkMatch.matchingDecl;
-                } else {
-                    *outIsAmbiguous = true;
-                    return nullptr;
-                }
-            }
-        }
-    } else if (!foundMatches.empty()) {
-        foundDecl = foundMatches[0].matchingDecl;
-    }
-
-    return foundDecl;
 }
 
 void gulc::CodeProcessor::fillListOfMatchingConstructors(gulc::StructDecl* structDecl,
                                                          std::vector<LabeledArgumentExpr*> const& arguments,
-                                                         std::vector<MatchingDecl>& matchingDecls) {
+                                                         std::vector<MatchingFunctorDecl>& matchingDecls) {
     // TODO: Handle type inference on template constructors
     for (ConstructorDecl* constructor : structDecl->constructors()) {
         SignatureComparer::ArgMatchResult argMatchResult =
@@ -2211,394 +2462,762 @@ void gulc::CodeProcessor::fillListOfMatchingConstructors(gulc::StructDecl* struc
                     ? MatchingDecl::Kind::Match
                     : MatchingDecl::Kind::Castable;
 
-            matchingDecls.emplace_back(MatchingDecl(matchKind, constructor));
+            // For `ConstructorDecl` the `contextDecl` is the `StructDecl` that contains it.
+            matchingDecls.emplace_back(MatchingFunctorDecl(matchKind, constructor, structDecl));
         }
     }
 }
 
-bool gulc::CodeProcessor::fillListOfMatchingCallOperators(gulc::Type* fromType,
-                                                          const std::vector<LabeledArgumentExpr*>& arguments,
-                                                          std::vector<MatchingDecl>& matchingDecls) {
-    Type* processType = fromType;
-
-    if (llvm::isa<DependentType>(processType)) {
-        processType = llvm::dyn_cast<DependentType>(processType)->dependent;
-    }
-
-    std::vector<Decl*>* checkDecls = nullptr;
-    std::vector<TemplateParameterDecl*>* templateParameters = nullptr;
-    std::vector<Expr*>* templateArguments = nullptr;
-
-    if (llvm::isa<StructType>(processType)) {
-        auto structType = llvm::dyn_cast<StructType>(processType);
-
-        checkDecls = &structType->decl()->allMembers;
-    } else if (llvm::isa<TemplateStructType>(processType)) {
-        auto templateStructType = llvm::dyn_cast<TemplateStructType>(processType);
-
-        checkDecls = &templateStructType->decl()->allMembers;
-        templateParameters = &templateStructType->decl()->templateParameters();
-        templateArguments = &templateStructType->templateArguments();
-    } else if (llvm::isa<TraitType>(processType)) {
-        auto traitType = llvm::dyn_cast<TraitType>(processType);
-
-        checkDecls = &traitType->decl()->allMembers;
-    } else if (llvm::isa<TemplateTraitType>(processType)) {
-        auto templateTraitType = llvm::dyn_cast<TemplateTraitType>(processType);
-
-        checkDecls = &templateTraitType->decl()->allMembers;
-        templateParameters = &templateTraitType->decl()->templateParameters();
-        templateArguments = &templateTraitType->templateArguments();
-    }
-    // TODO: We ALSO need to account for `TemplateTypenameRefType` (it will only have `inheritedMembers` and constraints)
-
-    bool matchFound = false;
-
-    // TODO: We will also have to handle checking the extensions for a type...
-    if (checkDecls != nullptr) {
-        for (Decl* checkDecl : *checkDecls) {
-            if (llvm::isa<CallOperatorDecl>(checkDecl)) {
-                auto checkCallOperator = llvm::dyn_cast<CallOperatorDecl>(checkDecl);
-
-                SignatureComparer::ArgMatchResult result = SignatureComparer::ArgMatchResult::Fail;
-
-                if (templateParameters == nullptr) {
-                    result = SignatureComparer::compareArgumentsToParameters(checkCallOperator->parameters(),
-                                                                             arguments);
-                } else {
-                    result = SignatureComparer::compareArgumentsToParameters(checkCallOperator->parameters(),
-                                                                             arguments, *templateParameters,
-                                                                             *templateArguments);
-                }
-
-                if (result != SignatureComparer::ArgMatchResult::Fail) {
-                    matchFound = true;
-
-                    matchingDecls.emplace_back(MatchingDecl(result == SignatureComparer::ArgMatchResult::Match ?
-                                                            MatchingDecl::Kind::Match : MatchingDecl::Kind::Castable,
-                                                            checkCallOperator));
-                }
-            }
-        }
-    }
-
-    return matchFound;
-}
-
-bool gulc::CodeProcessor::fillListOfMatchingFunctors(gulc::Decl* fromContainer, IdentifierExpr* identifierExpr,
-                                                     const std::vector<LabeledArgumentExpr*>& arguments,
-                                                     std::vector<MatchingDecl> &matchingDecls) {
-    bool matchFound = false;
-
-    if (llvm::isa<EnumDecl>(fromContainer)) {
-        // TODO: Support `EnumDecl`
-        printError("[INTERNAL] searching `EnumDecl` as a container is not yet supported!",
-                   fromContainer->startPosition(), fromContainer->endPosition());
-    } else if (llvm::isa<ExtensionDecl>(fromContainer)) {
-        // TODO: Support `ExtensionDecl`? I think so? For when we're processing a function within an extension?
-        printError("[INTERNAL] searching `ExtensionDecl` as a container is not yet supported!",
-                   fromContainer->startPosition(), fromContainer->endPosition());
-    } else if (llvm::isa<NamespaceDecl>(fromContainer)) {
-        auto namespaceContainer = llvm::dyn_cast<NamespaceDecl>(fromContainer);
-
-        // We have an out variable we don't care about here.
-        bool ignored = true;
-
-        for (Decl* checkDecl : namespaceContainer->nestedDecls()) {
-            if (llvm::isa<StructDecl>(checkDecl) || llvm::isa<TemplateStructDecl>(checkDecl)) {
-                if (addToListIfMatchingStructInit(checkDecl, identifierExpr, arguments, matchingDecls)) {
-                    matchFound = true;
-                }
-            } else if (llvm::isa<FunctionDecl>(checkDecl) ||
-                    llvm::isa<TemplateFunctionDecl>(checkDecl)) {
-                if (addToListIfMatchingFunction(checkDecl, identifierExpr,
-                                                arguments, matchingDecls, ignored)) {
-                    matchFound = true;
-                }
-            }
-        }
-    } else if (llvm::isa<StructDecl>(fromContainer)) {
-        auto structContainer = llvm::dyn_cast<StructDecl>(fromContainer);
-
-        bool foundExact = false;
-
-        for (Decl* checkDecl : structContainer->allMembers) {
-            if (llvm::isa<FunctionDecl>(checkDecl) ||
-                    llvm::isa<TemplateFunctionDecl>(checkDecl)) {
-                if (addToListIfMatchingFunction(checkDecl, identifierExpr,
-                                                arguments, matchingDecls, foundExact)) {
-                    matchFound = true;
-                }
-            }
-        }
-    } else if (llvm::isa<TemplateStructDecl>(fromContainer)) {
-        // TODO: Support `TemplateStructDecl`
-        // TODO: I don't think this function should ever be called within templates. We should have custom
-        //       instantiations that handle validation for templates.
-        printError("[INTERNAL] searching `TemplateStructDecl` as a container is not yet supported!",
-                   fromContainer->startPosition(), fromContainer->endPosition());
-    } else if (llvm::isa<TemplateTraitDecl>(fromContainer)) {
-        // TODO: Support `TemplateTraitDecl`
-        // TODO: I don't think this function should ever be called within templates. We should have custom
-        //       instantiations that handle validation for templates.
-        printError("[INTERNAL] searching `TemplateTraitDecl` as a container is not yet supported!",
-                   fromContainer->startPosition(), fromContainer->endPosition());
-    } else if (llvm::isa<TraitDecl>(fromContainer)) {
-        auto traitContainer = llvm::dyn_cast<TraitDecl>(fromContainer);
-
-        bool foundExact = false;
-
-        for (Decl* checkDecl : traitContainer->allMembers) {
-            if (llvm::isa<FunctionDecl>(checkDecl) ||
-                llvm::isa<TemplateFunctionDecl>(checkDecl)) {
-                if (addToListIfMatchingFunction(checkDecl, identifierExpr,
-                                                arguments, matchingDecls, foundExact)) {
-                    matchFound = true;
-                }
-            }
-        }
-    } else {
-        printError("[INTERNAL] unsupported container Decl found in `CodeProcessor::fillListOfMatchingFunctors`!",
-                   fromContainer->startPosition(), fromContainer->endPosition());
-    }
-
-    return matchFound;
-}
-
-bool gulc::CodeProcessor::fillListOfMatchingFunctors(gulc::ASTFile* file, gulc::IdentifierExpr* identifierExpr,
-                                                     std::vector<LabeledArgumentExpr*> const& arguments,
-                                                     std::vector<MatchingDecl>& matchingDecls) {
-    bool matchFound = false;
-    bool ignoreFoundExact = false;
-
-    for (Decl* checkDecl : file->declarations) {
-        if (llvm::isa<StructDecl>(checkDecl) || llvm::isa<TemplateStructDecl>(checkDecl)) {
-            if (addToListIfMatchingStructInit(checkDecl, identifierExpr, arguments, matchingDecls)) {
-                matchFound = true;
-            }
-        } else if (llvm::isa<FunctionDecl>(checkDecl) ||
-                llvm::isa<TemplateFunctionDecl>(checkDecl)) {
-            if (addToListIfMatchingFunction(checkDecl, identifierExpr,
-                                            arguments, matchingDecls, ignoreFoundExact)) {
-                matchFound = true;
-            }
-        }
-    }
-
-    return matchFound;
-}
-
-bool gulc::CodeProcessor::addToListIfMatchingFunction(Decl* checkFunction, IdentifierExpr* identifierExpr,
+bool gulc::CodeProcessor::findBestTemplateConstructor(gulc::TemplateStructDecl* templateStructDecl,
+                                                      std::vector<Expr*> const& templateArguments,
                                                       std::vector<LabeledArgumentExpr*> const& arguments,
-                                                      std::vector<MatchingDecl>& matchingDecls, bool& isExact) {
-    if (llvm::isa<TemplateFunctionDecl>(checkFunction)) {
-        // TODO: We need to allow template type inference.
-        //       `func example<T>(param: T)`
-        //       `example(12)` == `example<i32>(12)`
-        auto templateFunctionDecl = llvm::dyn_cast<TemplateFunctionDecl>(checkFunction);
+                                                      ConstructorDecl** outMatchingConstructor,
+                                                      SignatureComparer::ArgMatchResult* outArgMatchResult,
+                                                      bool* outIsAmbiguous) {
+    ConstructorDecl* foundConstructorDecl = nullptr;
+    SignatureComparer::ArgMatchResult foundArgMatchResult = SignatureComparer::ArgMatchResult::Fail;
+    bool isAmbiguous = false;
 
-        // Skip if the names don't match
-        if (templateFunctionDecl->identifier().name() != identifierExpr->identifier().name()) {
-            return false;
+    // TODO: Handle type inference on template constructors
+    for (ConstructorDecl* checkConstructor : templateStructDecl->constructors()) {
+        SignatureComparer::ArgMatchResult checkArgMatchResult =
+                SignatureComparer::compareArgumentsToParameters(
+                        checkConstructor->parameters(), arguments,
+                        templateStructDecl->templateParameters(), templateArguments);
+
+        if (checkArgMatchResult == SignatureComparer::ArgMatchResult::Fail) {
+            continue;
         }
 
-        // TODO: If the template parameters are empty we need to check if the types of the expressions can fit
-        //       For missing template parameters we need to make sure `foundExact` is false
-        SignatureComparer::ArgMatchResult templateParametersMatchResult =
-                SignatureComparer::compareTemplateArgumentsToParameters(
-                        templateFunctionDecl->templateParameters(), identifierExpr->templateArguments());
-
-        // Skip if the template parameters don't match the template parameters
-        if (templateParametersMatchResult == SignatureComparer::ArgMatchResult::Fail) {
-            return false;
-        }
-
-        SignatureComparer::ArgMatchResult parameterMatchResult =
-                SignatureComparer::compareArgumentsToParameters(templateFunctionDecl->parameters(), arguments,
-                        templateFunctionDecl->templateParameters(), identifierExpr->templateArguments());
-
-        // Skip if the normal parameters don't match the parameters
-        if (parameterMatchResult == SignatureComparer::ArgMatchResult::Fail) {
-            return false;
-        }
-
-        // TODO: If we reach this point then everything fits. If the template parameters are empty we'll need to
-        //       account for that and make it known. The below is NOT ambiguous:
-        //       `func example(_: i32)`
-        //       `func example<T>(_: T)`
-        //       `example(12)`
-        //       The `example(_: i32)` will be called as it is a specialized function. And you can call
-        //       `example<T>` by doing `example<i32>(12)` instead.
-        if (templateParametersMatchResult == SignatureComparer::ArgMatchResult::Match &&
-            parameterMatchResult == SignatureComparer::ArgMatchResult::Match) {
-            // Requiring a cast means the match isn't exact...
-            isExact = true;
-
-            matchingDecls.emplace_back(MatchingDecl(MatchingDecl::Kind::Match, checkFunction));
-            return true;
-        } else {
-            matchingDecls.emplace_back(MatchingDecl(MatchingDecl::Kind::Castable, checkFunction));
-            return true;
-        }
-    } else if (llvm::isa<FunctionDecl>(checkFunction)) {
-        // If template parameters are provided then it cannot be a normal function
-        if (identifierExpr->hasTemplateArguments()) return false;
-
-        auto functionDecl = llvm::dyn_cast<FunctionDecl>(checkFunction);
-
-        // Skip when names aren't the same
-        if (checkFunction->identifier().name() != identifierExpr->identifier().name()) {
-            return false;
-        }
-
-        SignatureComparer::ArgMatchResult parameterMatchResult =
-                SignatureComparer::compareArgumentsToParameters(functionDecl->parameters(), arguments);
-
-        // Skip if the normal parameters don't match the parameters
-        if (parameterMatchResult == SignatureComparer::ArgMatchResult::Fail) {
-            return false;
-        }
-
-        if (parameterMatchResult == SignatureComparer::ArgMatchResult::Match) {
-            // Requiring a cast means the match isn't exact...
-            isExact = true;
-
-            matchingDecls.emplace_back(MatchingDecl(MatchingDecl::Kind::Match, checkFunction));
-            return true;
-        } else {
-            matchingDecls.emplace_back(MatchingDecl(MatchingDecl::Kind::Castable, checkFunction));
-            return true;
-        }
-    } else {
-        // TODO: I don't think we should error here... I think just returning false is okay, right?
-//        printError("unknown declaration found in `CodeProcessor::addToListIfMatchingFunction`!",
-//                   identifierExpr->startPosition(), identifierExpr->endPosition());
-    }
-
-    return false;
-}
-
-bool gulc::CodeProcessor::addToListIfMatchingStructInit(gulc::Decl* structDecl, gulc::IdentifierExpr* identifierExpr,
-                                                        std::vector<LabeledArgumentExpr*> const& arguments,
-                                                        std::vector<MatchingDecl>& matchingDecls,
-                                                        bool ignoreTemplateArguments) {
-    if (llvm::isa<TemplateStructDecl>(structDecl)) {
-        // Names don't match, can't be the right struct obviously.
-        if (identifierExpr->identifier().name() != structDecl->identifier().name()) return false;
-
-        if (!identifierExpr->hasTemplateArguments()) {
-            // TODO: Support type inference
-            return false;
-        }
-
-        auto checkTemplateStruct = llvm::dyn_cast<TemplateStructDecl>(structDecl);
-
-        // Validate the template parameters match the template parameters
-        SignatureComparer::ArgMatchResult templateArgMatchResult =
-                SignatureComparer::compareTemplateArgumentsToParameters(checkTemplateStruct->templateParameters(),
-                                                                        identifierExpr->templateArguments());
-
-        if (templateArgMatchResult == SignatureComparer::ArgMatchResult::Fail) {
-            return false;
-        }
-
-        // At this point the template is a match, we retrieve or instantiate a template struct inst to check the
-        // constructor for.
-        // TODO: Should we attempt to delay template instantiation? I think it's fine since we've found a match...
-        DeclInstantiator declInstantiator(_target, _filePaths);
-        TemplateStructInstDecl* checkTemplateStructInst =
-                declInstantiator.instantiateTemplateStruct(_currentFile, checkTemplateStruct,
-                                                           identifierExpr->templateArguments(),
-                                                           identifierExpr->toString(),
-                                                           identifierExpr->startPosition(),
-                                                           identifierExpr->endPosition());
-
-        // TODO: We need to account for if `checkTemplateStructInst` has already been code processed and make sure
-        //       it gets processed (since its parent template might have already been processed before it)
-
-        // Now that we have the template struct instantiation we can call `addToListIfMatchingStructInit` with the inst
-        // and let the below `StructDecl` handler to check the constructors...
-        // TODO: what should we do if `templateArgMatchResult` is `Castable`?
-        return addToListIfMatchingStructInit(checkTemplateStructInst, identifierExpr, arguments, matchingDecls,
-                                             true);
-    } else if (llvm::isa<StructDecl>(structDecl)) {
-        // You can't call a non-template struct with template parameters.
-        // NOTE: This check is skippable through `ignoreTemplateArguments`, which is needed for `TemplateStructInstDecl`
-        if (!ignoreTemplateArguments && identifierExpr->hasTemplateArguments()) return false;
-
-        auto checkStruct = llvm::dyn_cast<StructDecl>(structDecl);
-
-        // Names don't match, can't be the right struct obviously.
-        if (identifierExpr->identifier().name() != structDecl->identifier().name()) return false;
-
-        bool foundMatch = false;
-
-        // TODO: We need to support extensions. We'll have to do a lookup to grab all extensions and check them for
-        //       matching constructors first.
-        for (ConstructorDecl* checkConstructor : checkStruct->constructors()) {
-            // TODO: If/when we support template `init` declarations we will have to handle type inference here.
-            SignatureComparer::ArgMatchResult parameterMatchResult =
-                    SignatureComparer::compareArgumentsToParameters(checkConstructor->parameters(), arguments);
-
-            // Skip if the normal parameters don't match the parameters
-            if (parameterMatchResult == SignatureComparer::ArgMatchResult::Fail) {
+        if (foundConstructorDecl == nullptr) {
+            foundConstructorDecl = checkConstructor;
+            foundArgMatchResult = checkArgMatchResult;
+            isAmbiguous = false;
+        } else if (foundArgMatchResult == SignatureComparer::ArgMatchResult::Match) {
+            if (checkArgMatchResult == SignatureComparer::ArgMatchResult::Match) {
+                // If the found constructor is ambiguous on `Match` we immediately break to let the calling function
+                // error, nothing is greater than `Match`
+                isAmbiguous = true;
+                break;
+            }
+        } else if (foundArgMatchResult == SignatureComparer::ArgMatchResult::DefaultValues) {
+            if (checkArgMatchResult == SignatureComparer::ArgMatchResult::Match) {
+                // If the `found` is `DefaultValues` and `check` is `Match` then we replace the `found` with `check`
+                foundConstructorDecl = checkConstructor;
+                foundArgMatchResult = checkArgMatchResult;
+                isAmbiguous = false;
                 continue;
+            } else if (checkArgMatchResult == SignatureComparer::ArgMatchResult::DefaultValues) {
+                // The constructor is ambiguous but can be saved by an exact `Match`
+                isAmbiguous = true;
             }
-
-            if (parameterMatchResult == SignatureComparer::ArgMatchResult::Match) {
-                matchingDecls.emplace_back(MatchingDecl(MatchingDecl::Kind::Match, checkConstructor));
-                foundMatch = true;
-            } else {
-                matchingDecls.emplace_back(MatchingDecl(MatchingDecl::Kind::Castable, checkConstructor));
-                foundMatch = true;
+        } else if (foundArgMatchResult == SignatureComparer::ArgMatchResult::Castable) {
+            if (checkArgMatchResult == SignatureComparer::ArgMatchResult::Match ||
+                    checkArgMatchResult == SignatureComparer::ArgMatchResult::DefaultValues) {
+                // If the `found` is `Castable` and `check` is `Match` or `DefaultValues` then we replace the
+                // `found` with `check`
+                foundConstructorDecl = checkConstructor;
+                foundArgMatchResult = checkArgMatchResult;
+                isAmbiguous = false;
+                continue;
+            } else if (checkArgMatchResult == SignatureComparer::ArgMatchResult::Castable) {
+                // The constructor is ambiguous but can be saved by an exact `Match` or `DefaultValues`
+                isAmbiguous = true;
             }
         }
-
-        return foundMatch;
     }
 
-    return false;
+    if (foundConstructorDecl == nullptr) {
+        return false;
+    }
+
+    // We always return `true` even for `ambiguous`. We return `true` for found but `isAmbiguous` still errors.
+    *outMatchingConstructor = foundConstructorDecl;
+    *outArgMatchResult = foundArgMatchResult;
+    *outIsAmbiguous = isAmbiguous;
+    return true;
 }
 
-gulc::Decl* gulc::CodeProcessor::validateAndReturnMatchingFunction(FunctionCallExpr* functionCallExpr,
-                                                                   std::vector<MatchingDecl>& matchingDecls) {
-    if (matchingDecls.size() == 1) {
-        // If there is only one match we don't have anything else to do, this is the function that was
-        // intended.
-        // TODO: Cast anything that needs to be casted (if it isn't exact)
-        return matchingDecls[0].matchingDecl;
-    } else {
-        // If there are more than one match we need to check there is only a single exact match.
-        // If there aren't any exact matches or there are more than one we need to error saying the call
-        // is ambiguous
-        bool foundExact = false;
-        Decl* foundDecl = nullptr;
+void gulc::CodeProcessor::fillListOfMatchingFunctorsInContainer(gulc::Decl* container, std::string const& findName,
+                                                                bool findStaticOnly,
+                                                                std::vector<LabeledArgumentExpr*> const& arguments,
+                                                                std::vector<MatchingFunctorDecl>& outMatchingDecls) {
+    switch (container->getDeclKind()) {
+        case Decl::Kind::Enum:
+            fillListOfMatchingFunctors(llvm::dyn_cast<EnumDecl>(container)->ownedMembers(), findName,
+                                       findStaticOnly, arguments, outMatchingDecls);
+            break;
+        case Decl::Kind::Extension:
+            fillListOfMatchingFunctors(llvm::dyn_cast<ExtensionDecl>(container)->ownedMembers(), findName,
+                                       findStaticOnly, arguments, outMatchingDecls);
+            break;
+        case Decl::Kind::Namespace:
+            fillListOfMatchingFunctors(llvm::dyn_cast<NamespaceDecl>(container)->nestedDecls(), findName,
+                                       findStaticOnly, arguments, outMatchingDecls);
+            break;
+        case Decl::Kind::Struct:
+        case Decl::Kind::TemplateStructInst:
+            fillListOfMatchingFunctors(llvm::dyn_cast<StructDecl>(container)->allMembers, findName,
+                                       findStaticOnly, arguments, outMatchingDecls);
+            break;
+        case Decl::Kind::Trait:
+        case Decl::Kind::TemplateTraitInst:
+            fillListOfMatchingFunctors(llvm::dyn_cast<TraitDecl>(container)->allMembers, findName,
+                                       findStaticOnly, arguments, outMatchingDecls);
+            break;
+        default:
+            printError("unknown container type found in `CodeProcessor::fillListOfMatchingFunctorsInContainer`!",
+                       container->startPosition(), container->endPosition());
+            return;
+    }
+}
 
-        for (MatchingDecl& checkMatch : matchingDecls) {
-            if (checkMatch.kind == MatchingDecl::Kind::Match) {
-                if (foundExact) {
-                    // If there already is a match we need to error saying it is ambiguous...
-                    // To do that we just set the found declaration to null and break the loop to trigger
-                    // the error below.
-                    foundExact = false;
-                    foundDecl = nullptr;
+void gulc::CodeProcessor::fillListOfMatchingFunctors(std::vector<Decl*>& searchDecls, std::string const& findName,
+                                                     bool findStaticOnly,
+                                                     std::vector<LabeledArgumentExpr*> const& arguments,
+                                                     std::vector<MatchingFunctorDecl>& outMatchingDecls) {
+    // TODO: Support template type inference. Both `FunctionDecl` and `StructDecl` can be allowed to be templated as
+    //       long as the following is true:
+    //        1. All template arguments are optional
+    //        2. The template arguments can be inferred by either the function arguments or constructor arguments.
+    for (Decl* checkDecl : searchDecls) {
+        if (findName == checkDecl->identifier().name()) {
+            if (llvm::isa<VariableDecl>(checkDecl)) {
+                // `VariableDecl` can be a "member"
+                if (findStaticOnly && !checkDecl->isStatic()) continue;
+
+                auto checkVariable = llvm::dyn_cast<VariableDecl>(checkDecl);
+                Type* checkType = checkVariable->type;
+
+                // TODO: Support smart references
+                if (llvm::isa<ReferenceType>(checkType)) {
+                    checkType = llvm::dyn_cast<ReferenceType>(checkType)->nestedType;
+                }
+
+                fillListOfMatchingFunctorsInType(checkType, checkDecl, arguments, outMatchingDecls);
+            } else if (llvm::isa<PropertyDecl>(checkDecl)) {
+                // `PropertyDecl` can be a "member"
+                if (findStaticOnly && !checkDecl->isStatic()) continue;
+
+                auto checkProperty = llvm::dyn_cast<PropertyDecl>(checkDecl);
+                Type* checkType = checkProperty->type;
+
+                // TODO: Support smart references
+                if (llvm::isa<ReferenceType>(checkType)) {
+                    checkType = llvm::dyn_cast<ReferenceType>(checkType)->nestedType;
+                }
+
+                // We can only find `mut` getters when the current function is a member function and `mut`
+                bool findMut = _currentFunction != nullptr && _currentFunction->isMemberFunction() &&
+                        _currentFunction->isMutable();
+                // We only check for `functors` on `checkType` if the property has a proper `get` declaration
+                bool getterFound = false;
+
+                for (PropertyGetDecl* checkGetter : checkProperty->getters()) {
+                    // If we can't `findMut` we have to skip mutable getters
+                    if (!findMut && checkGetter->isMutable()) continue;
+
+                    if (checkGetter->getResultType() == PropertyGetDecl::GetResult::Normal) {
+                        getterFound = true;
+                        break;
+                    }
+                }
+
+                fillListOfMatchingFunctorsInType(checkType, checkDecl, arguments, outMatchingDecls);
+            } else if (llvm::isa<FunctionDecl>(checkDecl)) {
+                // `FunctionDecl` can be a "member"
+                if (findStaticOnly && !checkDecl->isStatic()) continue;
+
+                auto checkFunction = llvm::dyn_cast<FunctionDecl>(checkDecl);
+
+                // We can only find `mut` functions when the current function is a member function and `mut`
+                bool findMut = _currentFunction != nullptr && _currentFunction->isMemberFunction() &&
+                        _currentFunction->isMutable();
+
+                // Function must either be `static` or `findMut == checkFunction->isMutable()`
+                if (!checkFunction->isStatic() && findMut != checkFunction->isMutable()) {
+                    continue;
+                }
+
+                SignatureComparer::ArgMatchResult checkArgMatchResult =
+                        SignatureComparer::compareArgumentsToParameters(checkFunction->parameters(), arguments);
+
+                MatchingDecl::Kind matchKind = MatchingDecl::Kind::Unknown;
+
+                switch (checkArgMatchResult) {
+                    case SignatureComparer::ArgMatchResult::Match:
+                        matchKind = MatchingDecl::Kind::Match;
+                        break;
+                    case SignatureComparer::ArgMatchResult::DefaultValues:
+                        matchKind = MatchingDecl::Kind::DefaultValues;
+                        break;
+                    case SignatureComparer::ArgMatchResult::Castable:
+                        matchKind = MatchingDecl::Kind::Castable;
+                        break;
+                    case SignatureComparer::ArgMatchResult::Fail:
+                        return;
+                }
+
+                // For `FunctionDecl` we don't have a `contextDecl`
+                MatchingFunctorDecl newMatch(matchKind, checkFunction, nullptr);
+
+                outMatchingDecls.push_back(newMatch);
+            } else if (llvm::isa<StructDecl>(checkDecl)) {
+                // `StructDecl` CANNOT be a "member", we ignore `findStaticOnly` as struct cannot be non-static
+                auto checkStruct = llvm::dyn_cast<StructDecl>(checkDecl);
+
+                fillListOfMatchingConstructors(checkStruct, arguments, outMatchingDecls);
+            }
+        }
+    }
+}
+
+void gulc::CodeProcessor::fillListOfMatchingFunctorsInType(gulc::Type* checkType, Decl* contextDecl,
+                                                           std::vector<LabeledArgumentExpr*> const& arguments,
+                                                           std::vector<MatchingFunctorDecl>& outMatchingDecls) {
+    switch (checkType->getTypeKind()) {
+        case Type::Kind::FunctionPointer: {
+            auto checkFuncPointer = llvm::dyn_cast<FunctionPointerType>(checkType);
+
+            SignatureComparer::ArgMatchResult checkArgMatchResult =
+                    SignatureComparer::compareArgumentsToParameters(checkFuncPointer->parameters, arguments);
+
+            MatchingDecl::Kind matchKind = MatchingDecl::Kind::Unknown;
+
+            switch (checkArgMatchResult) {
+                case SignatureComparer::ArgMatchResult::Match:
+                    matchKind = MatchingDecl::Kind::Match;
                     break;
-                } else {
-                    foundExact = true;
-                    foundDecl = checkMatch.matchingDecl;
+                case SignatureComparer::ArgMatchResult::DefaultValues:
+                    matchKind = MatchingDecl::Kind::DefaultValues;
+                    break;
+                case SignatureComparer::ArgMatchResult::Castable:
+                    matchKind = MatchingDecl::Kind::Castable;
+                    break;
+                case SignatureComparer::ArgMatchResult::Fail:
+                    return;
+            }
+
+            // For `FunctionPointerType` the `contextDecl` is the `functor` instead of the `context`
+            MatchingFunctorDecl newMatch(matchKind, contextDecl, nullptr);
+
+            outMatchingDecls.push_back(newMatch);
+
+            break;
+        }
+        case Type::Kind::Struct: {
+            auto checkStruct = llvm::dyn_cast<StructType>(checkType);
+
+            fillListOfMatchingCallOperators(checkStruct->decl()->allMembers,
+                                            checkStruct->qualifier() == Type::Qualifier::Mut, contextDecl,
+                                            arguments, outMatchingDecls);
+
+            break;
+        }
+        case Type::Kind::Trait: {
+            auto checkTrait = llvm::dyn_cast<TraitType>(checkType);
+
+            fillListOfMatchingCallOperators(checkTrait->decl()->allMembers,
+                                            checkTrait->qualifier() == Type::Qualifier::Mut, contextDecl,
+                                            arguments, outMatchingDecls);
+
+            break;
+        }
+        default:
+            // Skip the variable if it isn't a type known to support `operator ()`
+            return;
+    }
+}
+
+void gulc::CodeProcessor::fillListOfMatchingCallOperators(std::vector<Decl*>& searchDecls, bool findMut,
+                                                          Decl* contextDecl,
+                                                          std::vector<LabeledArgumentExpr*> const& arguments,
+                                                          std::vector<MatchingFunctorDecl>& outMatchingDecls) {
+    for (Decl* checkDecl : searchDecls) {
+        // The struct/trait must be `mut` to call `mut` call operators.
+        if (!findMut && checkDecl->isMutable()) continue;
+
+        if (llvm::isa<CallOperatorDecl>(checkDecl)) {
+            auto checkCallOperator = llvm::dyn_cast<CallOperatorDecl>(checkDecl);
+
+            SignatureComparer::ArgMatchResult checkArgMatchResult =
+                    SignatureComparer::compareArgumentsToParameters(checkCallOperator->parameters(), arguments);
+
+            MatchingDecl::Kind matchKind = MatchingDecl::Kind::Unknown;
+
+            switch (checkArgMatchResult) {
+                case SignatureComparer::ArgMatchResult::Match:
+                    matchKind = MatchingDecl::Kind::Match;
+                    break;
+                case SignatureComparer::ArgMatchResult::DefaultValues:
+                    matchKind = MatchingDecl::Kind::DefaultValues;
+                    break;
+                case SignatureComparer::ArgMatchResult::Castable:
+                    matchKind = MatchingDecl::Kind::Castable;
+                    break;
+                case SignatureComparer::ArgMatchResult::Fail:
+                    return;
+            }
+
+            // For the `CallOperatorDecl` we make the call operator the `functor` and the `contextDecl` container
+            // the `context`
+            MatchingFunctorDecl newMatch(matchKind, checkCallOperator, contextDecl);
+
+            outMatchingDecls.push_back(newMatch);
+        }
+    }
+}
+
+gulc::CodeProcessor::MatchingTemplateDecl* gulc::CodeProcessor::findMatchingTemplateDecl(
+        std::vector<std::vector<MatchingTemplateDecl>>& allMatchingTemplateDecls,
+        std::vector<Expr*> const& templateArguments, std::vector<LabeledArgumentExpr*> const& arguments,
+        TextPosition errorStartPosition, TextPosition errorEndPosition, bool* outIsAmbiguous) {
+    MatchingTemplateDecl* foundTemplate = nullptr;
+    SignatureComparer::ArgMatchResult foundArgMatchResult = SignatureComparer::ArgMatchResult::Fail;
+    std::size_t foundMatchDepth = std::numeric_limits<std::size_t>::max();
+    bool isAmbiguous = false;
+
+    for (std::size_t matchDepth = 0; matchDepth < allMatchingTemplateDecls.size(); ++matchDepth) {
+        // NOTE: A "perfect" match would mean the following:
+        //        1. Template arguments all have strength of "0"
+        //        2. Template arguments do NOT use default values
+        //        3. Normal arguments all match the parameter types exactly
+        //        4. Normal arguments do NOT use default values
+        //       The following will make a match imperfect:
+        //        * Requires cast
+        //        * Requires default values
+        //        * Template specialization strength > 0
+        // If a match is `perfect` we can skip everything after the current depth. We MUST continue searching
+        // the current depth for ambiguity but past that there is no more searching required.
+        // TODO: Actually detect and set this...
+        bool matchIsPerfect = false;
+
+        for (MatchingTemplateDecl& checkMatch : allMatchingTemplateDecls[matchDepth]) {
+            if (foundTemplate == nullptr) {
+                switch (checkMatch.matchingDecl->getDeclKind()) {
+                    case Decl::Kind::TemplateFunction: {
+                        auto checkTemplateFunction =
+                                llvm::dyn_cast<TemplateFunctionDecl>(checkMatch.matchingDecl);
+
+                        SignatureComparer::ArgMatchResult checkArgMatchResult =
+                                SignatureComparer::compareArgumentsToParameters(
+                                        checkTemplateFunction->parameters(),
+                                        arguments,
+                                        checkTemplateFunction->templateParameters(),
+                                        templateArguments);
+
+                        if (checkArgMatchResult == SignatureComparer::ArgMatchResult::Fail) {
+                            // A failure means there is nothing left to check. The templates arguments were
+                            // correct but the normal arguments were not.
+                            continue;
+                        }
+
+                        foundTemplate = &checkMatch;
+                        foundArgMatchResult = checkArgMatchResult;
+                        foundMatchDepth = matchDepth;
+                        isAmbiguous = false;
+                        break;
+                    }
+                    case Decl::Kind::TemplateStruct: {
+                        auto checkTemplateStruct = llvm::dyn_cast<TemplateStructDecl>(checkMatch.matchingDecl);
+
+                        ConstructorDecl* matchingConstructor = nullptr;
+                        SignatureComparer::ArgMatchResult checkArgMatchResult;
+                        bool checkIsAmbiguous = false;
+
+                        if (findBestTemplateConstructor(checkTemplateStruct, templateArguments, arguments,
+                                                        &matchingConstructor, &checkArgMatchResult,
+                                                        &checkIsAmbiguous)) {
+                            if (checkArgMatchResult == SignatureComparer::ArgMatchResult::Fail) {
+                                // A failure means there is nothing left to check. The templates arguments were
+                                // correct but the normal arguments were not.
+                                continue;
+                            }
+
+                            foundTemplate = &checkMatch;
+                            foundArgMatchResult = checkArgMatchResult;
+                            foundMatchDepth = matchDepth;
+                            isAmbiguous = checkIsAmbiguous;
+                            break;
+                        }
+                    }
+                    case Decl::Kind::TemplateTrait: {
+                        // `init` declarations within a template only refer to constructors that a `struct`
+                        // must define. They cannot be used to construct a trait (as a trait cannot be
+                        // constructed at all)
+                        continue;
+                    }
+                    default:
+                        printError("unknown template found in `CodeGen::findMatchingTemplateDecl`!",
+                                   errorStartPosition, errorEndPosition);
+                        break;
+                }
+            } else {
+                bool shouldReplaceDecl = false;
+                bool exactSame = false;
+
+                // Regardless of what kind the matches are if they are both the same we go through checking
+                // strengths from left to right.
+                if (foundTemplate->kind == checkMatch.kind) {
+                    // TODO: `exactSame` can only be true if the matches are at the exact same depth?
+                    exactSame = foundMatchDepth == matchDepth;
+                    bool foundIsBetter = false;
+
+
+                    // We break on first difference. If the first different argument is closer to zero then we
+                    // replace `foundMatch`, if it was worse then we continue searching. If the arguments have the
+                    // exact same strength then we set `isAmbiguous` but keep searching in case something better
+                    // comes along.
+                    for (std::size_t i = 0; i < foundTemplate->argMatchStrengths.size(); ++i) {
+                        std::size_t foundStrength = foundTemplate->argMatchStrengths[i];
+                        std::size_t checkStrength = checkMatch.argMatchStrengths[i];
+
+                        if (checkStrength < foundStrength) {
+                            shouldReplaceDecl = true;
+                            exactSame = false;
+                            break;
+                        } else if (checkStrength > foundStrength) {
+                            foundIsBetter = true;
+                            exactSame = false;
+                            break;
+                        }
+                    }
+
+                    // If `foundIsBetter` is true then we have to skip the rest of the checks.
+                    if (foundIsBetter) {
+                        continue;
+                    }
+                } else if (foundTemplate->kind == MatchingDecl::Kind::Match) {
+                    // We continue the loop unless `checkMatch` is also exact, in that scenario the above code
+                    // will execute instead.
+                    continue;
+                } else if (foundTemplate->kind == MatchingDecl::Kind::DefaultValues) {
+                    // If we found a `DefaultValues` match then we follow these rules:
+                    //  1. If the `checkMatch` is `Exact` we replace without question
+                    //  2. If the `checkMatch` is also `DefaultValues` then we compare strengths
+                    //  3. If the `checkMatch` is `Castable` we skip it
+                    if (checkMatch.kind == MatchingDecl::Kind::Match) {
+                        shouldReplaceDecl = true;
+                    } else if (checkMatch.kind == MatchingDecl::Kind::DefaultValues) {
+                        // In this scenario the matches are the same kind so this will never execute.
+                        continue;
+                    }
+                }
+
+                // We do nothing for `Castable` at this point.
+                // Castable only makes it past this loop on one of two conditions:
+                //  1. It is the only match in the list
+                //  2. There are multiple matches in the list and we choose the strongest match.
+
+                // NOTE: If `exactSame` is false then we should always replace if the arguments match at all.
+                //       If `exactSame` is true then we should replace only if the arguments are a better match,
+                //       if arguments are the same as well then it is a true `exactSame` and we must mark for
+                //       ambiguity.
+                if (shouldReplaceDecl) {
+                    // We create a new `mustReplace` variable because if `exactSame` is true then it will be
+                    // modified based on the results of our checks below.
+                    bool mustReplace = !exactSame;
+
+                    switch (checkMatch.matchingDecl->getDeclKind()) {
+                        case Decl::Kind::TemplateFunction: {
+                            auto checkTemplateFunction =
+                                    llvm::dyn_cast<TemplateFunctionDecl>(checkMatch.matchingDecl);
+
+                            SignatureComparer::ArgMatchResult checkArgMatchResult =
+                                    SignatureComparer::compareArgumentsToParameters(
+                                            checkTemplateFunction->parameters(),
+                                            arguments,
+                                            checkTemplateFunction->templateParameters(),
+                                            templateArguments);
+
+                            if (checkArgMatchResult == SignatureComparer::ArgMatchResult::Fail) {
+                                // A failure means there is nothing left to check. The templates arguments were
+                                // correct but the normal arguments were not.
+                                continue;
+                            }
+
+                            // If `mustReplace` is true then we must do what the name says. It means the
+                            // template arguments matched better for the new template.
+                            if (mustReplace) {
+                                foundTemplate = &checkMatch;
+                                foundMatchDepth = matchDepth;
+                                foundArgMatchResult = checkArgMatchResult;
+                                isAmbiguous = false;
+                            } else {
+                                if (foundArgMatchResult == checkArgMatchResult) {
+                                    // If the normal argument checks are exactly the same then we compare based
+                                    // on the `exactSame` variable.
+                                    if (exactSame) {
+                                        isAmbiguous = true;
+                                        matchIsPerfect = false;
+                                    }
+                                } else {
+                                    // Choose which is better
+                                    if (foundArgMatchResult == SignatureComparer::ArgMatchResult::Match) {
+                                        // Nothing to do. If `check` is the same it would be handeled above.
+                                        // Everything else is ignored.
+                                    } else if (foundArgMatchResult ==
+                                               SignatureComparer::ArgMatchResult::DefaultValues) {
+                                        // If `found` is `DefaultValues` and `check` is `Match` then `check` is
+                                        // better.
+                                        // If `found` is `DefaultValues` and `check` is too then `check` is
+                                        // better as `check` passed the `strength` test better.
+                                        // If `found` is `DefaultValues` and `check` is `Castable` we do
+                                        // nothing.
+                                        if (checkArgMatchResult == SignatureComparer::ArgMatchResult::Match ||
+                                            checkArgMatchResult ==
+                                            SignatureComparer::ArgMatchResult::DefaultValues) {
+                                            foundTemplate = &checkMatch;
+                                            foundMatchDepth = matchDepth;
+                                            foundArgMatchResult = checkArgMatchResult;
+                                            isAmbiguous = false;
+                                        }
+                                    } else if (foundArgMatchResult ==
+                                               SignatureComparer::ArgMatchResult::Castable) {
+                                        // Regardless of what `check` is it is better because it passed the
+                                        // strength test better. If `check` failed the strength test it would
+                                        // be skipped and had it been the same we would be checking in the
+                                        // prior `if` that checks `exactSame`.
+                                        foundTemplate = &checkMatch;
+                                        foundMatchDepth = matchDepth;
+                                        foundArgMatchResult = checkArgMatchResult;
+                                        isAmbiguous = false;
+                                    }
+                                }
+                            }
+
+                            break;
+                        }
+                        case Decl::Kind::TemplateStruct: {
+                            auto checkTemplateStruct = llvm::dyn_cast<TemplateStructDecl>(
+                                    checkMatch.matchingDecl);
+
+                            ConstructorDecl* checkConstructor;
+                            SignatureComparer::ArgMatchResult checkArgMatchResult =
+                                    SignatureComparer::ArgMatchResult::Fail;
+                            bool checkIsAmbiguous = false;
+
+                            if (findBestTemplateConstructor(checkTemplateStruct,
+                                                            templateArguments,
+                                                            arguments,
+                                                            &checkConstructor, &checkArgMatchResult,
+                                                            &checkIsAmbiguous)) {
+                                // If `mustReplace` is true then we must do what the name says. It means the
+                                // template arguments matched better for the new template.
+                                if (mustReplace) {
+                                    foundTemplate = &checkMatch;
+                                    foundMatchDepth = matchDepth;
+                                    foundArgMatchResult = checkArgMatchResult;
+                                    // We set to `checkIsAmbiguous` as there could be multiple matching
+                                    // `init` declarations.
+                                    isAmbiguous = checkIsAmbiguous;
+                                } else {
+                                    // If both are same we potentially have an ambiguity. That can only be true
+                                    // if the `exactSame` variable has already been evaluated to `true`
+                                    if (foundArgMatchResult == checkArgMatchResult) {
+                                        // There can only be an ambiguity if `exactSame` is true
+                                        if (exactSame) {
+                                            isAmbiguous = true;
+                                            matchIsPerfect = false;
+                                        }
+                                    } else if (foundArgMatchResult ==
+                                               SignatureComparer::ArgMatchResult::Match) {
+                                        // Nothing to do here, we only account for if both are `Match` above...
+                                    } else if (foundArgMatchResult ==
+                                               SignatureComparer::ArgMatchResult::DefaultValues) {
+                                        // `DefaultValues` is worse than `Match`, `Match` is exact.
+                                        if (checkArgMatchResult == SignatureComparer::ArgMatchResult::Match) {
+                                            foundTemplate = &checkMatch;
+                                            foundMatchDepth = matchDepth;
+                                            foundArgMatchResult = checkArgMatchResult;
+                                            // We set to `checkIsAmbiguous` as there could be multiple matching
+                                            // `init` declarations.
+                                            isAmbiguous = checkIsAmbiguous;
+                                        }
+
+                                        // `DefaultValues` is handled above, `Castable` is ignored.
+                                    } else if (foundArgMatchResult ==
+                                               SignatureComparer::ArgMatchResult::Castable) {
+                                        // Regardless of what `check` is it is better because it passed the
+                                        // strength test better. If `check` failed the strength test it would
+                                        // be skipped and had it been the same we would be checking in the
+                                        // prior `if` that checks `exactSame`.
+                                        foundTemplate = &checkMatch;
+                                        foundMatchDepth = matchDepth;
+                                        foundArgMatchResult = checkArgMatchResult;
+                                        // We set to `checkIsAmbiguous` as there could be multiple matching
+                                        // `init` declarations.
+                                        isAmbiguous = checkIsAmbiguous;
+                                    }
+                                }
+                            }
+
+                            break;
+                        }
+                        case Decl::Kind::TemplateTrait: {
+                            // `init` declarations within a template only refer to constructors that a `struct`
+                            // must define. They cannot be used to construct a trait (as a trait cannot be
+                            // constructed at all)
+                            continue;
+                        }
+                        default:
+                            printError("unknown template found in `CodeGen::findMatchingTemplateDecl`!",
+                                       errorStartPosition, errorEndPosition);
+                            break;
+                    }
                 }
             }
         }
 
-        if (foundDecl == nullptr) {
-            printError("ambiguous call for `" + functionCallExpr->toString() + "`!",
-                       functionCallExpr->startPosition(), functionCallExpr->endPosition());
-
-            return nullptr;
-        } else {
-            return foundDecl;
+        // A perfect match means we don't have to search any further depths
+        if (matchIsPerfect) {
+            break;
         }
     }
+
+    *outIsAmbiguous = isAmbiguous;
+    return foundTemplate;
+}
+
+gulc::CodeProcessor::MatchingFunctorDecl* gulc::CodeProcessor::findMatchingFunctorDecl(
+        std::vector<MatchingFunctorDecl>& allMatchingFunctorDecls, bool findExactOnly, bool* outIsAmbiguous) {
+    MatchingFunctorDecl* result = nullptr;
+    bool isAmbiguous = false;
+
+    for (MatchingFunctorDecl& checkMatchingFunctorDecl : allMatchingFunctorDecls) {
+        if (result == nullptr) {
+            if (findExactOnly) {
+                if (checkMatchingFunctorDecl.kind == MatchingDecl::Kind::Match) {
+                    result = &checkMatchingFunctorDecl;
+                }
+            } else {
+                result = &checkMatchingFunctorDecl;
+            }
+        } else {
+            if (findExactOnly) {
+                if (checkMatchingFunctorDecl.kind == MatchingDecl::Kind::Match) {
+                    // `result` will always be filled in this scenario. As such it is always ambiguous here so we
+                    // break.
+                    isAmbiguous = true;
+                    break;
+                }
+            } else {
+                if (result->kind == checkMatchingFunctorDecl.kind) {
+                    // Keep searching but it is currently considered ambiguous.
+                    isAmbiguous = true;
+                } else if (result->kind == MatchingDecl::Kind::Match) {
+                    // Do nothing. If `result` is already `match` it will be handled above.
+                } else if (result->kind == MatchingDecl::Kind::DefaultValues) {
+                    // Match is better than DefaultValues
+                    if (checkMatchingFunctorDecl.kind == MatchingDecl::Kind::Match) {
+                        result = &checkMatchingFunctorDecl;
+                        isAmbiguous = false;
+                    }
+                } else {
+                    // It is impossible for `check` to be `Castable` here so it must be better. As a result we set
+                    // `result` to `check` and set `isAmbiguous` to false.
+                    result = &checkMatchingFunctorDecl;
+                    isAmbiguous = false;
+                }
+            }
+        }
+    }
+
+    *outIsAmbiguous = isAmbiguous;
+    return result;
+}
+
+gulc::CodeProcessor::MatchingFunctorDecl gulc::CodeProcessor::getTemplateFunctorInstantiation(
+        gulc::CodeProcessor::MatchingTemplateDecl* matchingTemplateDecl, std::vector<Expr*>& templateArguments,
+        std::vector<LabeledArgumentExpr*> const& arguments,
+        std::string const& errorString, gulc::TextPosition errorStartPosition, gulc::TextPosition errorEndPosition) {
+    MatchingFunctorDecl foundDecl;
+    DeclInstantiator declInstantiator(_target, _filePaths);
+
+    switch (matchingTemplateDecl->matchingDecl->getDeclKind()) {
+        case Decl::Kind::TemplateFunction: {
+            auto templateFunctionDecl = llvm::dyn_cast<TemplateFunctionDecl>(matchingTemplateDecl->matchingDecl);
+
+            TemplateFunctionInstDecl* checkTemplateFunctionInst =
+                    declInstantiator.instantiateTemplateFunction(_currentFile, templateFunctionDecl,
+                                                                 templateArguments,
+                                                                 errorString,
+                                                                 errorStartPosition, errorEndPosition);
+
+            foundDecl = MatchingFunctorDecl(matchingTemplateDecl->kind, checkTemplateFunctionInst, nullptr);
+
+            break;
+        }
+        case Decl::Kind::TemplateStruct: {
+            auto templateStructDecl = llvm::dyn_cast<TemplateStructDecl>(matchingTemplateDecl->matchingDecl);
+
+            TemplateStructInstDecl* checkTemplateStructInst =
+                    declInstantiator.instantiateTemplateStruct(_currentFile, templateStructDecl,
+                                                               templateArguments,
+                                                               errorString,
+                                                               errorStartPosition, errorEndPosition);
+
+            // Find the matching constructor again...
+            std::vector<MatchingFunctorDecl> constructorMatches;
+
+            fillListOfMatchingConstructors(checkTemplateStructInst, arguments, constructorMatches);
+
+            if (constructorMatches.empty()) {
+                printError("[INTERNAL] template search found matching constructor that cannot be found in "
+                           "instantiation!",
+                           errorStartPosition, errorEndPosition);
+            }
+
+            if (constructorMatches.size() == 1) {
+                foundDecl = constructorMatches[0];
+            } else {
+                // Search for an exact match or default values match...
+                bool constructorIsAmbiguous = false;
+
+                for (MatchingFunctorDecl& checkMatch : constructorMatches) {
+                    if (foundDecl.functorDecl == nullptr) {
+                        foundDecl = checkMatch;
+                        constructorIsAmbiguous = false;
+                    } else {
+                        if (foundDecl.kind == checkMatch.kind) {
+                            constructorIsAmbiguous = true;
+                        } else if (foundDecl.kind == MatchingDecl::Kind::Match) {
+                            // Nothing to do. If `check` is the same it will be handled above.
+                        } else if (foundDecl.kind == MatchingDecl::Kind::DefaultValues) {
+                            // We replace `DefaultValues` with `Match`
+                            if (checkMatch.kind == MatchingDecl::Kind::Match) {
+                                foundDecl = checkMatch;
+                                constructorIsAmbiguous = false;
+                            }
+                        } else if (foundDecl.kind == MatchingDecl::Kind::Castable) {
+                            // We set it no matter what here. `checkMatch` can't be `Castable` here it can only
+                            // be better.
+                            foundDecl = checkMatch;
+                            constructorIsAmbiguous = false;
+                        }
+                    }
+                }
+
+                if (constructorIsAmbiguous) {
+                    printError("constructor call is ambiguous!",
+                               errorStartPosition, errorEndPosition);
+                }
+            }
+
+            break;
+        }
+        case Decl::Kind::TemplateTrait:
+            // `init` declarations within a template only refer to constructors that a `struct`
+            // must define. They cannot be used to construct a trait (as a trait cannot be
+            // constructed at all)
+            break;
+        default:
+            printError("unknown template found in `CodeGen::getTemplateFunctorInstantiation`!",
+                       errorStartPosition, errorEndPosition);
+            break;
+    }
+
+    return foundDecl;
 }
 
 gulc::Expr* gulc::CodeProcessor::createStaticFunctionReference(Expr* forExpr, gulc::Decl* function) const {
@@ -2634,7 +3253,21 @@ void gulc::CodeProcessor::processFunctionReferenceExpr(gulc::FunctionReferenceEx
 }
 
 void gulc::CodeProcessor::processHasExpr(gulc::HasExpr* hasExpr) {
-    // TODO: We need to fix this. I want to support `T has func test(_: i32)`
+    processExpr(hasExpr->expr);
+    processPrototypeDecl(hasExpr->decl);
+
+    switch (hasExpr->expr->getExprKind()) {
+        case Expr::Kind::Type:
+            // TODO: Do we do anything yet? We could pre-solve the `has` expression here...
+            break;
+        default:
+            printError("unknown expression as left value of `has` operator, expected a type!",
+                       hasExpr->startPosition(), hasExpr->endPosition());
+            break;
+    }
+
+    hasExpr->valueType = new BoolType(Type::Qualifier::Immut, hasExpr->startPosition(), hasExpr->endPosition());
+    hasExpr->valueType->setIsLValue(false);
 }
 
 void gulc::CodeProcessor::processIdentifierExpr(gulc::Expr*& expr) {
@@ -2644,13 +3277,172 @@ void gulc::CodeProcessor::processIdentifierExpr(gulc::Expr*& expr) {
     //       Once `CodeProcessor` is done `IdentifierExpr` should NEVER appear in the AST again (except in
     //       uninstantiated templates)
     auto identifierExpr = llvm::dyn_cast<IdentifierExpr>(expr);
+    std::string const& findName = identifierExpr->identifier().name();
+    Decl* foundDecl = nullptr;
 
-    // Local variables, parameters, and template parameters cannot have template parameters
-    if (!identifierExpr->hasTemplateArguments()) {
+    // TODO: I think we should rewrite this to use the newer more abstract functions we wrote for
+    //       `processFunctionCallExpr`
+
+    if (identifierExpr->hasTemplateArguments()) {
+        for (Expr*& templateArgument : identifierExpr->templateArguments()) {
+            processExpr(templateArgument);
+        }
+
+        // TODO: To account for both overloading and template specialization we have to search everything to properly
+        //       find any templates
+        // TODO: We shouldn't have to. We just need to constantly check if we found a perfect match.
+        std::vector<std::vector<MatchingTemplateDecl>> foundTemplates;
+
+        if (_currentContainer != nullptr) {
+            foundTemplates.push_back({});
+
+            fillListOfMatchingTemplatesInContainer(_currentContainer, findName, false,
+                                                   identifierExpr->templateArguments(),
+                                                   foundTemplates[foundTemplates.size() - 1]);
+        }
+
+        // TODO: Search current namespace?
+
+        if (_currentFile != nullptr) {
+            foundTemplates.push_back({});
+
+            fillListOfMatchingTemplates(_currentFile->declarations, findName, false,
+                                        identifierExpr->templateArguments(),
+                                        foundTemplates[foundTemplates.size() - 1]);
+        }
+
+        if (_currentFile != nullptr && !_currentFile->imports.empty()) {
+            foundTemplates.push_back({});
+
+            for (ImportDecl* checkImport : _currentFile->imports) {
+                fillListOfMatchingTemplates(checkImport->pointToNamespace->nestedDecls(), findName, false,
+                                            identifierExpr->templateArguments(),
+                                            foundTemplates[foundTemplates.size() - 1]);
+            }
+        }
+
+        // TODO: Find the best matching template, this should be easy since we don't have normal parameters to deal
+        //       with like we did with `processFunctionCallExpr`
+        MatchingTemplateDecl* foundTemplate = nullptr;
+        std::size_t foundDepth = std::numeric_limits<std::size_t>::max();
+        bool isAmbiguous = false;
+
+        for (std::size_t matchDepth = 0; matchDepth < foundTemplates.size(); ++matchDepth) {
+            // TODO: Account for strengths
+            for (MatchingTemplateDecl& checkTemplate : foundTemplates[matchDepth]) {
+                if (foundTemplate == nullptr) {
+                    foundTemplate = &checkTemplate;
+                    foundDepth = matchDepth;
+                    isAmbiguous = false;
+                } else {
+                    if (foundTemplate->kind == checkTemplate.kind) {
+                        // The templates can only be ambiguous when at the same depth
+                        bool exactSame = foundDepth == matchDepth;
+                        bool foundIsBetter = false;
+                        // If this is true then we replace `found` with `check`
+                        bool shouldReplaceFound = false;
+
+                        // We break on first difference. If the first different argument is closer to zero then we
+                        // replace `foundMatch`, if it was worse then we continue searching. If the arguments have the
+                        // exact same strength then we set `isAmbiguous` but keep searching in case something better
+                        // comes along.
+                        for (std::size_t i = 0; i < foundTemplate->argMatchStrengths.size(); ++i) {
+                            std::size_t foundStrength = foundTemplate->argMatchStrengths[i];
+                            std::size_t checkStrength = checkTemplate.argMatchStrengths[i];
+
+                            if (checkStrength < foundStrength) {
+                                shouldReplaceFound = true;
+                                exactSame = false;
+                                break;
+                            } else if (checkStrength > foundStrength) {
+                                foundIsBetter = true;
+                                exactSame = false;
+                                break;
+                            }
+                        }
+
+                        // If `foundIsBetter` is true then we have to skip the rest of the checks.
+                        if (foundIsBetter) {
+                            continue;
+                        } else if (exactSame) {
+                            isAmbiguous = true;
+                        } else if (shouldReplaceFound) {
+                            foundTemplate = &checkTemplate;
+                            foundDepth = matchDepth;
+                            isAmbiguous = false;
+                        }
+                    } else if (foundTemplate->kind == MatchingDecl::Kind::Match) {
+                        // Nothing to do, we only check for ambiguity above when `check` is also `Match`
+                    } else if (foundTemplate->kind == MatchingDecl::Kind::DefaultValues) {
+                        // `Match` is always better than `DefaultValues`
+                        if (checkTemplate.kind == MatchingDecl::Kind::Match) {
+                            foundTemplate = &checkTemplate;
+                            foundDepth = matchDepth;
+                            isAmbiguous = false;
+                        }
+                    } else {
+                        // `found` is `Castable` while `check` is either `Match` or `DefaultValues`, making `check`
+                        // better
+                        foundTemplate = &checkTemplate;
+                        foundDepth = matchDepth;
+                        isAmbiguous = false;
+                    }
+                }
+            }
+        }
+
+        if (foundTemplate == nullptr) {
+            printError("template `" + identifierExpr->toString() + "` was not found!",
+                       identifierExpr->startPosition(), identifierExpr->endPosition());
+        }
+
+        if (isAmbiguous) {
+            printError("template `" + identifierExpr->toString() + "` was ambiguous!",
+                       identifierExpr->startPosition(), identifierExpr->endPosition());
+        }
+
+        DeclInstantiator declInstantiator(_target, _filePaths);
+
+        switch (foundTemplate->matchingDecl->getDeclKind()) {
+            case Decl::Kind::TemplateStruct: {
+                auto templateStructDecl = llvm::dyn_cast<TemplateStructDecl>(foundTemplate->matchingDecl);
+
+                TemplateStructInstDecl* checkTemplateStructInst =
+                        declInstantiator.instantiateTemplateStruct(_currentFile, templateStructDecl,
+                                                                   identifierExpr->templateArguments(),
+                                                                   identifierExpr->toString(),
+                                                                   identifierExpr->startPosition(),
+                                                                   identifierExpr->endPosition());
+
+                foundDecl = checkTemplateStructInst;
+
+                break;
+            }
+            case Decl::Kind::TemplateTrait: {
+                auto templateTraitDecl = llvm::dyn_cast<TemplateTraitDecl>(foundTemplate->matchingDecl);
+
+                TemplateTraitInstDecl* checkTemplateTraitInst =
+                        declInstantiator.instantiateTemplateTrait(_currentFile, templateTraitDecl,
+                                                                  identifierExpr->templateArguments(),
+                                                                  identifierExpr->toString(),
+                                                                  identifierExpr->startPosition(),
+                                                                  identifierExpr->endPosition());
+
+                foundDecl = checkTemplateTraitInst;
+
+                break;
+            }
+            default:
+                printError("unknown template declaration reference!",
+                           identifierExpr->startPosition(), identifierExpr->endPosition());
+                break;
+        }
+    } else {
         // First we check if it is a built in type
         if (BuiltInType::isBuiltInType(identifierExpr->identifier().name())) {
             auto builtInType = BuiltInType::get(Type::Qualifier::Unassigned,
-                    identifierExpr->identifier().name(), expr->startPosition(), expr->endPosition());
+                                                identifierExpr->identifier().name(),
+                                                expr->startPosition(), expr->endPosition());
             auto newExpr = new TypeExpr(builtInType);
             // Delete the old identifier
             delete expr;
@@ -2755,37 +3547,45 @@ void gulc::CodeProcessor::processIdentifierExpr(gulc::Expr*& expr) {
             }
         }
 
-        // TODO: Then check template parameters (if there are any) (is this needed? shouldn't template parameters be removed here?)
-    }
+        bool isAmbiguous = false;
 
-    Decl* foundDecl = nullptr;
+        // Check our current container
+        if (_currentContainer != nullptr) {
+            findMatchingDeclInContainer(_currentContainer, findName, &foundDecl, &isAmbiguous);
+        }
 
-    // Check our current container
-    if (_currentContainer != nullptr) {
-        findMatchingDeclInContainer(_currentContainer, identifierExpr, &foundDecl);
-    }
+        // TODO: Search current namespace?
 
-    // Check our current file
-    if (foundDecl == nullptr) {
-        findMatchingDecl(_currentFile->declarations, identifierExpr, &foundDecl);
-    }
+        // Check our current file
+        if (foundDecl == nullptr) {
+            findMatchingDecl(_currentFile->declarations, findName, &foundDecl, &isAmbiguous);
+        }
 
-    // Check the imports with an ambiguity check
-    if (foundDecl == nullptr) {
-        // NOTE: We continue searching even after `foundDecl` is set for the imports,
-        //       if `foundDecl` isn't null on a match then there is an ambiguity and we need to error out saying such.
-        for (ImportDecl* checkImport : _currentFile->imports) {
-            Decl* tmpFoundDecl = nullptr;
+        // Check the imports with an ambiguity check
+        if (foundDecl == nullptr) {
+            // NOTE: We continue searching even after `foundDecl` is set for the imports, if `foundDecl` isn't null on
+            //       a match then there is an ambiguity and we need to error out saying such.
+            for (ImportDecl* checkImport : _currentFile->imports) {
+                Decl* tmpFoundDecl = nullptr;
+                bool tmpIsAmbiguous = false;
 
-            if (findMatchingDecl(checkImport->pointToNamespace->nestedDecls(), identifierExpr, &tmpFoundDecl)) {
-                if (foundDecl != nullptr) {
-                    // TODO: Use `foundDecl` and `tmpFoundDecl` to show the two ambiguous identifier paths
-                    printError("identifier `" + identifierExpr->toString() + "` is ambiguous!",
-                               identifierExpr->startPosition(), identifierExpr->endPosition());
+                if (findMatchingDecl(checkImport->pointToNamespace->nestedDecls(), findName, &tmpFoundDecl,
+                                     &tmpIsAmbiguous)) {
+                    if (foundDecl != nullptr || tmpIsAmbiguous) {
+                        // TODO: Use `foundDecl` and `tmpFoundDecl` to show the two ambiguous identifier paths
+                        isAmbiguous = true;
+                        // Break from the entire loop to trigger the normal ambiguous error message
+                        break;
+                    }
+
+                    foundDecl = tmpFoundDecl;
                 }
-
-                foundDecl = tmpFoundDecl;
             }
+        }
+
+        if (isAmbiguous) {
+            printError("identifier `" + identifierExpr->toString() + "` is ambiguous!",
+                       identifierExpr->startPosition(), identifierExpr->endPosition());
         }
     }
 
@@ -2796,12 +3596,12 @@ void gulc::CodeProcessor::processIdentifierExpr(gulc::Expr*& expr) {
 
     switch (foundDecl->getDeclKind()) {
         case Decl::Kind::CallOperator:
-            // TODO: Is this possible? Maybe with `call` but no `()`?
-            // TODO: I think this should be handled the same way as `FunctionDecl`, it is a member function that
-            //       should just be a `FunctionRefExpr` with `valueType` being a `FunctionPointerType` that has an
-            //       explicit `self` that must be filled
-            printError("`call` operator reference not yet supported!",
-                       expr->startPosition(), expr->endPosition());
+        case Decl::Kind::Function:
+            // TODO: I'm thinking for function pointers we will do `Type::function(_: i32)`. We will have to do that
+            //       since we allow both argument label overloading as well as argument type overloading.
+            printError("function calls cannot be used without arguments, you must provide type arguments to grab a "
+                       "function pointer!",
+                       identifierExpr->startPosition(), identifierExpr->endPosition());
             break;
         case Decl::Kind::EnumConst: {
             auto enumConst = llvm::dyn_cast<EnumConstDecl>(foundDecl);
@@ -2810,7 +3610,6 @@ void gulc::CodeProcessor::processIdentifierExpr(gulc::Expr*& expr) {
             processEnumConstRefExpr(newExpr);
             // Delete the old identifier
             delete expr;
-            // Set it to the local variable reference and exit our function.
             expr = newExpr;
             return;
         }
@@ -2820,17 +3619,6 @@ void gulc::CodeProcessor::processIdentifierExpr(gulc::Expr*& expr) {
                                                      expr->startPosition(), expr->endPosition()));
             // Delete the old identifier
             delete expr;
-            // Set it to the local variable reference and exit our function.
-            expr = newExpr;
-            return;
-        }
-        case Decl::Kind::Function: {
-            auto functionDecl = llvm::dyn_cast<FunctionDecl>(foundDecl);
-            auto newExpr = new FunctionReferenceExpr(expr->startPosition(), expr->endPosition(), functionDecl);
-            processFunctionReferenceExpr(newExpr);
-            // Delete the old identifier
-            delete expr;
-            // Set it to the local variable reference and exit our function.
             expr = newExpr;
             return;
         }
@@ -2841,9 +3629,12 @@ void gulc::CodeProcessor::processIdentifierExpr(gulc::Expr*& expr) {
             break;
         }
         case Decl::Kind::Property: {
-            // TODO: Create a `PropertyRef` that will need to be converted to `PropertyGet`/`PropertySet` depending on context
-            printError("properties not yet supported!",
-                       expr->startPosition(), expr->endPosition());
+            // NOTE: This will be handled upstream through `handle*Getter` and `handleSetter`
+            auto propertyDecl = llvm::dyn_cast<PropertyDecl>(foundDecl);
+            auto newExpr = new PropertyRefExpr(expr->startPosition(), expr->endPosition(), propertyDecl);
+            // Delete the old identifier
+            delete expr;
+            expr = newExpr;
             break;
         }
         case Decl::Kind::Struct: {
@@ -2853,7 +3644,6 @@ void gulc::CodeProcessor::processIdentifierExpr(gulc::Expr*& expr) {
             auto newExpr = new TypeExpr(structType);
             // Delete the old identifier
             delete expr;
-            // Set it to the local variable reference and exit our function.
             expr = newExpr;
             return;
         }
@@ -2878,7 +3668,8 @@ void gulc::CodeProcessor::processIdentifierExpr(gulc::Expr*& expr) {
             auto variableDecl = llvm::dyn_cast<VariableDecl>(foundDecl);
 
             // NOTE: Only `struct`, `class`, and `union` can contain variables as a `MemberVariableRef`...
-            if (llvm::isa<StructDecl>(foundDecl->container)) {
+            if (llvm::isa<StructDecl>(foundDecl->container) && foundDecl->container == _currentContainer) {
+                // TODO: We need to account for whether or not the `currentFunction` is `static` or not.
                 // If the variable is a member of a struct we have to create a reference to `self` for accessing it.
                 Expr* selfRef = getCurrentSelfRef(expr->startPosition(), expr->endPosition());
                 // Self mustn't be an lvalue, that would make it logically a double reference.
@@ -2913,73 +3704,51 @@ void gulc::CodeProcessor::processIdentifierExpr(gulc::Expr*& expr) {
     }
 }
 
-bool gulc::CodeProcessor::findMatchingDeclInContainer(gulc::Decl* container, gulc::IdentifierExpr* identifierExpr,
-                                                      gulc::Decl** outFoundDecl) {
-    // NOTE: This function returns the first matching `Decl`. If there are template parameters we will validate them
-    //       before returning but if there aren't template parameters we will return the first match for the identifier
-    //       By this point all containers should have their members validated for name reuse so all members within
-    //       `container` will have unique names when not templates.
-
+bool gulc::CodeProcessor::findMatchingDeclInContainer(gulc::Decl* container, std::string const& findName,
+                                                      gulc::Decl** outFoundDecl, bool* outIsAmbiguous) {
     if (llvm::isa<NamespaceDecl>(container)) {
         auto checkNamespace = llvm::dyn_cast<NamespaceDecl>(container);
 
-        return findMatchingDecl(checkNamespace->nestedDecls(), identifierExpr, outFoundDecl);
+        return findMatchingDecl(checkNamespace->nestedDecls(), findName, outFoundDecl, outIsAmbiguous);
     } else if (llvm::isa<StructDecl>(container)) {
         auto checkStruct = llvm::dyn_cast<StructDecl>(container);
 
-        return findMatchingDecl(checkStruct->allMembers, identifierExpr, outFoundDecl);
+        return findMatchingDecl(checkStruct->allMembers, findName, outFoundDecl, outIsAmbiguous);
     } else if (llvm::isa<TraitDecl>(container)) {
         auto checkTrait = llvm::dyn_cast<TraitDecl>(container);
 
-        return findMatchingDecl(checkTrait->allMembers, identifierExpr, outFoundDecl);
+        return findMatchingDecl(checkTrait->allMembers, findName, outFoundDecl, outIsAmbiguous);
     } else {
         printError("[INTERNAL] unsupported container found in `CodeProcessor::findMatchingDeclInContainer`!",
-                   identifierExpr->startPosition(), identifierExpr->endPosition());
+                   container->startPosition(), container->endPosition());
         return false;
     }
 }
 
-bool gulc::CodeProcessor::findMatchingDecl(std::vector<Decl*> const& searchDecls, gulc::IdentifierExpr* identifierExpr,
-                                           gulc::Decl** outFoundDecl) {
+bool gulc::CodeProcessor::findMatchingDecl(std::vector<Decl*> const& searchDecls, std::string const& findName,
+                                           gulc::Decl** outFoundDecl, bool* outIsAmbiguous) {
+    Decl* foundDecl = nullptr;
+    bool isAmbiguous = false;
+
     for (Decl* checkDecl : searchDecls) {
-        if (identifierExpr->identifier().name() == checkDecl->identifier().name()) {
-            if (identifierExpr->hasTemplateArguments()) {
-                if (llvm::isa<TemplateStructDecl>(checkDecl)) {
-                    auto checkTemplateStruct = llvm::dyn_cast<TemplateStructDecl>(checkDecl);
-
-                    if (SignatureComparer::compareTemplateArgumentsToParameters(checkTemplateStruct->templateParameters(),
-                            identifierExpr->templateArguments()) != SignatureComparer::ArgMatchResult::Fail) {
-                        // NOTE: We don't instantiate here. That should be handled by our caller.
-                        *outFoundDecl = checkDecl;
-                        return true;
-                    }
-                } else if (llvm::isa<TemplateTraitDecl>(checkDecl)) {
-                    auto checkTemplateTrait = llvm::dyn_cast<TemplateTraitDecl>(checkDecl);
-
-                    if (SignatureComparer::compareTemplateArgumentsToParameters(checkTemplateTrait->templateParameters(),
-                            identifierExpr->templateArguments()) != SignatureComparer::ArgMatchResult::Fail) {
-                        // NOTE: We don't instantiate here. That should be handled by our caller.
-                        *outFoundDecl = checkDecl;
-                        return true;
-                    }
-                } else if (llvm::isa<TemplateFunctionDecl>(checkDecl)) {
-                    auto checkTemplateFunction = llvm::dyn_cast<TemplateFunctionDecl>(checkDecl);
-
-                    if (SignatureComparer::compareTemplateArgumentsToParameters(checkTemplateFunction->templateParameters(),
-                            identifierExpr->templateArguments()) != SignatureComparer::ArgMatchResult::Fail) {
-                        // NOTE: We don't instantiate here. That should be handled by our caller.
-                        *outFoundDecl = checkDecl;
-                        return true;
-                    }
-                }
+        if (findName == checkDecl->identifier().name()) {
+            if (foundDecl == nullptr) {
+                foundDecl = checkDecl;
+                isAmbiguous = false;
             } else {
-                *outFoundDecl = checkDecl;
-                return true;
+                isAmbiguous = true;
+                break;
             }
         }
     }
 
-    return false;
+    if (foundDecl == nullptr) {
+        return false;
+    } else {
+        *outFoundDecl = foundDecl;
+        *outIsAmbiguous = isAmbiguous;
+        return true;
+    }
 }
 
 void gulc::CodeProcessor::processInfixOperatorExpr(gulc::InfixOperatorExpr*& infixOperatorExpr) {
@@ -3328,6 +4097,20 @@ void gulc::CodeProcessor::processMemberAccessCallExpr(gulc::Expr*& expr) {
 
     processExpr(memberAccessCallExpr->objectRef);
 
+    // TODO: Should this be `handleRefGetter` instead? Or even a special case to try
+    //       `handleRefMutGetter -> handleRefGetter -> handleGetter`? My assumption would be that anyone using `.` on
+    //       a property probably wants to use the actual reference to the value coming from the property rather than a
+    //       copy of it.
+    memberAccessCallExpr->objectRef = handleGetter(memberAccessCallExpr->objectRef);
+
+    std::string const& findName = memberAccessCallExpr->member->identifier().name();
+
+    if (memberAccessCallExpr->member->hasTemplateArguments()) {
+        for (Expr*& templateArgument : memberAccessCallExpr->member->templateArguments()) {
+            processExpr(templateArgument);
+        }
+    }
+
     // TODO: We will have to account for extensions
     // TODO: Support `NamespaceReferenceExpr` once it is created.
     if (llvm::isa<TypeExpr>(memberAccessCallExpr->objectRef)) {
@@ -3338,6 +4121,7 @@ void gulc::CodeProcessor::processMemberAccessCallExpr(gulc::Expr*& expr) {
 
         auto checkTypeExpr = llvm::dyn_cast<TypeExpr>(memberAccessCallExpr->objectRef);
 
+        std::vector<MatchingTemplateDecl> matchingTemplates;
         // TODO: Search extensions
         bool isAmbiguous = false;
         Decl* foundDecl = nullptr;
@@ -3345,24 +4129,164 @@ void gulc::CodeProcessor::processMemberAccessCallExpr(gulc::Expr*& expr) {
         switch (checkTypeExpr->type->getTypeKind()) {
             case Type::Kind::Enum: {
                 auto checkEnum = llvm::dyn_cast<EnumType>(checkTypeExpr->type)->decl();
-                // TODO:
-//                foundDecl = findMatchingMemberDecl(checkStruct->ownedMembers(), memberAccessCallExpr->member, true, &isAmbiguous);
-                printError("operator `.` not yet supported on `enum` types!",
-                           memberAccessCallExpr->startPosition(), memberAccessCallExpr->endPosition());
+
+                if (memberAccessCallExpr->member->hasTemplateArguments()) {
+                    // NOTE: Enum `case` declarations cannot be templated so we only have to check `ownedMembers`
+                    fillListOfMatchingTemplates(checkEnum->ownedMembers(), findName, true,
+                                                memberAccessCallExpr->member->templateArguments(),
+                                                matchingTemplates);
+                } else {
+                    for (EnumConstDecl* checkCase : checkEnum->enumConsts()) {
+                        if (findName == checkCase->identifier().name()) {
+                            foundDecl = checkCase;
+                            break;
+                        }
+                    }
+
+                    if (foundDecl == nullptr) {
+                        foundDecl = findMatchingMemberDecl(checkEnum->ownedMembers(), findName,
+                                                           true, &isAmbiguous);
+                    }
+                }
                 break;
             }
             case Type::Kind::Struct: {
                 auto checkStruct = llvm::dyn_cast<StructType>(checkTypeExpr->type)->decl();
-                foundDecl = findMatchingMemberDecl(checkStruct->allMembers, memberAccessCallExpr->member, true, &isAmbiguous);
+
+                if (memberAccessCallExpr->member->hasTemplateArguments()) {
+                    fillListOfMatchingTemplates(checkStruct->allMembers, findName, true,
+                                                memberAccessCallExpr->member->templateArguments(),
+                                                matchingTemplates);
+                } else {
+                    foundDecl = findMatchingMemberDecl(checkStruct->allMembers, findName,
+                                                       true, &isAmbiguous);
+                }
+
                 break;
             }
             case Type::Kind::Trait: {
                 auto checkTrait = llvm::dyn_cast<TraitType>(checkTypeExpr->type)->decl();
-                foundDecl = findMatchingMemberDecl(checkTrait->allMembers, memberAccessCallExpr->member, true, &isAmbiguous);
+
+                if (memberAccessCallExpr->member->hasTemplateArguments()) {
+                    fillListOfMatchingTemplates(checkTrait->allMembers, findName, true,
+                                                memberAccessCallExpr->member->templateArguments(),
+                                                matchingTemplates);
+                } else {
+                    foundDecl = findMatchingMemberDecl(checkTrait->allMembers, findName,
+                                                       true, &isAmbiguous);
+                }
+
                 break;
             }
             default:
                 break;
+        }
+
+        if (!matchingTemplates.empty()) {
+            MatchingTemplateDecl* foundTemplate = nullptr;
+
+            for (MatchingTemplateDecl& checkTemplate : matchingTemplates) {
+                if (foundTemplate == nullptr) {
+                    foundTemplate = &checkTemplate;
+                    isAmbiguous = false;
+                } else {
+                    if (foundTemplate->kind == checkTemplate.kind) {
+                        bool exactSame = true;
+                        bool foundIsBetter = false;
+                        // If this is true then we replace `found` with `check`
+                        bool shouldReplaceFound = false;
+
+                        // We break on first difference. If the first different argument is closer to zero then we
+                        // replace `foundMatch`, if it was worse then we continue searching. If the arguments have the
+                        // exact same strength then we set `isAmbiguous` but keep searching in case something better
+                        // comes along.
+                        for (std::size_t i = 0; i < foundTemplate->argMatchStrengths.size(); ++i) {
+                            std::size_t foundStrength = foundTemplate->argMatchStrengths[i];
+                            std::size_t checkStrength = checkTemplate.argMatchStrengths[i];
+
+                            if (checkStrength < foundStrength) {
+                                shouldReplaceFound = true;
+                                exactSame = false;
+                                break;
+                            } else if (checkStrength > foundStrength) {
+                                foundIsBetter = true;
+                                exactSame = false;
+                                break;
+                            }
+                        }
+
+                        // If `foundIsBetter` is true then we have to skip the rest of the checks.
+                        if (foundIsBetter) {
+                            continue;
+                        } else if (exactSame) {
+                            isAmbiguous = true;
+                        } else if (shouldReplaceFound) {
+                            foundTemplate = &checkTemplate;
+                            isAmbiguous = false;
+                        }
+                    } else if (foundTemplate->kind == MatchingDecl::Kind::Match) {
+                        // Nothing is better than match, we only error above if check is also match
+                    } else if (foundTemplate->kind == MatchingDecl::Kind::DefaultValues) {
+                        // Match is always better than DefaultValues
+                        if (checkTemplate.kind == MatchingDecl::Kind::Match) {
+                            foundTemplate = &checkTemplate;
+                            isAmbiguous = false;
+                        }
+                    } else {
+                        // At this point `found` is `Castable` and `check` is `Match` or `DefaultValues`, both of which
+                        // are better than `Castable`
+                        foundTemplate = &checkTemplate;
+                        isAmbiguous = false;
+                    }
+                }
+            }
+
+            if (foundTemplate == nullptr) {
+                printError("template `" + memberAccessCallExpr->toString() + "` was not found!",
+                           memberAccessCallExpr->startPosition(), memberAccessCallExpr->endPosition());
+            }
+
+            if (isAmbiguous) {
+                printError("template `" + memberAccessCallExpr->toString() + "` is ambiguous!",
+                           memberAccessCallExpr->startPosition(), memberAccessCallExpr->endPosition());
+            }
+
+            DeclInstantiator declInstantiator(_target, _filePaths);
+
+            switch (foundTemplate->matchingDecl->getDeclKind()) {
+                case Decl::Kind::TemplateStruct: {
+                    auto templateStructDecl = llvm::dyn_cast<TemplateStructDecl>(foundTemplate->matchingDecl);
+
+                    TemplateStructInstDecl* checkTemplateStructInst =
+                            declInstantiator.instantiateTemplateStruct(_currentFile, templateStructDecl,
+                                                                       memberAccessCallExpr->member->templateArguments(),
+                                                                       memberAccessCallExpr->toString(),
+                                                                       memberAccessCallExpr->startPosition(),
+                                                                       memberAccessCallExpr->endPosition());
+
+                    foundDecl = checkTemplateStructInst;
+
+                    break;
+                }
+                case Decl::Kind::TemplateTrait: {
+                    auto templateTraitDecl = llvm::dyn_cast<TemplateTraitDecl>(foundTemplate->matchingDecl);
+
+                    TemplateTraitInstDecl* checkTemplateTraitInst =
+                            declInstantiator.instantiateTemplateTrait(_currentFile, templateTraitDecl,
+                                                                      memberAccessCallExpr->member->templateArguments(),
+                                                                      memberAccessCallExpr->toString(),
+                                                                      memberAccessCallExpr->startPosition(),
+                                                                      memberAccessCallExpr->endPosition());
+
+                    foundDecl = checkTemplateTraitInst;
+
+                    break;
+                }
+                default:
+                    printError("unknown template declaration reference!",
+                               memberAccessCallExpr->startPosition(), memberAccessCallExpr->endPosition());
+                    break;
+            }
         }
 
         if (isAmbiguous) {
@@ -3446,12 +4370,6 @@ void gulc::CodeProcessor::processMemberAccessCallExpr(gulc::Expr*& expr) {
                 expr = newExpr;
                 return;
             }
-            case Decl::Kind::TemplateStruct: {
-                // TODO: Instantiate the struct and do the same as above.
-                printError("[INTERNAL] referencing template structs outside of designated areas not yet supported!",
-                           expr->startPosition(), expr->endPosition());
-                break;
-            }
             case Decl::Kind::TemplateTraitInst:
             case Decl::Kind::Trait: {
                 auto traitType = new TraitType(
@@ -3466,12 +4384,6 @@ void gulc::CodeProcessor::processMemberAccessCallExpr(gulc::Expr*& expr) {
                 delete expr;
                 expr = newExpr;
                 return;
-            }
-            case Decl::Kind::TemplateTrait: {
-                // TODO: Instantiate the trait and do the same as above.
-                printError("[INTERNAL] referencing template traits outside of designated areas not yet supported!",
-                           expr->startPosition(), expr->endPosition());
-                break;
             }
             case Decl::Kind::Variable: {
                 auto newExpr = new VariableRefExpr(
@@ -3506,34 +4418,52 @@ void gulc::CodeProcessor::processMemberAccessCallExpr(gulc::Expr*& expr) {
             checkType = llvm::dyn_cast<PointerType>(checkType)->nestedType;
         }
 
+        if (memberAccessCallExpr->member->hasTemplateArguments()) {
+            // Doing `var.Example<T>` is not allowed, you have to do `Type.Example<T>`. There is nothing that
+            // can be templated on instance variables
+            printError("cannot access templates from instance variables! (use direct type instead)",
+                       memberAccessCallExpr->startPosition(), memberAccessCallExpr->endPosition());
+        }
+
         // TODO: Search extensions
         bool isAmbiguous = false;
         Decl* foundDecl = nullptr;
 
         switch (checkType->getTypeKind()) {
             case Type::Kind::Enum: {
-                auto checkEnumType = llvm::dyn_cast<EnumType>(checkType);
-                auto checkEnum = checkEnumType->decl();
-                // TODO:
-//                searchDecls = &checkEnum->ownedMembers;
-                printError("operator `.` not yet supported on `enum` types!",
-                           memberAccessCallExpr->startPosition(), memberAccessCallExpr->endPosition());
+                auto checkEnum = llvm::dyn_cast<EnumType>(checkType)->decl();
+
+                for (EnumConstDecl* checkCase : checkEnum->enumConsts()) {
+                    if (findName == checkCase->identifier().name()) {
+                        foundDecl = checkCase;
+                        break;
+                    }
+                }
+
+                if (foundDecl == nullptr) {
+                    foundDecl = findMatchingMemberDecl(checkEnum->ownedMembers(), findName,
+                                                       false, &isAmbiguous);
+                }
+
                 break;
             }
             case Type::Kind::Struct: {
-                auto checkStructType = llvm::dyn_cast<StructType>(checkType);
-                auto checkStruct = checkStructType->decl();
-                foundDecl = findMatchingMemberDecl(checkStruct->allMembers, memberAccessCallExpr->member, false, &isAmbiguous);
+                auto checkStruct = llvm::dyn_cast<StructType>(checkType)->decl();
+
+                foundDecl = findMatchingMemberDecl(checkStruct->allMembers, findName,
+                                                   false, &isAmbiguous);
+
                 break;
             }
             case Type::Kind::Trait: {
-                auto checkTraitType = llvm::dyn_cast<TraitType>(checkType);
-                auto checkTrait = checkTraitType->decl();
-                foundDecl = findMatchingMemberDecl(checkTrait->allMembers, memberAccessCallExpr->member, false, &isAmbiguous);
+                auto checkTrait = llvm::dyn_cast<TraitType>(checkType)->decl();
+
+                foundDecl = findMatchingMemberDecl(checkTrait->allMembers, findName,
+                                                   false, &isAmbiguous);
+
                 break;
             }
             default:
-                // Method not found...
                 break;
         }
 
@@ -3633,71 +4563,30 @@ void gulc::CodeProcessor::processMemberAccessCallExpr(gulc::Expr*& expr) {
 }
 
 gulc::Decl* gulc::CodeProcessor::findMatchingMemberDecl(std::vector<Decl*> const& searchDecls,
-                                                        gulc::IdentifierExpr* memberIdentifier,
+                                                        std::string const& findName,
                                                         bool searchForStatic, bool* outIsAmbiguous) {
     Decl* foundDecl = nullptr;
 
-    // TODO: We need to account for template parameters. It IS allowed to get a function pointer to an instantiated
-    //       template function!
-    //       Or is it?
-    //       Also it is needed for `TemplateStruct` and `TemplateTrait`...
     // These will ONLY be templates, if a non-template matches then we set `foundDecl` directly
     std::vector<MatchingDecl> potentialMatches;
 
     for (Decl* checkDecl : searchDecls) {
-        if (checkDecl->isStatic() == searchForStatic &&
-                checkDecl->identifier().name() == memberIdentifier->identifier().name()) {
-            if (memberIdentifier->hasTemplateArguments()) {
-                std::vector<TemplateParameterDecl*>* checkTemplateParameters = nullptr;
-
-                // Obviously if there are template parameters you can only call a template.
-                if (llvm::isa<TemplateFunctionDecl>(checkDecl)) {
-                    auto checkTemplateFunction = llvm::dyn_cast<TemplateFunctionDecl>(checkDecl);
-
-                    checkTemplateParameters = &checkTemplateFunction->templateParameters();
-                } else if (llvm::isa<TemplateStructDecl>(checkDecl)) {
-                    auto checkTemplateStruct = llvm::dyn_cast<TemplateStructDecl>(checkDecl);
-
-                    checkTemplateParameters = &checkTemplateStruct->templateParameters();
-                } else if (llvm::isa<TemplateTraitDecl>(checkDecl)) {
-                    auto checkTemplateTrait = llvm::dyn_cast<TemplateTraitDecl>(checkDecl);
-
-                    checkTemplateParameters = &checkTemplateTrait->templateParameters();
-                }
-
-                if (checkTemplateParameters != nullptr) {
-                    SignatureComparer::ArgMatchResult argMatchResult =
-                            SignatureComparer::compareTemplateArgumentsToParameters(
-                                    *checkTemplateParameters,
-                                    memberIdentifier->templateArguments()
-                            );
-
-                    if (argMatchResult != SignatureComparer::ArgMatchResult::Fail) {
-                        MatchingDecl::Kind matchKind =
-                                argMatchResult == SignatureComparer::ArgMatchResult::Match
-                                ? MatchingDecl::Kind::Match
-                                : MatchingDecl::Kind::Castable;
-
-                        potentialMatches.emplace_back(MatchingDecl(matchKind, checkDecl));
-                    }
-                }
-            } else {
-                // TODO: We should still check templates as long as all of the template has default values
-                //       Doing so WILL require an ambiguity check though, or at least the ability to replace
-                //       a template with default values call with an absolute, no template call.
-                //       I.e.
-                //           struct {
-                //               func example<const i: i32 = 12>();
-                //               func example();
-                //           }
-                //       In the above `var.example` would find the template first, be okay with it, and then
-                //       find the non-template which it should then exit on using the non-template. If the user
-                //       wants to use the template they should specify a template argument.
-                if (!(llvm::isa<TemplateFunctionDecl>(checkDecl) || llvm::isa<TemplateStructDecl>(checkDecl) ||
-                      llvm::isa<TemplateTraitDecl>(checkDecl))) {
-                    foundDecl = checkDecl;
-                    break;
-                }
+        if (checkDecl->isStatic() == searchForStatic && checkDecl->identifier().name() == findName) {
+            // TODO: We should still check templates as long as all of the template has default values
+            //       Doing so WILL require an ambiguity check though, or at least the ability to replace
+            //       a template with default values call with an absolute, no template call.
+            //       I.e.
+            //           struct {
+            //               func example<const i: i32 = 12>();
+            //               func example();
+            //           }
+            //       In the above `var.example` would find the template first, be okay with it, and then
+            //       find the non-template which it should then exit on using the non-template. If the user
+            //       wants to use the template they should specify a template argument.
+            if (!(llvm::isa<TemplateFunctionDecl>(checkDecl) || llvm::isa<TemplateStructDecl>(checkDecl) ||
+                  llvm::isa<TemplateTraitDecl>(checkDecl))) {
+                foundDecl = checkDecl;
+                break;
             }
         }
     }

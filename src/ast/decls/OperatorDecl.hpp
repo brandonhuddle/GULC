@@ -89,6 +89,34 @@ namespace gulc {
             return result;
         }
 
+        std::string getPrototypeString() const override {
+            std::string result = getDeclModifiersString(_declModifiers);
+
+            if (!result.empty()) result += " ";
+
+            switch (_operatorType) {
+                case OperatorType::Prefix:
+                    result += "operator prefix ";
+                    break;
+                case OperatorType::Infix:
+                    result += "operator infix ";
+                    break;
+                case OperatorType::Postfix:
+                    result += "operator postfix ";
+                    break;
+            }
+
+            result += _operatorIdentifier.name() + "(";
+
+            for (std::size_t i = 0; i < _parameters.size(); ++i) {
+                if (i != 0) result += ", ";
+
+                result += _parameters[i]->getPrototypeString();
+            }
+
+            return result + ")";
+        }
+
     protected:
         OperatorType _operatorType;
         Identifier _operatorIdentifier;

@@ -18,6 +18,8 @@
 #ifndef GULC_DECLMODIFIERS_HPP
 #define GULC_DECLMODIFIERS_HPP
 
+#include <string>
+
 namespace gulc {
     enum class DeclModifiers {
         None = 0,
@@ -39,6 +41,29 @@ namespace gulc {
     inline DeclModifiers& operator|=(DeclModifiers& left, DeclModifiers right) { left = left | right; return left; }
     inline DeclModifiers& operator&=(DeclModifiers& left, DeclModifiers right) { left = left & right; return left; }
     inline DeclModifiers& operator^=(DeclModifiers& left, DeclModifiers right) { left = left ^ right; return left; }
+
+    inline std::string getDeclModifiersString(DeclModifiers dm) {
+        std::string result;
+
+        if ((dm & DeclModifiers::Static) == DeclModifiers::Static) {
+            result = "static";
+        } else if ((dm & DeclModifiers::Abstract) == DeclModifiers::Abstract) {
+            result = "abstract";
+        } else if ((dm & DeclModifiers::Virtual) == DeclModifiers::Virtual) {
+            result = "virtual";
+        } else if ((dm & DeclModifiers::Override) == DeclModifiers::Override) {
+            result = "override";
+        } else if ((dm & DeclModifiers::Extern) == DeclModifiers::Extern) {
+            result = "extern";
+        }
+
+        if ((dm & DeclModifiers::Mut) == DeclModifiers::Mut) {
+            if (!result.empty()) result += " ";
+            result += "mut";
+        }
+
+        return result;
+    }
 }
 
 #endif //GULC_DECLMODIFIERS_HPP

@@ -64,6 +64,24 @@ namespace gulc {
 
         Decl* deepCopy() const override;
 
+        std::string getPrototypeString() const override {
+            std::string result = getDeclModifiersString(_declModifiers);
+
+            if (!result.empty()) result += " ";
+
+            result += "struct " + _identifier.name() + "<";
+
+            for (std::size_t i = 0; i < _templateParameters.size(); ++i) {
+                if (i != 0) result += ", ";
+
+                result += _templateParameters[i]->getPrototypeString();
+            }
+
+            result += ">";
+
+            return result;
+        }
+
         ~TemplateStructDecl() override {
             for (TemplateParameterDecl* templateParameter : _templateParameters) {
                 delete templateParameter;
@@ -76,6 +94,8 @@ namespace gulc {
 
         // This is used to allow us to split contract instantiation off into its own function within `DeclInstantiator`
         bool contractsAreInstantiated = false;
+        // This is a specialized template instantiation used to validate the template logic.
+        TemplateStructInstDecl* validationInst = nullptr;
 
     protected:
         std::vector<TemplateParameterDecl*> _templateParameters;

@@ -106,6 +106,16 @@ namespace gulc {
             return result;
         }
 
+        std::string getPrototypeString() const override {
+            std::string result = getDeclModifiersString(_declModifiers);
+
+            if (!result.empty()) result += " ";
+
+            result += "enum ";
+
+            return result + _identifier.name();
+        }
+
         ~EnumDecl() override {
             delete constType;
 

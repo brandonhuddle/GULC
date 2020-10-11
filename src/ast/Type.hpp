@@ -35,6 +35,7 @@ namespace gulc {
             Enum,
             FlatArray,
             FunctionPointer,
+            Imaginary,
             LabeledType,
             Pointer,
             Reference,

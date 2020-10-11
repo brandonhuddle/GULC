@@ -43,6 +43,8 @@
 #include <ast/types/EnumType.hpp>
 #include <make_reverse_iterator.hpp>
 #include <utilities/InheritUtil.hpp>
+#include <ast/types/ImaginaryType.hpp>
+#include <ast/exprs/ImaginaryRefExpr.hpp>
 
 void gulc::DeclInstantiator::processFiles(std::vector<ASTFile>& files) {
     _files = &files;
@@ -491,12 +493,13 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
         //       then depth 0 shadows depth 1 so we DO NOT need to error due to ambiguity)
         //       Depth is 0 for in the same container, add 1 for every container until we reach the file. It is -1?
         //       for imports
-        std::vector<Decl*> exactMatches;
-        std::vector<Decl*> partialMatches;
+        std::vector<TemplateDeclMatch> matches;
 
         for (Decl* checkDecl : templatedType->matchingTemplateDecls()) {
             bool declIsMatch = true;
             bool declIsExact = true;
+            std::vector<std::size_t> argMatchStrengths;
+            argMatchStrengths.resize(templatedType->templateArguments().size());
 
             switch (checkDecl->getDeclKind()) {
                 case Decl::Kind::TemplateStruct: {
@@ -504,7 +507,7 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
 
                     compareDeclTemplateArgsToParams(templatedType->templateArguments(),
                                                     templateStructDecl->templateParameters(),
-                                                    &declIsMatch, &declIsExact);
+                                                    &declIsMatch, &declIsExact, argMatchStrengths);
 
                     // NOTE: Once we've reached this point the decl has been completely evaluated...
 
@@ -515,7 +518,7 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
 
                     compareDeclTemplateArgsToParams(templatedType->templateArguments(),
                                                     templateTraitDecl->templateParameters(),
-                                                    &declIsMatch, &declIsExact);
+                                                    &declIsMatch, &declIsExact, argMatchStrengths);
 
                     // NOTE: Once we've reached this point the decl has been completely evaluated...
 
@@ -527,7 +530,7 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
 
                     compareDeclTemplateArgsToParams(templatedType->templateArguments(),
                                                     typeAliasDecl->templateParameters(),
-                                                    &declIsMatch, &declIsExact);
+                                                    &declIsMatch, &declIsExact, argMatchStrengths);
 
                     // NOTE: Once we've reached this point the decl has been completely evaluated...
 
@@ -542,44 +545,106 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
             }
 
             if (declIsMatch) {
-                if (declIsExact) {
-                    exactMatches.push_back(checkDecl);
-                } else {
-                    partialMatches.push_back(checkDecl);
-                }
+                auto match = TemplateDeclMatch(
+                        declIsExact ? TemplateDeclMatch::Kind::Exact : TemplateDeclMatch::Kind::Castable,
+                        checkDecl, argMatchStrengths);
+
+                matches.push_back(match);
             }
         }
 
-        // If both lists are empty then we didn't find a valid template with the provided parameters
-        if (exactMatches.empty() && partialMatches.empty()) {
+        if (matches.empty()) {
             printError("template type `" + templatedType->toString() + "` was not found for the provided parameters!",
                        templatedType->startPosition(), templatedType->endPosition());
         }
 
-        // If there is more than 1 exact match OR there are more than 1 partial match with no exact matches then there
-        // is an ambiguity issue
-        if (exactMatches.size() > 1 || (exactMatches.empty() && partialMatches.size() > 1)) {
+        Decl* foundTemplateDecl = nullptr;
+        std::vector<std::size_t>* foundArgStrengths = nullptr;
+        TemplateDeclMatch::Kind foundMatchKind = TemplateDeclMatch::Kind::Unknown;
+        bool isAmbiguous = false;
+
+        // TODO: I think we can treat argument specialization as if there were multiple nested templates.
+        //       I think the way we could do this is as follows:
+        //           struct Example<T: GreatGrandParent_A, U: Parent_B>
+        //           struct Example<T: GrandParent_A, U: GreatGrandParent_B>
+        //           let test: Example<Parent_A, Parent_B>
+        //       In the above we do left-prioritization. Because `T == Parent_A` we choose the 2nd struct.
+        //       It doesn't matter that `U == Parent_B` (making `U` a better match for the 1st struct)
+        //       The first argument in the list gets priority, then the second, then third, etc.
+        if (matches.size() == 1) {
+            foundTemplateDecl = matches[0].decl;
+            foundMatchKind = matches[0].kind;
+        } else {
+            for (TemplateDeclMatch& checkMatch : matches) {
+                if (foundTemplateDecl == nullptr) {
+                    foundTemplateDecl = checkMatch.decl;
+                    foundMatchKind = checkMatch.kind;
+                    foundArgStrengths = &checkMatch.argMatchStrengths;
+                } else {
+                    // Regardless of what kind the matches are if they are both the same we go through checking
+                    // strengths from left to right.
+                    if (foundMatchKind == checkMatch.kind) {
+                        bool exactSame = true;
+
+                        // We break on first difference. If the first different argument is closer to zero then we
+                        // replace `foundMatch`, if it was worse then we continue searching. If the arguments have the
+                        // exact same strength then we set `isAmbiguous` but keep searching in case something better
+                        // comes along.
+                        for (std::size_t i = 0; i < foundArgStrengths->size(); ++i) {
+                            std::size_t foundStrength = (*foundArgStrengths)[i];
+                            std::size_t checkStrength = checkMatch.argMatchStrengths[i];
+
+                            if (checkStrength < foundStrength) {
+                                foundTemplateDecl = checkMatch.decl;
+                                foundMatchKind = checkMatch.kind;
+                                foundArgStrengths = &checkMatch.argMatchStrengths;
+                                isAmbiguous = false;
+
+                                exactSame = false;
+                                break;
+                            } else if (checkStrength > foundStrength) {
+                                exactSame = false;
+                                break;
+                            }
+                        }
+
+                        if (exactSame) {
+                            isAmbiguous = true;
+                        }
+                    } else if (foundMatchKind == TemplateDeclMatch::Kind::Exact) {
+                        // We continue the loop unless `checkMatch` is also exact, in that scenario the above code
+                        // will execute instead.
+                        continue;
+                    } else if (foundMatchKind == TemplateDeclMatch::Kind::DefaultValues) {
+                        // If we found a `DefaultValues` match then we follow these rules:
+                        //  1. If the `checkMatch` is `Exact` we replace without question
+                        //  2. If the `checkMatch` is also `DefaultValues` then we compare strengths
+                        //  3. If the `checkMatch` is `Castable` we skip it
+                        if (checkMatch.kind == TemplateDeclMatch::Kind::Exact) {
+                            foundTemplateDecl = checkMatch.decl;
+                            foundMatchKind = checkMatch.kind;
+                            foundArgStrengths = &checkMatch.argMatchStrengths;
+                            isAmbiguous = false;
+                        } else if (checkMatch.kind == TemplateDeclMatch::Kind::DefaultValues) {
+                            // In this scenario the matches are the same kind so this will never execute.
+                            continue;
+                        }
+                    }
+
+                    // We do nothing for `Castable` at this point.
+                    // Castable only makes it past this loop on one of two conditions:
+                    //  1. It is the only match in the list
+                    //  2. There are multiple matches in the list and we choose the strongest match.
+                }
+            }
+        }
+
+        if (isAmbiguous) {
             printError("template type `" + templatedType->toString() + "` is ambiguous in the current context!",
                        templatedType->startPosition(), templatedType->endPosition());
         }
 
-        Decl* foundTemplateDecl = nullptr;
-        bool isExact;
-
-        if (!exactMatches.empty()) {
-            foundTemplateDecl = exactMatches[0];
-            isExact = true;
-        } else {
-            foundTemplateDecl = partialMatches[0];
-            isExact = false;
-        }
-
-        if (!isExact) {
-            // TODO: Once default parameters are supported on template types we will have to support grabbing the
-            //       template type data and putting it into our parameters list...
-            printError("[INTERNAL] non-exact match found for template type, this is not yet handled!",
-                       templatedType->startPosition(), templatedType->endPosition());
-        }
+        // TODO: Do the casting here...
 
         // NOTE: I'm not sure if there is a better way to do this
         //       I'm just re-detecting what the Decl is for the template. It could be better to
@@ -598,6 +663,13 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
                                             templateStructDecl->templateParameters(),
                                             templatedType->toString(),
                                             templatedType->startPosition(), templatedType->endPosition());
+
+                // Append any missing default values to the end of the template argument list
+                for (std::size_t i = templatedType->templateArguments().size();
+                        i < templateStructDecl->templateParameters().size(); ++i) {
+                    templatedType->templateArguments().push_back(
+                            templateStructDecl->templateParameters()[i]->defaultValue->deepCopy());
+                }
 
                 if (!templateStructDecl->containedInTemplate &&
                     ConstExprHelper::templateArgumentsAreSolved(templatedType->templateArguments())) {
@@ -651,6 +723,13 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
                                             templateTraitDecl->templateParameters(), templatedType->toString(),
                                             templatedType->startPosition(), templatedType->endPosition());
 
+                // Append any missing default values to the end of the template argument list
+                for (std::size_t i = templatedType->templateArguments().size();
+                        i < templateTraitDecl->templateParameters().size(); ++i) {
+                    templatedType->templateArguments().push_back(
+                            templateTraitDecl->templateParameters()[i]->defaultValue->deepCopy());
+                }
+
                 if (!templateTraitDecl->containedInTemplate &&
                     ConstExprHelper::templateArgumentsAreSolved(templatedType->templateArguments())) {
                     TemplateTraitInstDecl* templateTraitInstDecl = nullptr;
@@ -693,6 +772,13 @@ bool gulc::DeclInstantiator::resolveType(gulc::Type*& type, bool delayInstantiat
             }
             case Decl::Kind::TypeAlias: {
                 auto typeAlias = llvm::dyn_cast<TypeAliasDecl>(foundTemplateDecl);
+
+                // Append any missing default values to the end of the template argument list
+                for (std::size_t i = templatedType->templateArguments().size();
+                        i < typeAlias->templateParameters().size(); ++i) {
+                    templatedType->templateArguments().push_back(
+                            typeAlias->templateParameters()[i]->defaultValue->deepCopy());
+                }
 
                 // TODO: Should we apply the `qualifier`?
                 // TODO: Should we handle checking if the alias is contained within a template?
@@ -870,7 +956,8 @@ gulc::Type* gulc::DeclInstantiator::resolveDependentType(std::vector<Decl*>& che
 
 void gulc::DeclInstantiator::compareDeclTemplateArgsToParams(const std::vector<Expr*>& args,
                                                              const std::vector<TemplateParameterDecl*>& params,
-                                                             bool* outIsMatch, bool* outIsExact) const {
+                                                             bool* outIsMatch, bool* outIsExact,
+                                                             std::vector<std::size_t>& outArgMatchStrengths) const {
     if (params.size() < args.size()) {
         // If there are more template parameters than parameters then we skip this Decl...
         *outIsMatch = false;
@@ -883,19 +970,73 @@ void gulc::DeclInstantiator::compareDeclTemplateArgsToParams(const std::vector<E
     //       when we implicit cast or use a default template parameter.
     *outIsExact = true;
 
+    TypeCompareUtil typeCompareUtil;
+
     for (int i = 0; i < params.size(); ++i) {
         if (i >= args.size()) {
-            // TODO: Once we support default values for template types we need to account for them here.
-            *outIsMatch = false;
+            // TODO: We need to differentiate between a `default-value-use` and `cast-needed` non-exact match
+            *outIsMatch = true;
             *outIsExact = false;
             break;
         } else {
+            outArgMatchStrengths[i] = 0;
+
             if (params[i]->templateParameterKind() == TemplateParameterDecl::TemplateParameterKind::Typename) {
                 if (!llvm::isa<TypeExpr>(args[i])) {
                     // If the parameter is a `typename` then the argument MUST be a resolved type
                     *outIsMatch = false;
                     *outIsExact = false;
                     break;
+                } else if (params[i]->type != nullptr) {
+                    auto checkTypeExpr = llvm::dyn_cast<TypeExpr>(args[i]);
+
+                    if (typeCompareUtil.compareAreSame(params[i]->type, checkTypeExpr->type)) {
+                        // Exact match
+                        outArgMatchStrengths[i] = 0;
+                    } else {
+                        if (llvm::isa<StructType>(params[i]->type) && llvm::isa<StructType>(checkTypeExpr->type)) {
+                            // We have to search the argument type to see if it inherits the param type
+                            // Example:
+                            //     class View {}
+                            //     class Window: View {}
+                            //
+                            //     struct box<T: View> {}
+                            //
+                            //     // Here we have to check if `Window` inherits `View` (which in this case is a simple
+                            //     // search)
+                            //     let rootView: box<Window>
+                            auto searchStruct = llvm::dyn_cast<StructType>(checkTypeExpr->type);
+                            auto findStruct = llvm::dyn_cast<StructType>(params[i]->type);
+                            // We start the strength at `1` for inherited types, an exact match is `0`
+                            std::size_t inheritanceStrength = 1;
+                            bool foundMatch = false;
+
+                            // TODO: If we haven't already validated that structs don't have circular references in
+                            //       their inheritance list we will need to do that here...
+                            for (StructDecl* checkStruct = searchStruct->decl()->baseStruct;
+                                 checkStruct != nullptr;
+                                 checkStruct = checkStruct->baseStruct, ++inheritanceStrength) {
+                                if (checkStruct == findStruct->decl()) {
+                                    foundMatch = true;
+                                    break;
+                                }
+                            }
+
+                            if (!foundMatch) {
+                                *outIsMatch = false;
+                                *outIsExact = false;
+                                break;
+                            }
+
+                            outArgMatchStrengths[i] = inheritanceStrength;
+                        } else {
+                            // If the template type is specialized and there wasn't a match then the args don't match
+                            // the template parameter list
+                            *outIsMatch = false;
+                            *outIsExact = false;
+                            break;
+                        }
+                    }
                 }
             } else {
                 if (llvm::isa<TypeExpr>(args[i])) {
@@ -906,9 +1047,7 @@ void gulc::DeclInstantiator::compareDeclTemplateArgsToParams(const std::vector<E
                 } else if (llvm::isa<ValueLiteralExpr>(args[i])) {
                     auto valueLiteral = llvm::dyn_cast<ValueLiteralExpr>(args[i]);
 
-                    TypeCompareUtil typeCompareUtil;
-
-                    if (!typeCompareUtil.compareAreSame(params[i]->constType, valueLiteral->valueType)) {
+                    if (!typeCompareUtil.compareAreSame(params[i]->type, valueLiteral->valueType)) {
                         // TODO: Support checking if an implicit cast is possible...
                         *outIsMatch = false;
                         *outIsExact = false;
@@ -1052,6 +1191,17 @@ void gulc::DeclInstantiator::processDecl(gulc::Decl* decl, bool isGlobal) {
             printError("INTERNAL ERROR - unhandled Decl type found in `DeclInstantiator`!",
                        decl->startPosition(), decl->endPosition());
             // If we don't know the declaration we just skip it, we don't care in this pass
+            break;
+    }
+}
+
+void gulc::DeclInstantiator::processPrototypeDecl(gulc::Decl* decl, bool isGlobal) {
+    switch (decl->getDeclKind()) {
+        case Decl::Kind::TraitPrototype:
+            processTraitPrototypeDecl(llvm::dyn_cast<TraitPrototypeDecl>(decl));
+            break;
+        default:
+            processDecl(decl, isGlobal);
             break;
     }
 }
@@ -1398,6 +1548,7 @@ void gulc::DeclInstantiator::processStructDecl(gulc::StructDecl* structDecl, boo
                 ConstructorType::Normal
             );
         structDecl->cachedDefaultConstructor->isAutoGenerated = true;
+        structDecl->cachedDefaultConstructor->container = structDecl;
 
         // We have to add it to the list of constructors so it can be called normally and so it is properly deleted
         // when the struct is deleted
@@ -1405,15 +1556,26 @@ void gulc::DeclInstantiator::processStructDecl(gulc::StructDecl* structDecl, boo
     }
 
     if (structDecl->cachedMoveConstructor == nullptr) {
+        std::vector<ParameterDecl*> moveParameters = {
+                new ParameterDecl(
+                        structDecl->sourceFileID(), {},
+                        Identifier({}, {}, "other"), Identifier({}, {}, "other"),
+                        new ReferenceType(
+                                Type::Qualifier::Unassigned,
+                                new StructType(Type::Qualifier::Mut, structDecl, {}, {})),
+                        nullptr, ParameterDecl::ParameterKind::Val, {}, {})
+        };
+
         structDecl->cachedMoveConstructor = new ConstructorDecl(
                 structDecl->sourceFileID(), {},
                 Decl::Visibility::Public, false,
                 Identifier({}, {}, "init"),
-                DeclModifiers::None, {}, nullptr, {},
+                DeclModifiers::None, moveParameters, nullptr, {},
                 new CompoundStmt({}, {}, {}), {}, {},
                 ConstructorType::Move
         );
         structDecl->cachedMoveConstructor->isAutoGenerated = true;
+        structDecl->cachedMoveConstructor->container = structDecl;
 
         // We have to add it to the list of constructors so it can be called normally and so it is properly deleted
         // when the struct is deleted
@@ -1421,15 +1583,26 @@ void gulc::DeclInstantiator::processStructDecl(gulc::StructDecl* structDecl, boo
     }
 
     if (structDecl->cachedCopyConstructor == nullptr) {
+        std::vector<ParameterDecl*> copyParameters = {
+                new ParameterDecl(
+                        structDecl->sourceFileID(), {},
+                        Identifier({}, {}, "other"), Identifier({}, {}, "other"),
+                        new ReferenceType(
+                                Type::Qualifier::Unassigned,
+                                new StructType(Type::Qualifier::Immut, structDecl, {}, {})),
+                        nullptr, ParameterDecl::ParameterKind::Val, {}, {})
+        };
+
         structDecl->cachedCopyConstructor = new ConstructorDecl(
                 structDecl->sourceFileID(), {},
                 Decl::Visibility::Public, false,
                 Identifier({}, {}, "init"),
-                DeclModifiers::None, {}, nullptr, {},
+                DeclModifiers::None, copyParameters, nullptr, {},
                 new CompoundStmt({}, {}, {}), {}, {},
                 ConstructorType::Copy
         );
         structDecl->cachedCopyConstructor->isAutoGenerated = true;
+        structDecl->cachedCopyConstructor->container = structDecl;
 
         // We have to add it to the list of constructors so it can be called normally and so it is properly deleted
         // when the struct is deleted
@@ -1661,10 +1834,28 @@ void gulc::DeclInstantiator::processTemplateFunctionInstDecl(gulc::TemplateFunct
 void gulc::DeclInstantiator::processTemplateParameterDecl(gulc::TemplateParameterDecl* templateParameterDecl) {
     // If the template parameter is a const then we have to process its underlying type
     if (templateParameterDecl->templateParameterKind() == TemplateParameterDecl::TemplateParameterKind::Const) {
-        if (!resolveType(templateParameterDecl->constType)) {
-            printError("const template parameter type `" + templateParameterDecl->constType->toString() + "` was not found!",
+        if (!resolveType(templateParameterDecl->type)) {
+            printError("const template parameter type `" + templateParameterDecl->type->toString() + "` was not found!",
                        templateParameterDecl->startPosition(), templateParameterDecl->endPosition());
         }
+    } else {
+        // `typename` parameters don't have to have specialization types...
+        if (templateParameterDecl->type != nullptr) {
+            if (!resolveType(templateParameterDecl->type)) {
+                printError("template parameter specialized type `" +
+                           templateParameterDecl->type->toString() + "` was not found!",
+                           templateParameterDecl->startPosition(), templateParameterDecl->endPosition());
+            }
+
+            if (llvm::isa<TraitType>(templateParameterDecl->type)) {
+                printError("traits cannot be used for template parameter specialization!",
+                           templateParameterDecl->startPosition(), templateParameterDecl->endPosition());
+            }
+        }
+    }
+
+    if (templateParameterDecl->defaultValue != nullptr) {
+        processConstExpr(templateParameterDecl->defaultValue);
     }
 }
 
@@ -1684,7 +1875,13 @@ void gulc::DeclInstantiator::processTemplateStructDecl(gulc::TemplateStructDecl*
 
     _workingDecls.pop_back();
 
-    processStructDecl(templateStructDecl, false);
+    // TODO: Here we should be creating `ImaginaryTypeDecl` and `ImaginaryType` to be used to create a
+    //       `TemplateStructInstDecl` that is used solely for validating logic. `TemplateStructDecl` should no longer
+    //       be treated as a normal struct from this point on. This should be what we do for ALL templates.
+    //       For `const` template variables we should create `Imaginary` variables. These are normal `VariableDecl`s
+    //       but are `const` by default. These should then be referenced normally with `VariableRefExpr`.
+    asdasdasdasdasd
+//    processStructDecl(templateStructDecl, false);
     templateStructDecl->isInstantiated = true;
 
     for (TemplateStructInstDecl* templateStructInstDecl : templateStructDecl->templateInstantiations()) {
@@ -1878,6 +2075,18 @@ void gulc::DeclInstantiator::processTraitDecl(gulc::TraitDecl* traitDecl) {
     traitDecl->isInstantiated = true;
 }
 
+void gulc::DeclInstantiator::processTraitPrototypeDecl(gulc::TraitPrototypeDecl* traitPrototypeDecl) {
+    if (!resolveType(traitPrototypeDecl->traitType)) {
+        printError("trait type `" + traitPrototypeDecl->traitType->toString() + "` was not found!",
+                   traitPrototypeDecl->startPosition(), traitPrototypeDecl->endPosition());
+    }
+
+    if (!llvm::isa<TraitType>(traitPrototypeDecl->traitType)) {
+        printError("type `" + traitPrototypeDecl->traitType->toString() + "` is not a trait!",
+                   traitPrototypeDecl->startPosition(), traitPrototypeDecl->endPosition());
+    }
+}
+
 void gulc::DeclInstantiator::processTypeAliasDecl(gulc::TypeAliasDecl* typeAliasDecl) {
     // TODO: Detect circular references with the potential for `typealias prefix ^<T> = ^T;` or something.
     for (TemplateParameterDecl* templateParameter : typeAliasDecl->templateParameters()) {
@@ -1947,6 +2156,152 @@ void gulc::DeclInstantiator::descriptTemplateParameterForWhereCont(gulc::WhereCo
                        whereCont->startPosition(), whereCont->endPosition());
             break;
     }
+}
+
+std::vector<gulc::Expr*> gulc::DeclInstantiator::createImaginaryTemplateArguments(
+        std::vector<TemplateParameterDecl*>& templateParameters, std::vector<Cont*>& contracts) {
+    std::vector<Expr*> templateArguments;
+    templateArguments.reserve(templateParameters.size());
+
+    for (TemplateParameterDecl* templateParameter : templateParameters) {
+        if (templateParameter->templateParameterKind() == TemplateParameterDecl::TemplateParameterKind::Const) {
+            // We currently don't keep track of `where` constraints on `const` variables... So we just create an
+            // imaginary reference and end processing there for this type of expression.
+            auto imaginaryRefExpr = new ImaginaryRefExpr(templateParameter);
+            imaginaryRefExpr->valueType = templateParameter->type->deepCopy();
+            imaginaryRefExpr->valueType->setIsLValue(false);
+            templateArguments.push_back(imaginaryRefExpr);
+        } else {
+            Type* baseType = templateParameter->type == nullptr ? nullptr : templateParameter->type->deepCopy();
+            std::vector<TraitType*> inheritedTraits;
+            std::vector<ConstructorDecl*> constructors;
+            DestructorDecl* destructor = nullptr;
+            std::vector<Decl*> ownedMembers;
+
+            // For the rest of the type information we need to scan the `where` contracts for `has` operations.
+            for (Cont* checkContract : contracts) {
+                // We only care about the `where` constraints here.
+                if (!llvm::isa<WhereCont>(checkContract)) continue;
+
+                auto checkWhere = llvm::dyn_cast<WhereCont>(checkContract);
+
+                if (llvm::isa<HasExpr>(checkWhere->condition)) {
+                    auto checkHas = llvm::dyn_cast<HasExpr>(checkWhere->condition);
+
+                    // We have to make sure the `has` is on a type expression referencing the `TemplateParameterDecl`
+                    // as the type.
+                    if (!llvm::isa<TypeExpr>(checkHas->expr)) continue;
+
+                    auto checkType = llvm::dyn_cast<TypeExpr>(checkHas->expr);
+
+                    if (!llvm::isa<TemplateTypenameRefType>(checkType->type)) continue;
+
+                    auto checkTemplateTypenameRef = llvm::dyn_cast<TemplateTypenameRefType>(checkType->type);
+
+                    // The type could still be referencing another parameter.
+                    if (checkTemplateTypenameRef->refTemplateParameter() != templateParameter) continue;
+
+                    // Here we need to take decl whatever is in `has {decl}` and use it to construct the imaginary type
+                    switch (checkHas->decl->getDeclKind()) {
+                        case Decl::Kind::TraitPrototype: {
+                            auto addTraitPrototype = llvm::dyn_cast<TraitPrototypeDecl>(checkHas->decl);
+                            inheritedTraits.push_back(
+                                    llvm::dyn_cast<TraitType>(addTraitPrototype->traitType->deepCopy()));
+                            break;
+                        }
+                        case Decl::Kind::Constructor:
+                            constructors.push_back(llvm::dyn_cast<ConstructorDecl>(checkHas->decl->deepCopy()));
+                            break;
+                        case Decl::Kind::Destructor: {
+                            // We don't handle errors here. They should be handled else where (and this probably will
+                            // never be triggered) but just to be safe if we've already set the destructor then we
+                            // delete it to prevent a memory leak.
+                            delete destructor;
+
+                            destructor = llvm::dyn_cast<DestructorDecl>(checkHas->decl->deepCopy());
+
+                            break;
+                        }
+                        case Decl::Kind::Variable:
+                        case Decl::Kind::Property:
+                        case Decl::Kind::SubscriptOperator:
+                        case Decl::Kind::Function:
+                        case Decl::Kind::Operator:
+                        case Decl::Kind::CallOperator:
+                            ownedMembers.push_back(checkHas->decl->deepCopy());
+                            break;
+                        default:
+                            break;
+                    }
+                }
+            }
+
+            auto imaginaryTypeDecl = new ImaginaryTypeDecl(templateParameter->sourceFileID(), {},
+                                                           Decl::Visibility::Unassigned, false,
+                                                           templateParameter->identifier(),
+                                                           templateParameter->startPosition(),
+                                                           templateParameter->endPosition(), baseType,
+                                                           inheritedTraits, ownedMembers,
+                                                           constructors, destructor);
+            processImaginaryTypeDecl(imaginaryTypeDecl);
+
+            auto imaginaryType = new ImaginaryType(Type::Qualifier::Unassigned, imaginaryTypeDecl,
+                                                   templateParameter->startPosition(),
+                                                   templateParameter->endPosition());
+            templateArguments.push_back(new TypeExpr(imaginaryType));
+        }
+    }
+
+    return templateArguments;
+}
+
+void gulc::DeclInstantiator::createValidationTemplateFunctionInstDecl(
+        gulc::TemplateFunctionDecl* templateFunctionDecl) {
+    if (templateFunctionDecl->validationInst != nullptr) {
+        return;
+    }
+
+    std::vector<Expr*> templateArguments = createImaginaryTemplateArguments(
+            templateFunctionDecl->templateParameters(), templateFunctionDecl->contracts());
+
+    // TODO: We need a way to specify to the `getInstantiation` that this should NOT be added to the list. Or should it?
+    TemplateFunctionInstDecl* templateFunctionInstDecl = nullptr;
+    templateFunctionDecl->getInstantiation(templateArguments, &templateFunctionInstDecl);
+
+    if (!templateFunctionInstDecl->isInstantiated) {
+        processTemplateFunctionInstDecl(templateFunctionInstDecl);
+    }
+}
+
+void gulc::DeclInstantiator::createValidationTemplateStructInstDecl(gulc::TemplateStructDecl* templateStructDecl) {
+    if (templateStructDecl->validationInst != nullptr) {
+        return;
+    }
+}
+
+void gulc::DeclInstantiator::createValidationTemplateTraitInstDecl(gulc::TemplateTraitDecl* templateTraitDecl) {
+    if (templateTraitDecl->validationInst != nullptr) {
+        return;
+    }
+}
+
+void gulc::DeclInstantiator::processImaginaryTypeDecl(gulc::ImaginaryTypeDecl* imaginaryTypeDecl) {
+    // TODO: We need to do the same stuff we do on `StructDecl` and `TraitDecl`, inherit everything from the base type
+    //       and inherited traits?
+    if (llvm::isa<StructType>(imaginaryTypeDecl->baseType())) {
+        // TODO: Is the struct instantiated? I think we will have to account for that.
+        auto baseStructDecl = llvm::dyn_cast<StructType>(imaginaryTypeDecl->baseType())->decl();
+
+        // Copy our base's `allMembers`
+        imaginaryTypeDecl->allMembers = baseStructDecl->allMembers;
+    } else if (llvm::isa<ImaginaryType>(imaginaryTypeDecl->baseType())) {
+        // TODO: Is this possible? If so what should we do in this situation?
+    }
+
+    // TODO: While `baseType` is relatively straight forward, for the `inheritedTrait` we will have to manually go
+    //       through ALL traits and create prototype clones of their members. Replacing all references to the trait
+    //       with a reference to the `ImaginaryTypeDecl`... This might require a specialized class.
+
 }
 
 void gulc::DeclInstantiator::processDependantDecl(gulc::Decl* decl) {
@@ -2078,9 +2433,6 @@ void gulc::DeclInstantiator::processStmt(gulc::Stmt* stmt) {
         case Stmt::Kind::DoCatch:
             processDoCatchStmt(llvm::dyn_cast<DoCatchStmt>(stmt));
             break;
-        case Stmt::Kind::DoWhile:
-            processDoWhileStmt(llvm::dyn_cast<DoWhileStmt>(stmt));
-            break;
         case Stmt::Kind::Fallthrough:
             // There isn't anything we need to process with `fallthrough` here...
             break;
@@ -2095,6 +2447,9 @@ void gulc::DeclInstantiator::processStmt(gulc::Stmt* stmt) {
             break;
         case Stmt::Kind::Labeled:
             processLabeledStmt(llvm::dyn_cast<LabeledStmt>(stmt));
+            break;
+        case Stmt::Kind::RepeatWhile:
+            processRepeatWhileStmt(llvm::dyn_cast<RepeatWhileStmt>(stmt));
             break;
         case Stmt::Kind::Return:
             processReturnStmt(llvm::dyn_cast<ReturnStmt>(stmt));
@@ -2149,12 +2504,6 @@ void gulc::DeclInstantiator::processDoCatchStmt(gulc::DoCatchStmt* doCatchStmt) 
     }
 }
 
-void gulc::DeclInstantiator::processDoWhileStmt(gulc::DoWhileStmt* doWhileStmt) {
-    processCompoundStmt(doWhileStmt->body());
-
-    processExpr(doWhileStmt->condition);
-}
-
 void gulc::DeclInstantiator::processForStmt(gulc::ForStmt* forStmt) {
     if (forStmt->init != nullptr) {
         processExpr(forStmt->init);
@@ -2184,6 +2533,11 @@ void gulc::DeclInstantiator::processIfStmt(gulc::IfStmt* ifStmt) {
 
 void gulc::DeclInstantiator::processLabeledStmt(gulc::LabeledStmt* labeledStmt) {
     processStmt(labeledStmt->labeledStmt);
+}
+
+void gulc::DeclInstantiator::processRepeatWhileStmt(gulc::RepeatWhileStmt* repeatWhileStmt) {
+    processCompoundStmt(repeatWhileStmt->body());
+    processExpr(repeatWhileStmt->condition);
 }
 
 void gulc::DeclInstantiator::processReturnStmt(gulc::ReturnStmt* returnStmt) {
@@ -2339,12 +2693,7 @@ void gulc::DeclInstantiator::processFunctionCallExpr(gulc::FunctionCallExpr* fun
 
 void gulc::DeclInstantiator::processHasExpr(gulc::HasExpr* hasExpr) {
     processExpr(hasExpr->expr);
-
-    // TODO: Support `T has func example()`, `T has var test: i32`
-    if (!resolveType(hasExpr->trait)) {
-        printError("type `" + hasExpr->trait->toString() + "` was not found!",
-                   hasExpr->startPosition(), hasExpr->endPosition());
-    }
+    processPrototypeDecl(hasExpr->decl, false);
 }
 
 void gulc::DeclInstantiator::processIdentifierExpr(gulc::IdentifierExpr* identifierExpr) {

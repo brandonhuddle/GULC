@@ -253,6 +253,17 @@ void gulc::BasicTypeResolver::processDecl(gulc::Decl* decl, bool isGlobal) {
     }
 }
 
+void gulc::BasicTypeResolver::processPrototypeDecl(gulc::Decl* decl, bool isGlobal) {
+    switch (decl->getDeclKind()) {
+        case Decl::Kind::TraitPrototype:
+            processTraitPrototypeDecl(llvm::dyn_cast<TraitPrototypeDecl>(decl));
+            break;
+        default:
+            processDecl(decl, isGlobal);
+            break;
+    }
+}
+
 void gulc::BasicTypeResolver::processEnumDecl(gulc::EnumDecl* enumDecl) {
     if (enumDecl->constType != nullptr) {
         if (!resolveType(enumDecl->constType)) {
@@ -465,10 +476,23 @@ void gulc::BasicTypeResolver::processTemplateFunctionDecl(gulc::TemplateFunction
 void gulc::BasicTypeResolver::processTemplateParameterDecl(gulc::TemplateParameterDecl* templateParameterDecl) {
     // If the template parameter is a const then we have to process its underlying type
     if (templateParameterDecl->templateParameterKind() == TemplateParameterDecl::TemplateParameterKind::Const) {
-        if (!resolveType(templateParameterDecl->constType)) {
-            printError("const template parameter type `" + templateParameterDecl->constType->toString() + "` was not found!",
+        if (!resolveType(templateParameterDecl->type)) {
+            printError("const template parameter type `" + templateParameterDecl->type->toString() + "` was not found!",
                        templateParameterDecl->startPosition(), templateParameterDecl->endPosition());
         }
+    } else {
+        // `typename` parameters don't have to have specialization types...
+        if (templateParameterDecl->type != nullptr) {
+            if (!resolveType(templateParameterDecl->type)) {
+                printError("template parameter specialized type `" +
+                           templateParameterDecl->type->toString() + "` was not found!",
+                           templateParameterDecl->startPosition(), templateParameterDecl->endPosition());
+            }
+        }
+    }
+
+    if (templateParameterDecl->defaultValue != nullptr) {
+        processTemplateArgumentExpr(templateParameterDecl->defaultValue);
     }
 }
 
@@ -523,6 +547,13 @@ void gulc::BasicTypeResolver::processTraitDecl(gulc::TraitDecl* traitDecl) {
     }
 
     _containingDecls.pop_back();
+}
+
+void gulc::BasicTypeResolver::processTraitPrototypeDecl(gulc::TraitPrototypeDecl* traitPrototypeDecl) {
+    if (!resolveType(traitPrototypeDecl->traitType)) {
+        printError("trait type `" + traitPrototypeDecl->traitType->toString() + "` was not found!",
+                   traitPrototypeDecl->startPosition(), traitPrototypeDecl->endPosition());
+    }
 }
 
 void gulc::BasicTypeResolver::processTypeAliasDecl(gulc::TypeAliasDecl* typeAliasDecl) {
@@ -588,9 +619,6 @@ void gulc::BasicTypeResolver::processStmt(gulc::Stmt* stmt) {
         case Stmt::Kind::DoCatch:
             processDoCatchStmt(llvm::dyn_cast<DoCatchStmt>(stmt));
             break;
-        case Stmt::Kind::DoWhile:
-            processDoWhileStmt(llvm::dyn_cast<DoWhileStmt>(stmt));
-            break;
         case Stmt::Kind::For:
             processForStmt(llvm::dyn_cast<ForStmt>(stmt));
             break;
@@ -602,6 +630,9 @@ void gulc::BasicTypeResolver::processStmt(gulc::Stmt* stmt) {
             break;
         case Stmt::Kind::Labeled:
             processLabeledStmt(llvm::dyn_cast<LabeledStmt>(stmt));
+            break;
+        case Stmt::Kind::RepeatWhile:
+            processRepeatWhileStmt(llvm::dyn_cast<RepeatWhileStmt>(stmt));
             break;
         case Stmt::Kind::Return:
             processReturnStmt(llvm::dyn_cast<ReturnStmt>(stmt));
@@ -682,11 +713,6 @@ void gulc::BasicTypeResolver::processDoCatchStmt(gulc::DoCatchStmt* doCatchStmt)
     }
 }
 
-void gulc::BasicTypeResolver::processDoWhileStmt(gulc::DoWhileStmt* doWhileStmt) {
-    processStmt(doWhileStmt->body());
-    processExpr(doWhileStmt->condition);
-}
-
 void gulc::BasicTypeResolver::processForStmt(gulc::ForStmt* forStmt) {
     if (forStmt->init != nullptr) {
         processExpr(forStmt->init);
@@ -740,6 +766,11 @@ void gulc::BasicTypeResolver::processLabeledStmt(gulc::LabeledStmt* labeledStmt)
         _labelIdentifiers[labeledStmt->label().name()] = LabelStatus(true, labeledStmt->label().startPosition(),
                                                                      labeledStmt->label().endPosition());
     }
+}
+
+void gulc::BasicTypeResolver::processRepeatWhileStmt(gulc::RepeatWhileStmt* repeatWhileStmt) {
+    processStmt(repeatWhileStmt->body());
+    processExpr(repeatWhileStmt->condition);
 }
 
 void gulc::BasicTypeResolver::processReturnStmt(gulc::ReturnStmt* returnStmt) {
@@ -911,11 +942,7 @@ void gulc::BasicTypeResolver::processFunctionCallExpr(gulc::FunctionCallExpr* fu
 
 void gulc::BasicTypeResolver::processHasExpr(gulc::HasExpr* hasExpr) {
     processExpr(hasExpr->expr);
-
-    if (!resolveType(hasExpr->trait)) {
-        printError("has type `" + hasExpr->trait->toString() + "` was not found!",
-                   hasExpr->startPosition(), hasExpr->endPosition());
-    }
+    processPrototypeDecl(hasExpr->decl, false);
 }
 
 void gulc::BasicTypeResolver::processIdentifierExpr(gulc::IdentifierExpr* identifierExpr) {

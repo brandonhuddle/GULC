@@ -107,6 +107,10 @@ namespace gulc {
             return result;
         }
 
+        std::string getPrototypeString() const override {
+            return "extension";
+        }
+
         ~ExtensionDecl() override {
             delete typeToExtend;
 

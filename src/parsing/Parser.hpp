@@ -30,7 +30,7 @@
 #include <ast/stmts/CatchStmt.hpp>
 #include <ast/stmts/CompoundStmt.hpp>
 #include <ast/stmts/ContinueStmt.hpp>
-#include <ast/stmts/DoWhileStmt.hpp>
+#include <ast/stmts/RepeatWhileStmt.hpp>
 #include <ast/stmts/ForStmt.hpp>
 #include <ast/stmts/GotoStmt.hpp>
 #include <ast/stmts/IfStmt.hpp>
@@ -91,35 +91,38 @@ namespace gulc {
         DeclModifiers parseDeclModifiers(bool* isConstExpr);
 
         Decl* parseDecl();
+        Decl* parsePrototypeDecl();
         CallOperatorDecl* parseCallOperatorDecl(std::vector<Attr*> attributes, Decl::Visibility visibility,
                                                 bool isConstExpr, DeclModifiers declModifiers,
-                                                TextPosition startPosition);
+                                                TextPosition startPosition, bool parsePrototype);
         ConstructorDecl* parseConstructorDecl(std::vector<Attr*> attributes, Decl::Visibility visibility,
-                                              bool isConstExpr,
-                                              DeclModifiers declModifiers, TextPosition startPosition);
+                                              bool isConstExpr, DeclModifiers declModifiers,
+                                              TextPosition startPosition, bool parsePrototype);
         DestructorDecl* parseDestructorDecl(std::vector<Attr*> attributes, Decl::Visibility visibility,
-                                            bool isConstExpr, DeclModifiers declModifiers, TextPosition startPosition);
+                                            bool isConstExpr, DeclModifiers declModifiers, TextPosition startPosition,
+                                            bool parsePrototype);
         EnumDecl* parseEnumDecl(std::vector<Attr*> attributes, Decl::Visibility visibility,
                                 bool isConstExpr, DeclModifiers declModifiers, TextPosition startPosition);
-        EnumConstDecl* parseEnumConstDecl(std::vector<Attr*> attributes, TextPosition startPosition);
+        EnumConstDecl* parseEnumConstDecl(std::vector<Attr*> attributes, TextPosition startPosition,
+                                          bool parsePrototype);
         ExtensionDecl* parseExtensionDecl(std::vector<Attr*> attributes, Decl::Visibility visibility,
                                           bool isConstExpr, DeclModifiers declModifiers, TextPosition startPosition);
         FunctionDecl* parseFunctionDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
-                                        DeclModifiers declModifiers, TextPosition startPosition);
+                                        DeclModifiers declModifiers, TextPosition startPosition, bool parsePrototype);
         ImportDecl* parseImportDecl(std::vector<Attr*> attributes, TextPosition startPosition);
         NamespaceDecl* parseNamespaceDecl(std::vector<Attr*> attributes);
         OperatorDecl* parseOperatorDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
-                                        DeclModifiers declModifiers, TextPosition startPosition);
+                                        DeclModifiers declModifiers, TextPosition startPosition, bool parsePrototype);
         std::vector<TemplateParameterDecl*> parseTemplateParameters();
         std::vector<ParameterDecl*> parseParameters(TextPosition* endPosition);
         PropertyDecl* parsePropertyDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
-                                        DeclModifiers declModifiers, TextPosition startPosition);
+                                        DeclModifiers declModifiers, TextPosition startPosition, bool parsePrototype);
         StructDecl* parseStructDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
                                     TextPosition startPosition, DeclModifiers declModifiers,
                                     StructDecl::Kind structKind);
         SubscriptOperatorDecl* parseSubscriptOperator(std::vector<Attr*> attributes, Decl::Visibility visibility,
                                                       bool isConstExpr, TextPosition startPosition,
-                                                      DeclModifiers declModifiers);
+                                                      DeclModifiers declModifiers, bool parsePrototype);
         TraitDecl* parseTraitDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
                                   TextPosition startPosition, DeclModifiers declModifiers);
         TypeAliasDecl* parseTypeAliasDecl(std::vector<Attr*> attributes, Decl::Visibility visibility,
@@ -127,7 +130,7 @@ namespace gulc {
         TypeSuffixDecl* parseTypeSuffixDecl(std::vector<Attr*> attributes, Decl::Visibility visibility,
                                             bool isConstExpr, DeclModifiers declModifiers, TextPosition startPosition);
         VariableDecl* parseVariableDecl(std::vector<Attr*> attributes, Decl::Visibility visibility, bool isConstExpr,
-                                        TextPosition startPosition, DeclModifiers declModifiers);
+                                        TextPosition startPosition, DeclModifiers declModifiers, bool parsePrototype);
 
         std::vector<Cont*> parseConts();
         RequiresCont* parseRequiresCont();
@@ -141,15 +144,16 @@ namespace gulc {
         CatchStmt* parseCatchStmt();
         CompoundStmt* parseCompoundStmt();
         ContinueStmt* parseContinueStmt();
-        // Parses either `do { ... } while (...)` or `do { ... } catch { ... }`
+        // Parses `do {}` or `do { ... } catch { ... }`
         Stmt* parseDoStmt();
+        DoCatchStmt* parseDoCatchStmt(TextPosition doStartPosition, TextPosition doEndPosition, CompoundStmt* doStmt);
         FallthroughStmt* parseFallthroughStmt();
         ForStmt* parseForStmt();
         GotoStmt* parseGotoStmt();
         IfStmt* parseIfStmt();
+        RepeatWhileStmt* parseRepeatWhileStmt();
         ReturnStmt* parseReturnStmt();
         SwitchStmt* parseSwitchStmt();
-        DoCatchStmt* parseTryStmt(TextPosition doStartPosition, TextPosition doEndPosition, CompoundStmt* doStmt);
         WhileStmt* parseWhileStmt();
 
         Expr* parseVariableExpr();
@@ -178,6 +182,7 @@ namespace gulc {
         ValueLiteralExpr* parseCharacterLiteralExpr();
         BoolLiteralExpr* parseBooleanLiteralExpr();
         Expr* parseArrayLiteralOrDimensionType();
+        Expr* parseTupleOrParenExpr();
 
     };
 }

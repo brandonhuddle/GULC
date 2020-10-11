@@ -108,6 +108,16 @@ namespace gulc {
             return result;
         }
 
+        std::string getPrototypeString() const override {
+            std::string result = getDeclModifiersString(_declModifiers);
+
+            if (!result.empty()) result += " ";
+
+            result += "trait " + _identifier.name();
+
+            return result;
+        }
+
         ~TraitDecl() override {
             for (Type* inheritedType : _inheritedTypes) {
                 delete inheritedType;

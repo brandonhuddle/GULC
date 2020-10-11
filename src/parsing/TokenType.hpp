@@ -57,6 +57,7 @@ namespace gulc {
         IF,
         ELSE,
         DO,
+        REPEAT,
         WHILE,
         FOR,
         SWITCH,
